@@ -1,0 +1,51 @@
+{% if items %}
+    {% for item in items %}
+    <div class="item-row">
+        {% if item.producto.imagen %}
+            <img src="{{ item.producto.imagen.url }}" class="item-img me-3">
+        {% else %}
+            <div class="item-img me-3 d-flex align-items-center justify-content-center text-muted bg-light">
+                <i class="bi bi-image fs-4 opacity-50"></i>
+            </div>
+        {% endif %}
+        
+        <div class="flex-grow-1">
+            <div class="item-title fw-bold" style="font-size: 0.95rem;">
+                {{ item.producto.nombre }}
+                {% if item.opcion %}
+                    <span class="text-primary small" style="font-weight: 600;">({{ item.opcion.nombre }})</span>
+                {% endif %}
+            </div>
+            <div class="item-meta text-muted small">
+                Cantidad: {{ item.cantidad }}
+                {% if item.opcion and item.opcion.precio_extra > 0 %}
+                    <span class="ms-1 text-success">(+${{ item.opcion.precio_extra }})</span>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="d-flex flex-column align-items-end gap-2">
+            <div class="item-price fw-bold">${{ item.subtotal|floatformat:2 }}</div>
+            
+            <button type="button" class="btn-trash-premium" onclick="borrarItemSinRecargar('{{ item.key|default:item.producto.id }}')">
+                <i class="bi bi-x-lg" style="font-size: 1.1rem;"></i>
+            </button>
+        </div>
+    </div>
+    {% endfor %}
+    
+    <div class="d-flex justify-content-between align-items-center mt-4 pt-2 border-top border-dashed">
+        <span class="text-secondary fw-medium mt-3">Subtotal</span>
+        <span class="fw-bold fs-4 mt-3 text-dark">${{ total_productos|floatformat:2 }}</span>
+    </div>
+
+{% else %}
+    <div class="text-center py-5">
+        <div class="mb-3 p-4 rounded-circle bg-light d-inline-block">
+            <i class="bi bi-bag fs-1 text-muted opacity-50"></i>
+        </div>
+        <h5 class="fw-bold text-dark">Tu carrito está vacío</h5>
+        <p class="text-muted mb-4 small">Parece que no has agregado nada aún.</p>
+        <a href="{% url 'menu' %}" class="btn btn-dark rounded-pill px-5 py-3 fw-bold shadow-sm">Explorar Menú</a>
+    </div>
+{% endif %}

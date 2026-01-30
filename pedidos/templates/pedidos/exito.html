@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pedido Confirmado | FoodBack</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+    
+    <style>
+        body {
+            background-color: #FAFAFA;
+            font-family: 'Poppins', sans-serif;
+            color: #1A1A1A;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .success-card {
+            background: white;
+            border-radius: 25px;
+            padding: 40px 30px;
+            text-align: center;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.08);
+            max-width: 450px;
+            width: 100%;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Animación sutil de fondo */
+        .confetti-bg {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 150px;
+            background: radial-gradient(circle, #fff5f0 10%, transparent 10%), radial-gradient(circle, #fff5f0 10%, transparent 10%);
+            background-size: 20px 20px;
+            opacity: 0.5;
+            z-index: 0;
+        }
+
+        .icon-box {
+            width: 90px;
+            height: 90px;
+            background: linear-gradient(135deg, #D35400, #E67E22);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 25px auto;
+            color: white;
+            font-size: 3rem;
+            position: relative;
+            z-index: 1;
+            box-shadow: 0 10px 20px rgba(211, 84, 0, 0.3);
+            animation: popIn 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .ticket-info {
+            background: #F8F9FA;
+            border-radius: 15px;
+            padding: 20px;
+            margin: 25px 0;
+            border: 1px dashed #ced4da;
+            text-align: left;
+        }
+
+        .ticket-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            font-size: 0.95rem;
+        }
+        .ticket-row:last-child { margin-bottom: 0; }
+        .ticket-label { color: #888; }
+        .ticket-value { font-weight: 600; color: #1A1A1A; text-align: right;}
+
+        /* Botón principal oscuro */
+        .btn-home {
+            background-color: #1A1A1A;
+            color: white;
+            width: 100%;
+            padding: 15px;
+            border-radius: 15px;
+            font-weight: 600;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            transition: transform 0.2s;
+            border: none;
+            margin-bottom: 15px;
+        }
+
+        .btn-home:hover {
+            background-color: #000;
+            transform: translateY(-2px);
+            color: white;
+        }
+
+        .help-link {
+            color: #888;
+            font-size: 0.85rem;
+            text-decoration: none;
+        }
+        .help-link:hover { color: #D35400; text-decoration: underline; }
+
+        @keyframes popIn {
+            from { transform: scale(0); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="success-card">
+        <div class="confetti-bg"></div>
+        
+        <div class="icon-box">
+            <i class="bi bi-check-lg"></i>
+        </div>
+        
+        <h2 class="fw-bold mb-2 position-relative" style="z-index: 1;">¡Orden Enviada!</h2>
+        <p class="text-muted position-relative" style="z-index: 1;">
+            Hemos recibido tu pedido correctamente.<br>
+            <small>La cocina comenzará a prepararlo en breve.</small>
+        </p>
+        
+        <div class="ticket-info">
+            <div class="ticket-row">
+                <span class="ticket-label">N° Orden</span>
+                <span class="ticket-value">#{{ pedido.id }}</span>
+            </div>
+            <div class="ticket-row">
+                <span class="ticket-label">Cliente</span>
+                <span class="ticket-value">{{ pedido.cliente.nombre }}</span>
+            </div>
+            <div class="ticket-row">
+                <span class="ticket-label">Pago</span>
+                <span class="ticket-value">{{ pedido.get_metodo_pago_display }}</span>
+            </div>
+            <div class="ticket-row">
+                <span class="ticket-label">Ubicación</span>
+                <span class="ticket-value text-truncate" style="max-width: 150px;">
+                    {% if pedido.direccion_entrega %}
+                        {{ pedido.direccion_entrega }}
+                    {% else %}
+                        En local
+                    {% endif %}
+                </span>
+            </div>
+            <hr class="my-3 opacity-25">
+            <div class="ticket-row">
+                <span class="ticket-label fs-5 fw-bold text-dark">Total</span>
+                <span class="ticket-value fs-5 fw-bold text-success">${{ pedido.total_final }}</span>
+            </div>
+        </div>
+
+        <a href="{% url 'menu' %}" class="btn-home">
+            <i class="bi bi-shop"></i> Volver al Menú
+        </a>
+
+        <a href="https://wa.me/50300000000" class="help-link">
+            ¿Problemas con tu pedido? Contáctanos
+        </a>
+    </div>
+
+</body>
+</html>

@@ -1,0 +1,424 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configuración | FoodBack</title>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+    
+    <style>
+        :root {
+            --bg-body: #0a0a0a;
+            --bg-card: #141414;
+            --bg-input: #1f1f1f;
+            --bg-row: #1a1a1a;
+            --border-subtle: #2a2a2a;
+            --accent-color: #D35400;
+            --text-main: #ffffff;
+            --text-muted: #888888;
+            --radius-main: 16px;
+        }
+
+        body {
+            background-color: var(--bg-body);
+            font-family: 'Poppins', sans-serif;
+            color: var(--text-main);
+            padding-bottom: 120px;
+        }
+
+        /* --- HEADER --- */
+        .admin-header {
+            background: rgba(20, 20, 20, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 18px 24px;
+            border-bottom: 1px solid var(--border-subtle);
+            position: sticky; top: 0; z-index: 1000;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+
+        .btn-close-custom {
+            background: var(--bg-input); color: var(--text-main);
+            border: 1px solid var(--border-subtle);
+            width: 44px; height: 44px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            transition: 0.2s;
+        }
+        .btn-close-custom:active { transform: scale(0.95); background: var(--accent-color); border-color: var(--accent-color); }
+
+        /* --- CARDS --- */
+        .fb-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-main);
+            padding: 25px;
+            margin-bottom: 25px;
+            overflow: hidden;
+            position: relative;
+        }
+        .fb-card::before {
+            content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+            background: var(--border-subtle); transition: 0.3s;
+        }
+        .fb-card:hover::before { background: var(--accent-color); }
+
+        .section-header { margin-bottom: 20px; }
+        .section-title { font-weight: 700; font-size: 1.1rem; margin: 0; color: white; display: flex; align-items: center; gap: 10px; }
+        .section-desc { font-size: 0.85rem; color: var(--text-muted); display: block; margin-top: 4px; }
+
+        /* --- INPUTS --- */
+        .form-label { color: var(--text-muted); font-size: 0.7rem; text-transform: uppercase; font-weight: 700; letter-spacing: 1px; margin-bottom: 8px; display: block;}
+        
+        .fb-input {
+            background-color: var(--bg-input);
+            border: 1px solid var(--border-subtle);
+            color: var(--text-main);
+            border-radius: 12px;
+            padding: 12px 16px;
+            font-family: 'Poppins', sans-serif;
+            font-weight: 500;
+            width: 100%;
+            transition: all 0.2s;
+        }
+        .fb-input:focus {
+            outline: none; border-color: var(--accent-color);
+            box-shadow: 0 0 0 3px rgba(211, 84, 0, 0.15);
+            background-color: #252525;
+        }
+        .fb-input::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; }
+
+        /* --- AGENDA SCROLL --- */
+        .agenda-track {
+            display: flex; overflow-x: auto; gap: 15px; padding-bottom: 10px;
+            margin: 0 -10px; padding-left: 15px; padding-right: 15px;
+            scrollbar-width: none;
+        }
+        .agenda-track::-webkit-scrollbar { display: none; }
+
+        .day-card {
+            flex: 0 0 320px;
+            background: #181818;
+            border: 1px solid var(--border-subtle);
+            border-radius: 16px;
+            padding: 20px;
+            display: flex; flex-direction: column;
+            position: relative;
+            transition: 0.3s;
+        }
+        
+        /* Estado Visual de la Tarjeta */
+        .day-card.active { border-color: #27ae60; }
+        .day-card.inactive { border-color: #c0392b; opacity: 0.9; }
+        .day-card.modified { border-color: #f1c40f !important; box-shadow: 0 0 15px rgba(241, 196, 15, 0.1); } /* Estilo para día modificado */
+
+        .card-header-flex { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .day-title { font-size: 1rem; font-weight: 700; text-transform: uppercase; display: flex; align-items: center; gap: 8px; }
+        .day-date { font-size: 0.8rem; color: var(--text-muted); }
+
+        /* SWITCH IOS */
+        .fb-switch { appearance: none; width: 50px; height: 28px; background: #333; border-radius: 30px; position: relative; cursor: pointer; border: 1px solid #444; transition: 0.3s; flex-shrink: 0; }
+        .fb-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 22px; height: 22px; background: #bbb; border-radius: 50%; transition: 0.3s; }
+        .fb-switch:checked { background: var(--accent-color); border-color: var(--accent-color); }
+        .fb-switch:checked::after { transform: translateX(22px); background: #fff; }
+
+        .switch-label-status {
+            font-size: 0.7rem; font-weight: 800; letter-spacing: 0.5px;
+            margin-right: 10px; transition: 0.3s;
+        }
+        .text-open { color: #27ae60; }
+        .text-closed { color: #c0392b; }
+
+        .btn-mini-save {
+            margin-top: 15px; width: 100%;
+            background: var(--accent-color); color: white; border: none;
+            padding: 10px; border-radius: 12px; font-weight: 600; font-size: 0.9rem;
+            display: none; animation: slideIn 0.3s;
+        }
+
+        /* Enlace de Resetear */
+        .btn-reset-global {
+            display: block; text-align: center; margin-top: 15px;
+            font-size: 0.75rem; color: #666; text-decoration: none;
+            border-top: 1px solid #333; padding-top: 10px;
+            transition: 0.2s;
+        }
+        .btn-reset-global:hover { color: #fff; }
+
+        /* --- LISTA HORARIO ESTÁNDAR --- */
+        .schedule-list { display: flex; flex-direction: column; gap: 8px; }
+        .schedule-row {
+            display: flex; align-items: center; justify-content: space-between;
+            background: var(--bg-row);
+            border: 1px solid var(--border-subtle);
+            padding: 15px 20px;
+            border-radius: 12px;
+            transition: all 0.2s;
+        }
+        .schedule-row:hover { background-color: #222; }
+        .day-label-text { font-weight: 600; font-size: 1rem; color: var(--text-main); }
+
+        /* --- MENSAJE --- */
+        .message-box {
+            background: var(--bg-input);
+            border: 1px solid var(--border-subtle);
+            color: var(--text-main);
+            font-family: 'Poppins', sans-serif;
+            padding: 15px;
+            border-radius: 12px;
+            width: 100%;
+            min-height: 100px;
+            font-size: 0.95rem;
+            line-height: 1.5;
+        }
+        .message-box:focus { border-color: var(--accent-color); outline: none; }
+
+        /* BARRA FLOTANTE */
+        .floating-save {
+            position: fixed; bottom: -100px; left: 20px; right: 20px;
+            background: var(--accent-color);
+            padding: 15px 25px; border-radius: 16px;
+            display: flex; justify-content: space-between; align-items: center;
+            color: white; font-weight: 700;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+            z-index: 2000;
+            transition: bottom 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        .floating-save.active { bottom: 20px; }
+        .btn-transparent { background: rgba(0,0,0,0.2); border: none; color: white; padding: 8px 20px; border-radius: 10px; font-weight: 600; cursor: pointer; }
+
+        @keyframes slideIn { from{opacity:0; transform: translateY(10px);} to{opacity:1; transform: translateY(0);} }
+    </style>
+</head>
+<body>
+
+    <header class="admin-header">
+        <h4 class="m-0 fw-bold" style="letter-spacing: -0.5px;">
+            FoodBack<span style="color:var(--accent-color)"> .Engine</span>
+        </h4>
+        <a href="{% url 'dashboard_admin' %}" class="btn-close-custom text-decoration-none">
+            <i class="bi bi-x-lg fs-5"></i>
+        </a>
+    </header>
+
+    <div class="container mt-4" style="max-width: 700px;">
+
+        <div class="fb-card">
+            <div class="section-header">
+                <h5 class="section-title"><i class="bi bi-calendar-event text-danger"></i> Agenda (7 Días)</h5>
+                <small class="section-desc">
+                    Aquí puedes crear <b>excepciones</b>. Si modificas un día, dejará de obedecer al horario global.
+                </small>
+            </div>
+
+            <div class="agenda-track">
+                {% for dia in agenda %}
+                <form method="POST" action="{% url 'admin_settings' %}" style="display: contents;"> 
+                    {% csrf_token %}
+                    <input type="hidden" name="tipo_accion" value="dia_especifico">
+                    <input type="hidden" name="fecha_target" value="{{ dia.fecha_str }}">
+
+                    <div class="day-card {% if dia.es_excepcion %}modified{% elif dia.abierto %}active{% else %}inactive{% endif %}" id="card-{{ forloop.counter }}">
+                        
+                        <div class="card-header-flex">
+                            <div>
+                                <div class="day-title">
+                                    {{ dia.nombre_dia }}
+                                    {% if dia.es_excepcion %}
+                                        <span class="badge bg-warning text-dark" style="font-size: 0.6rem;">EDITADO</span>
+                                    {% endif %}
+                                </div>
+                                <div class="day-date">{{ dia.fecha_fmt }}</div>
+                            </div>
+                            
+                            <div class="d-flex align-items-center">
+                                <span id="label-{{ forloop.counter }}" class="switch-label-status {% if dia.abierto %}text-open{% else %}text-closed{% endif %}">
+                                    {% if dia.abierto %}ABIERTO{% else %}CERRADO{% endif %}
+                                </span>
+                                <input class="fb-switch" type="checkbox" name="estado_dia" 
+                                       id="switch-{{ forloop.counter }}"
+                                       {% if dia.abierto %}checked{% endif %}
+                                       onchange="toggleDayCard('{{ forloop.counter }}')">
+                            </div>
+                        </div>
+
+                        <div id="open-panel-{{ forloop.counter }}" style="{% if not dia.abierto %}display:none;{% endif %}">
+                            <div class="row g-3">
+                                <div class="col-6">
+                                    <label class="form-label">Apertura</label>
+                                    <input type="time" name="hora_apertura_dia" class="fb-input" 
+                                           value="{{ dia.hora_ini|time:'H:i' }}"
+                                           oninput="triggerSave('{{ forloop.counter }}')">
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label">Cierre</label>
+                                    <input type="time" name="hora_cierre_dia" class="fb-input" 
+                                           value="{{ dia.hora_fin|time:'H:i' }}"
+                                           oninput="triggerSave('{{ forloop.counter }}')">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="closed-panel-{{ forloop.counter }}" style="{% if dia.abierto %}display:none;{% endif %}">
+                            <label class="form-label text-danger">Motivo</label>
+                            <input type="text" name="motivo" class="fb-input" 
+                                   placeholder="Ej: Descanso" 
+                                   value="{{ dia.motivo }}"
+                                   oninput="triggerSave('{{ forloop.counter }}')">
+                        </div>
+
+                        <button id="btn-save-{{ forloop.counter }}" class="btn-mini-save">
+                            Guardar Excepción
+                        </button>
+
+                        {% if dia.es_excepcion and dia.id_db %}
+                            <a href="{% url 'eliminar_excepcion' dia.id_db %}" class="btn-reset-global">
+                                <i class="bi bi-arrow-counterclockwise"></i> Usar horario global
+                            </a>
+                        {% endif %}
+
+                    </div>
+                </form>
+                {% endfor %}
+            </div>
+        </div>
+
+        <form method="POST" action="{% url 'admin_settings' %}" id="globalForm">
+            {% csrf_token %}
+            <input type="hidden" name="tipo_accion" value="global">
+
+            <div class="fb-card">
+                <div class="section-header">
+                    <h5 class="section-title"><i class="bi bi-clock text-warning"></i> Horario Base (Global)</h5>
+                    <small class="section-desc">Estos cambios afectan a todos los días que <b>NO</b> tengan la etiqueta "EDITADO".</small>
+                </div>
+
+                <div class="row g-3 mb-4">
+                    <div class="col-6">
+                        <label class="form-label">Abres</label>
+                        <input type="time" name="hora_apertura" class="fb-input" value="{{ config.hora_apertura|time:'H:i' }}">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">Cierras</label>
+                        <input type="time" name="hora_cierre" class="fb-input" value="{{ config.hora_cierre|time:'H:i' }}">
+                    </div>
+                </div>
+
+                <label class="form-label mb-2" style="font-size:0.8rem; color: var(--text-muted);">Días Laborales (General)</label>
+                
+                <div class="schedule-list">
+                    <label class="schedule-row">
+                        <span class="day-label-text">Lunes</span>
+                        <input type="checkbox" name="lunes_abierto" class="fb-switch" {% if config.lunes_abierto %}checked{% endif %}>
+                    </label>
+
+                    <label class="schedule-row">
+                        <span class="day-label-text">Martes</span>
+                        <input type="checkbox" name="martes_abierto" class="fb-switch" {% if config.martes_abierto %}checked{% endif %}>
+                    </label>
+
+                    <label class="schedule-row">
+                        <span class="day-label-text">Miércoles</span>
+                        <input type="checkbox" name="miercoles_abierto" class="fb-switch" {% if config.miercoles_abierto %}checked{% endif %}>
+                    </label>
+
+                    <label class="schedule-row">
+                        <span class="day-label-text">Jueves</span>
+                        <input type="checkbox" name="jueves_abierto" class="fb-switch" {% if config.jueves_abierto %}checked{% endif %}>
+                    </label>
+
+                    <label class="schedule-row">
+                        <span class="day-label-text">Viernes</span>
+                        <input type="checkbox" name="viernes_abierto" class="fb-switch" {% if config.viernes_abierto %}checked{% endif %}>
+                    </label>
+
+                    <label class="schedule-row">
+                        <span class="day-label-text">Sábado</span>
+                        <input type="checkbox" name="sabado_abierto" class="fb-switch" {% if config.sabado_abierto %}checked{% endif %}>
+                    </label>
+
+                    <label class="schedule-row">
+                        <span class="day-label-text">Domingo</span>
+                        <input type="checkbox" name="domingo_abierto" class="fb-switch" {% if config.domingo_abierto %}checked{% endif %}>
+                    </label>
+                </div>
+            </div>
+
+            <div class="fb-card">
+                <div class="section-header">
+                    <h5 class="section-title"><i class="bi bi-chat-text text-success"></i> Mensaje Cierre</h5>
+                    <small class="section-desc">Lo que sale cuando está cerrado.</small>
+                </div>
+                <textarea name="mensaje_cierre" class="message-box" rows="3">{{ config.mensaje_cierre }}</textarea>
+            </div>
+
+            <div class="floating-save" id="globalSaveBar">
+                <span>Cambios globales sin guardar</span>
+                <button type="submit" class="btn-transparent">GUARDAR CAMBIOS</button>
+            </div>
+        </form>
+
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+    <script>
+        // --- 1. LÓGICA TARJETAS ---
+        function triggerSave(id) {
+            document.getElementById('btn-save-' + id).style.display = 'block';
+        }
+
+        function toggleDayCard(id) {
+            const isChecked = document.getElementById('switch-' + id).checked;
+            const card = document.getElementById('card-' + id);
+            const openPanel = document.getElementById('open-panel-' + id);
+            const closedPanel = document.getElementById('closed-panel-' + id);
+            const label = document.getElementById('label-' + id);
+
+            triggerSave(id);
+
+            if (isChecked) {
+                // Al tocar el switch, asumimos que se quiere abrir
+                card.classList.remove('inactive'); 
+                card.classList.add('active'); 
+                // Nota: La clase 'modified' se agrega al guardar y recargar la página
+                
+                openPanel.style.display = 'block'; 
+                closedPanel.style.display = 'none';
+                label.innerText = "ABIERTO";
+                label.classList.replace('text-closed', 'text-open');
+            } else {
+                card.classList.remove('active'); 
+                card.classList.add('inactive');
+                
+                openPanel.style.display = 'none'; 
+                closedPanel.style.display = 'block';
+                label.innerText = "CERRADO";
+                label.classList.replace('text-open', 'text-closed');
+            }
+        }
+
+        // --- 2. LÓGICA GLOBAL ---
+        const globalForm = document.getElementById('globalForm');
+        const globalSaveBar = document.getElementById('globalSaveBar');
+        
+        globalForm.addEventListener('change', () => globalSaveBar.classList.add('active'));
+        globalForm.addEventListener('input', () => globalSaveBar.classList.add('active'));
+
+        // --- 3. ALERTAS ---
+        {% if messages %}
+            {% for message in messages %}
+                Swal.fire({
+                    toast: true, position: 'top-end', icon: 'success',
+                    title: '{{ message }}', showConfirmButton: false, timer: 2500,
+                    background: '#141414', color: '#fff', iconColor: '#D35400'
+                });
+            {% endfor %}
+        {% endif %}
+    </script>
+
+</body>
+</html>

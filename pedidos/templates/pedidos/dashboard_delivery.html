@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <title>Reparto | FoodBack</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+
+    <style>
+        :root {
+            --color-accent: #D35400;
+            --color-accent-glow: rgba(211, 84, 0, 0.5);
+            --bg-body: #121212;
+            --bg-card: #1E1E1E;
+            --text-main: #FFFFFF;
+            --text-sec: #B0B0B0;
+        }
+        body { background-color: var(--bg-body); color: var(--text-main); font-family: 'Poppins', sans-serif; padding: 15px; overflow-x: hidden; }
+
+        /* HEADER APP */
+        .delivery-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; border-bottom: 1px solid #333; padding-bottom: 15px; }
+        .user-badge { background: #2a2a2a; color: #eee; padding: 6px 16px; border-radius: 20px; font-size: 0.85rem; border: 1px solid #444; }
+
+        /* BOTÓN LOGOUT PREMIUM */
+        .btn-logout-premium { width: 38px; height: 38px; border-radius: 12px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: #ef4444; display: flex; align-items: center; justify-content: center; transition: all 0.3s ease; cursor: pointer; }
+        .btn-logout-premium:hover, .btn-logout-premium:active { background: #ef4444; color: white; box-shadow: 0 0 15px rgba(239, 68, 68, 0.4); transform: scale(1.05); border-color: #ef4444; }
+
+        .section-header { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1.2px; color: var(--text-sec); margin-bottom: 15px; font-weight: 700; }
+
+        /* --- TARJETA MOCHILA --- */
+        .backpack-card { background: linear-gradient(145deg, #1f1f1f, #181818); border-radius: 20px; padding: 25px 20px; margin-bottom: 20px; border: 1px solid #333; box-shadow: 0 10px 30px rgba(0,0,0,0.5); position: relative; overflow: hidden; }
+        .backpack-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--color-accent); }
+        .order-id { font-size: 1.8rem; font-weight: 800; color: white; line-height: 1; }
+        .customer-name { font-size: 1.2rem; font-weight: 600; color: #eee; margin-top: 5px; }
+        
+        .address-box { background: #252525; padding: 12px; border-radius: 12px; margin: 15px 0; color: #ddd; font-size: 0.9rem; display: flex; align-items: center; gap: 12px; }
+
+        .money-alert { background: rgba(46, 204, 113, 0.1); color: #2ecc71; border: 1px dashed #2ecc71; padding: 10px; border-radius: 10px; text-align: center; font-weight: 700; margin-bottom: 15px; }
+        .card-alert { background: rgba(0, 229, 255, 0.15); color: #00E5FF; border: 1px solid #00E5FF; padding: 10px; border-radius: 10px; text-align: center; font-weight: 700; margin-bottom: 15px; text-transform: uppercase; font-size: 0.9rem; box-shadow: 0 0 15px rgba(0, 229, 255, 0.1); }
+
+        .product-toggle { background: rgba(255, 255, 255, 0.05); border: 1px solid #333; width: 100%; padding: 10px; border-radius: 10px; color: #ccc; font-size: 0.85rem; font-weight: 600; display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; cursor: pointer; user-select: none; }
+        .product-list { display: none; background: #181818; padding: 10px; border-radius: 10px; margin-bottom: 15px; border: 1px solid #333; }
+        .prod-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #333; font-size: 0.85rem; color: #ddd; }
+        .prod-row:last-child { border-bottom: none; }
+        .qty-tag { background: #333; padding: 2px 6px; border-radius: 4px; font-weight: 700; margin-right: 8px; font-size: 0.8rem; color: white;}
+
+        .btn-map { background: #2a2a2a; color: #ccc; border: 1px solid #3a3a3a; padding: 10px; border-radius: 10px; width: 48%; text-decoration: none; text-align: center; font-weight: 500; font-size: 0.9rem; }
+        .btn-map:hover { background: #3a3a3a; color: white; }
+
+        .actions-row { display: flex; gap: 10px; margin-top: 15px; }
+        .btn-success-custom { flex-grow: 2; background: #27ae60; color: white; border: none; padding: 15px; border-radius: 12px; font-weight: 700; }
+        .btn-error-custom { flex-grow: 1; background: #c0392b; color: white; border: none; padding: 15px; border-radius: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+
+        .pool-card { background: #1E1E1E; border-radius: 16px; padding: 15px; margin-bottom: 12px; border: 1px solid #333; }
+        .pool-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .btn-take { border: 1px solid var(--color-accent); color: var(--color-accent); background: transparent; padding: 6px 18px; border-radius: 20px; font-weight: 600; font-size: 0.85rem; }
+
+        .swal2-popup.swal2-dark-custom { background: #1E1E1E !important; color: #eee !important; border: 1px solid #333 !important; }
+        .swal2-title, .swal2-content { color: #eee !important; }
+    </style>
+</head>
+<body>
+
+    <div class="delivery-header">
+        <h4 class="m-0 fw-bold text-white">FoodBack <span style="color:var(--color-accent)">.Go</span></h4>
+        <div class="d-flex align-items-center gap-2">
+            <div class="user-badge"><i class="bi bi-person-circle me-1"></i> {{ user.username }}</div>
+            <form id="logoutForm" action="{% url 'logout' %}" method="POST" class="d-inline">
+                {% csrf_token %}
+                <button type="button" class="btn-logout-premium" onclick="confirmarSalida()">
+                    <i class="bi bi-box-arrow-right fs-5"></i>
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <div class="section-header text-warning"><i class="bi bi-bag-check-fill me-2"></i> Pedidos en curso</div>
+    
+    <div id="zona-mochila">
+        {% if mis_pedidos %}
+            {% for p in mis_pedidos %}
+            <div class="backpack-card">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <div class="order-id">#{{ p.id }}</div>
+                        <div class="customer-name">{{ p.cliente.nombre }}</div>
+                    </div>
+                    <div class="text-end">
+                        <div class="fs-3 fw-bold text-white">${{ p.total_final }}</div>
+                        {% if p.metodo_pago == 'TARJETA' %}
+                            <div class="small fw-bold" style="color:#00E5FF"><i class="bi bi-credit-card"></i> TARJETA</div>
+                        {% else %}
+                             <div class="small fw-bold text-sec">EFECTIVO</div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="address-box">
+                    <i class="bi bi-geo-alt-fill text-danger fs-5"></i>
+                    <div style="line-height: 1.3;">
+                        {% if p.direccion_entrega %}{{ p.direccion_entrega }}{% else %}Ubicación GPS Exacta{% endif %}
+                    </div>
+                </div>
+
+                {% if p.metodo_pago == 'EFECTIVO' %}
+                    <div class="money-alert"><i class="bi bi-cash me-1"></i> COBRAR AL CLIENTE</div>
+                {% elif p.metodo_pago == 'TARJETA' %}
+                    <div class="card-alert"><i class="bi bi-check-circle-fill me-1"></i> PAGADO CON TARJETA</div>
+                {% endif %}
+
+                <div onclick="toggleDetails('details-{{ p.id }}', this)" class="product-toggle">
+                    <span>📦 Ver {{ p.detalles.count }} productos</span>
+                    <i class="bi bi-chevron-down"></i>
+                </div>
+                <div id="details-{{ p.id }}" class="product-list">
+                    {% for item in p.detalles.all %}
+                        <div class="prod-row">
+                            <div>
+                                <span class="qty-tag">{{ item.cantidad }}</span>
+                                {{ item.producto.nombre }}
+                                {% if item.opcion %}
+                                    <span style="color:var(--color-accent); font-weight:bold; font-size:0.8rem;">({{ item.opcion.nombre }})</span>
+                                {% endif %}
+                                
+                                {% for extra in item.extras.all %}
+                                    <div style="font-size: 0.8rem; color: #888; margin-left: 30px;">
+                                        + {{ extra.nombre }}
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+
+                <div class="d-flex justify-content-between mb-3">
+                    {% if p.latitud %}
+                        <a href="https://waze.com/ul?ll={{ p.latitud }},{{ p.longitud }}&navigate=yes" target="_blank" class="btn-map"><i class="bi bi-car-front-fill me-1"></i> Waze</a>
+                        <a href="https://www.google.com/maps/search/?api=1&query={{ p.latitud }},{{ p.longitud }}" target="_blank" class="btn-map"><i class="bi bi-google me-1"></i> Maps</a>
+                    {% else %}
+                        <button class="btn-map w-100 opacity-50" disabled>Sin GPS</button>
+                    {% endif %}
+                </div>
+
+                <div class="actions-row">
+                    <form method="POST" style="flex-grow: 2;" onsubmit="pausePolling()"> {% csrf_token %}
+                        <input type="hidden" name="pedido_id" value="{{ p.id }}">
+                        <input type="hidden" name="accion" value="entregado">
+                        <button class="btn-success-custom w-100">ENTREGADO <i class="bi bi-check-lg"></i></button>
+                    </form>
+                    <form method="POST" style="flex-grow: 1;" onsubmit="pausePolling()"> {% csrf_token %}
+                        <input type="hidden" name="pedido_id" value="{{ p.id }}">
+                        <input type="hidden" name="accion" value="problema">
+                        <button class="btn-error-custom w-100"><i class="bi bi-exclamation-triangle-fill"></i></button>
+                    </form>
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+            <div class="text-center py-5 text-sec opacity-50">
+                <i class="bi bi-box2 fs-1"></i>
+                <p class="mt-2">Mochila vacía</p>
+            </div>
+        {% endif %}
+    </div> 
+
+    <div class="my-4 border-bottom border-secondary opacity-25"></div>
+
+    <div class="section-header text-info"><i class="bi bi-shop me-2"></i> Listos para recoger</div>
+    
+    <div id="zona-pool">
+        {% for p in disponibles %}
+        <div class="pool-card">
+            <div class="pool-header">
+                <div>
+                    <div class="text-white fw-bold">#{{ p.id }} <span class="text-sec fw-normal mx-1">|</span> {{ p.cliente.nombre }}</div>
+                    <div class="text-sec small mt-1 text-truncate" style="max-width: 200px;">
+                        <i class="bi bi-pin-map-fill text-accent"></i> 
+                        {% if p.direccion_entrega %}{{ p.direccion_entrega }}{% else %}Ver Mapa{% endif %}
+                    </div>
+                </div>
+                <form method="POST" onsubmit="pausePolling()"> {% csrf_token %}
+                    <input type="hidden" name="pedido_id" value="{{ p.id }}">
+                    <input type="hidden" name="accion" value="tomar">
+                    <button class="btn-take">TOMAR</button>
+                </form>
+            </div>
+            
+            <div onclick="toggleDetails('pool-details-{{ p.id }}', this)" class="text-sec small mb-2" style="cursor: pointer;">
+                <i class="bi bi-eye"></i> Ver {{ p.detalles.count }} items <i class="bi bi-chevron-down ms-1"></i>
+            </div>
+            <div id="pool-details-{{ p.id }}" class="product-list">
+                {% for item in p.detalles.all %}
+                    <div class="prod-row">
+                        <div>
+                            <span class="qty-tag">{{ item.cantidad }}</span> 
+                            {{ item.producto.nombre }}
+                            
+                            {% for extra in item.extras.all %}
+                                <div style="font-size: 0.8rem; color: #888; margin-left: 30px;">
+                                    + {{ extra.nombre }}
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% empty %}
+            <div class="text-center text-sec small py-3">No hay pedidos pendientes.</div>
+        {% endfor %}
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script>
+        // 1. SONIDOS
+        const audioAlerta = new Audio('https://assets.mixkit.co/active_storage/sfx/996/996-preview.mp3'); 
+
+        // Hack para audio: Primer clic desbloquea
+        document.addEventListener('click', function() {
+            audioAlerta.load();
+        }, { once: true });
+
+        // 2. FUNCIÓN SALIR
+        function confirmarSalida() {
+            Swal.fire({
+                title: '¿Cerrar sesión?', text: "¿Ya terminaste tu turno por hoy?", icon: 'warning', showCancelButton: true,
+                confirmButtonText: 'Sí, salir', cancelButtonText: 'Cancelar', background: '#1E1E1E', color: '#ffffff', iconColor: '#ef4444',
+                reverseButtons: true, confirmButtonColor: '#ef4444', cancelButtonColor: '#333333'
+            }).then((result) => {
+                if (result.isConfirmed) { document.getElementById('logoutForm').submit(); }
+            });
+        }
+
+        function toggleDetails(id, btn) {
+            const el = document.getElementById(id);
+            const icon = btn.querySelector('.bi-chevron-down') || btn.querySelector('.bi-chevron-up');
+            if (el.style.display === 'block') {
+                el.style.display = 'none';
+                if(icon) { icon.classList.remove('bi-chevron-up'); icon.classList.add('bi-chevron-down'); }
+            } else {
+                el.style.display = 'block';
+                if(icon) { icon.classList.remove('bi-chevron-down'); icon.classList.add('bi-chevron-up'); }
+            }
+        }
+
+        function sonarAlerta() {
+            audioAlerta.currentTime = 0;
+            audioAlerta.play().catch(e => console.log("Audio esperando interacción."));
+        }
+
+        const Toast = Swal.mixin({
+            toast: true, position: 'top', showConfirmButton: false, timer: 3000, background: '#333', color: '#fff'
+        });
+        {% if messages %}
+            {% for message in messages %}
+                Toast.fire({ icon: 'success', title: "{{ message }}" });
+            {% endfor %}
+        {% endif %}
+
+        // 3. POLLING INTELIGENTE (MEMORIA DE ACORDEÓN)
+        let isPaused = false;
+        function pausePolling() { isPaused = true; }
+        document.addEventListener('mousedown', () => { isPaused = true; });
+        document.addEventListener('mouseup', () => { setTimeout(() => isPaused = false, 1000); });
+
+        setInterval(() => {
+            if (isPaused) return;
+
+            // 1. GUARDAR ESTADO ANTES DE ACTUALIZAR
+            let listasAbiertas = [];
+            document.querySelectorAll('.product-list').forEach(el => {
+                if(el.style.display === 'block') { listasAbiertas.push(el.id); }
+            });
+
+            fetch(window.location.href)
+            .then(response => response.text())
+            .then(html => {
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+
+                const actualesPool = document.querySelectorAll('#zona-pool .pool-card').length;
+                const nuevosPool = doc.querySelectorAll('#zona-pool .pool-card').length;
+
+                if (nuevosPool > actualesPool) {
+                    sonarAlerta(); 
+                    if (navigator.vibrate) navigator.vibrate([200, 100, 200]); 
+                    
+                    Swal.fire({
+                        title: '¡Nuevo Pedido!', text: 'Revisa la lista de disponibles', icon: 'info',
+                        timer: 3000, showConfirmButton: false, background: '#1E1E1E', color: '#fff'
+                    });
+                }
+
+                const zonas = ['zona-mochila', 'zona-pool'];
+                zonas.forEach(id => {
+                    const actual = document.getElementById(id);
+                    const nuevo = doc.getElementById(id);
+                    if(actual && nuevo && actual.innerHTML !== nuevo.innerHTML) {
+                        actual.innerHTML = nuevo.innerHTML;
+                    }
+                });
+
+                // 2. RESTAURAR ESTADO DESPUÉS DE ACTUALIZAR
+                listasAbiertas.forEach(id => {
+                    const el = document.getElementById(id);
+                    if(el) {
+                        el.style.display = 'block';
+                        const btn = document.querySelector(`[onclick*="${id}"]`);
+                        if(btn) {
+                            const icon = btn.querySelector('.bi-chevron-down');
+                            if(icon) { icon.classList.remove('bi-chevron-down'); icon.classList.add('bi-chevron-up'); }
+                        }
+                    }
+                });
+            })
+            .catch(e => console.log("Conexión inestable..."));
+        }, 5000); 
+    </script>
+
+</body>
+</html>

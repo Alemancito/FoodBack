@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Rastreo #{{ pedido.id }} | FoodBack</title>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    
+    <style>
+        :root {
+            --color-accent: #D35400;
+            --color-dark: #1A1A1A;
+            --color-gray: #888888;
+            --color-bg: #FAFAFA;
+            --card-radius: 24px;
+        }
+
+        body {
+            background-color: var(--color-bg);
+            font-family: 'Poppins', sans-serif;
+            color: var(--color-dark);
+            padding-bottom: 40px;
+            overflow-x: hidden;
+        }
+
+        /* --- HEADER --- */
+        .tracker-header {
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(10px);
+            padding: 15px 20px;
+            position: fixed; top: 0; width: 100%; z-index: 1000;
+            display: flex; justify-content: space-between; align-items: center;
+            border-bottom: 1px solid rgba(0,0,0,0.05);
+        }
+        .brand-logo { font-weight: 800; font-size: 1.2rem; letter-spacing: -0.5px; }
+
+        /* --- MAPA DE FONDO --- */
+        #map {
+            height: 45vh; /* Ocupa casi la mitad de la pantalla */
+            width: 100%;
+            z-index: 0;
+            background: #222; /* Fondo mientras carga */
+        }
+        
+        /* Capa degradada para que el mapa se una suavemente con el contenido */
+        .map-overlay {
+            position: absolute;
+            top: 35vh; left: 0; width: 100%; height: 10vh;
+            background: linear-gradient(to bottom, rgba(250,250,250,0), rgba(250,250,250,1));
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        /* --- TARJETA FLOTANTE DE ESTADO (La Protagonista) --- */
+        .status-card-container {
+            margin-top: -40px; /* Para que "muerda" el mapa */
+            padding: 0 20px;
+            position: relative;
+            z-index: 20;
+        }
+
+        .status-card {
+            background: var(--color-dark);
+            color: white;
+            border-radius: var(--card-radius);
+            padding: 30px 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Barra lateral naranja decorativa */
+        .status-card::before {
+            content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 6px;
+            background: var(--color-accent);
+        }
+
+        .status-icon-large {
+            font-size: 3rem;
+            color: var(--color-accent);
+            margin-bottom: 10px;
+            animation: bounce 2s infinite;
+        }
+
+        .status-title { font-weight: 700; font-size: 1.5rem; margin-bottom: 5px; }
+        .status-desc { font-size: 0.9rem; opacity: 0.7; font-weight: 300; }
+
+        /* --- BARRA DE PROGRESO (Uber Style) --- */
+        .progress-track {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 30px;
+            position: relative;
+        }
+
+        /* Línea gris de fondo */
+        .progress-line-bg {
+            position: absolute; top: 15px; left: 10px; right: 10px;
+            height: 4px; background: #333; z-index: 1; border-radius: 2px;
+        }
+        
+        /* Línea naranja de progreso (Dinámica) */
+        .progress-line-fill {
+            position: absolute; top: 15px; left: 10px;
+            height: 4px; background: var(--color-accent); z-index: 2; border-radius: 2px;
+            width: 0%; /* Se llena con JS */
+            transition: width 1s ease;
+        }
+
+        .step-item {
+            z-index: 3;
+            display: flex; flex-direction: column; align-items: center;
+            width: 60px;
+        }
+
+        .step-dot {
+            width: 34px; height: 34px;
+            background: #333;
+            border: 3px solid #1A1A1A; /* Borde del color de la tarjeta para separar */
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            color: #666; font-size: 0.9rem;
+            transition: all 0.5s;
+        }
+
+        .step-label {
+            margin-top: 8px; font-size: 0.65rem; color: #666;
+            text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;
+            opacity: 0; transform: translateY(5px); transition: all 0.5s;
+        }
+
+        /* Estados Activos */
+        .step-item.active .step-dot {
+            background: var(--color-accent);
+            color: white;
+            box-shadow: 0 0 15px rgba(211, 84, 0, 0.5);
+            transform: scale(1.1);
+        }
+        .step-item.active .step-label { opacity: 1; transform: translateY(0); color: var(--color-accent); }
+        
+        /* Estados Completados (Pasados) */
+        .step-item.completed .step-dot { background: var(--color-accent); color: white; }
+        .step-item.completed .step-label { opacity: 1; transform: translateY(0); color: white; }
+
+        /* --- DETALLES DEL PEDIDO --- */
+        .order-details { padding: 30px 20px; }
+        .section-title { font-weight: 700; font-size: 1.1rem; margin-bottom: 20px; color: var(--color-dark); }
+        
+        .item-row { display: flex; justify-content: space-between; margin-bottom: 15px; border-bottom: 1px solid #eee; padding-bottom: 15px; }
+        .item-name { font-weight: 600; font-size: 0.95rem; }
+        .item-qty { font-weight: 700; color: var(--color-accent); margin-right: 5px; }
+        .item-price { font-weight: 600; color: var(--color-gray); }
+
+        .total-row { display: flex; justify-content: space-between; margin-top: 20px; font-size: 1.2rem; font-weight: 800; }
+
+        /* Botón WhatsApp */
+        .btn-whatsapp {
+            display: flex; align-items: center; justify-content: center; gap: 10px;
+            background: #25D366; color: white;
+            width: 100%; padding: 15px; border-radius: 16px;
+            text-decoration: none; font-weight: 700;
+            box-shadow: 0 10px 20px rgba(37, 211, 102, 0.3);
+            margin-top: 30px;
+        }
+
+        @keyframes bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+
+    </style>
+</head>
+<body>
+
+    <div class="tracker-header">
+        <div class="brand-logo">FoodBack<span style="color:var(--color-accent)">.</span></div>
+        <a href="{% url 'menu' %}" class="btn btn-sm btn-outline-dark rounded-pill px-3 fw-bold">Nuevo Pedido</a>
+    </div>
+
+    <div id="map"></div>
+    <div class="map-overlay"></div>
+
+    <div class="status-card-container">
+        <div class="status-card">
+            
+            <i id="statusIcon" class="bi bi-receipt status-icon-large"></i>
+            <h2 id="statusTitle" class="status-title">Confirmando...</h2>
+            <p id="statusDesc" class="status-desc">Estamos recibiendo tu orden #{{ pedido.id }}</p>
+
+            <div class="progress-track">
+                <div class="progress-line-bg"></div>
+                <div class="progress-line-fill" id="progressFill"></div>
+
+                <div class="step-item" id="step-RECIBIDO">
+                    <div class="step-dot"><i class="bi bi-check-lg"></i></div>
+                    <div class="step-label">Recibido</div>
+                </div>
+
+                <div class="step-item" id="step-COCINA">
+                    <div class="step-dot"><i class="bi bi-fire"></i></div>
+                    <div class="step-label">Cocina</div>
+                </div>
+
+                <div class="step-item" id="step-RUTA">
+                    <div class="step-dot"><i class="bi bi-bicycle"></i></div>
+                    <div class="step-label">Ruta</div>
+                </div>
+
+                <div class="step-item" id="step-ENTREGADO">
+                    <div class="step-dot"><i class="bi bi-house-door-fill"></i></div>
+                    <div class="step-label">Listo</div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <div class="order-details">
+        <h4 class="section-title">Tu Pedido</h4>
+        
+        {% for item in pedido.detalles.all %}
+        <div class="item-row">
+            <div>
+                <span class="item-qty">{{ item.cantidad }}x</span>
+                <span class="item-name">
+                    {{ item.producto.nombre }}
+                    {% if item.opcion %}
+                       <span style="color:var(--color-accent); font-size: 0.85rem;">({{ item.opcion.nombre }})</span>
+                    {% endif %}
+                </span>
+            </div>
+            <span class="item-price">${{ item.subtotal }}</span>
+        </div>
+        {% endfor %}
+
+        <div class="total-row">
+            <span>Total</span>
+            <span style="color:var(--color-accent)">${{ pedido.total_final }}</span>
+        </div>
+
+        <a href="https://wa.me/503XXXXXXXX?text=Hola,%20tengo%20una%20duda%20con%20mi%20pedido%20#{{ pedido.id }}" class="btn-whatsapp">
+            <i class="bi bi-whatsapp fs-4"></i>
+            ¿Necesitas ayuda?
+        </a>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // --- 1. CONFIGURACIÓN DEL MAPA (Gratis y Dark Mode) ---
+        // Coordenadas del pedido (o por defecto San Salvador)
+        const lat = {{ pedido.latitud|default:"13.6929" }};
+        const lng = {{ pedido.longitud|default:"-89.2182" }};
+        
+        const map = L.map('map', { zoomControl: false }).setView([lat, lng], 15);
+
+        // Usamos CartoDB Dark Matter para el estilo "Industrial Premium"
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; OpenStreetMap &copy; CARTO',
+            subdomains: 'abcd',
+            maxZoom: 19
+        }).addTo(map);
+
+        // Marcador personalizado (Un círculo naranja)
+        const iconoPropio = L.divIcon({
+            className: 'custom-div-icon',
+            html: "<div style='background-color:#D35400; width:15px; height:15px; border-radius:50%; border:2px solid white; box-shadow:0 0 10px #D35400;'></div>",
+            iconSize: [15, 15],
+            iconAnchor: [7, 7]
+        });
+
+        L.marker([lat, lng], {icon: iconoPropio}).addTo(map);
+
+        // --- 2. LÓGICA DE ACTUALIZACIÓN EN VIVO (CEREBRO) ---
+        const pedidoId = "{{ pedido.id }}";
+        const steps = ['RECIBIDO', 'COCINA', 'RUTA', 'ENTREGADO'];
+        const progressFill = document.getElementById('progressFill');
+        
+        // Elementos de texto
+        const statusTitle = document.getElementById('statusTitle');
+        const statusDesc = document.getElementById('statusDesc');
+        const statusIcon = document.getElementById('statusIcon');
+
+        function updateTracker() {
+            fetch(`/api/pedido/${pedidoId}/status/`)
+                .then(response => response.json())
+                .then(data => {
+                    if(data.status === 'ok') {
+                        renderStatus(data.estado_codigo);
+                    }
+                })
+                .catch(err => console.error("Error polling:", err));
+        }
+
+        function renderStatus(estado) {
+            // 1. Definir textos e iconos según estado
+            let info = {
+                'PENDIENTE': { title: 'Esperando Pago...', desc: 'Tu pedido está pendiente de confirmación.', icon: 'bi-hourglass-split' },
+                'RECIBIDO': { title: '¡Pedido Confirmado!', desc: 'El restaurante ha recibido tu orden.', icon: 'bi-receipt' },
+                'COCINA': { title: 'Preparando...', desc: 'El chef está cocinando tu comida ahora mismo.', icon: 'bi-fire' },
+                'RUTA': { title: '¡En Camino!', desc: 'El repartidor va hacia tu ubicación.', icon: 'bi-bicycle' },
+                'ENTREGADO': { title: '¡A comer!', desc: 'Pedido entregado con éxito. ¡Buen provecho!', icon: 'bi-bag-heart-fill' },
+                'CANCELADO': { title: 'Cancelado', desc: 'El pedido fue cancelado.', icon: 'bi-x-circle' }
+            };
+
+            let currentInfo = info[estado] || info['RECIBIDO'];
+            
+            // 2. Actualizar Textos
+            statusTitle.innerText = currentInfo.title;
+            statusDesc.innerText = currentInfo.desc;
+            statusIcon.className = `bi ${currentInfo.icon} status-icon-large`;
+
+            // 3. Actualizar Barra de Progreso
+            // Encontrar índice del estado actual
+            let index = steps.indexOf(estado);
+            
+            // Si es PENDIENTE lo tratamos como previo al primero
+            if(estado === 'PENDIENTE') index = -1; 
+            
+            // Calcular porcentaje de la barra naranja (0%, 33%, 66%, 100%)
+            let percent = 0;
+            if(index >= 0) percent = (index / (steps.length - 1)) * 100;
+            progressFill.style.width = `${percent}%`;
+
+            // Actualizar bolitas (steps)
+            steps.forEach((step, i) => {
+                const el = document.getElementById(`step-${step}`);
+                el.classList.remove('active', 'completed');
+                
+                if (i < index) {
+                    el.classList.add('completed'); // Pasos ya superados
+                } else if (i === index) {
+                    el.classList.add('active'); // Paso actual
+                }
+            });
+        }
+
+        // Ejecutar al inicio y cada 5 segundos
+        updateTracker();
+        setInterval(updateTracker, 5000);
+
+    </script>
+</body>
+</html>

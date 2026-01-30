@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <title>Centro de Control | FoodBack</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+    
+    <style>
+        :root { --color-bg: #F0F2F5; --card-radius: 20px; --color-accent: #D35400; --color-accent-glow: rgba(211, 84, 0, 0.5); }
+        body { background-color: var(--color-bg); font-family: 'Poppins', sans-serif; padding-bottom: 100px; overflow-x: hidden; }
+
+        /* HEADER */
+        .admin-header { background: white; padding: 15px 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.03); position: sticky; top: 0; z-index: 1000; display: flex; justify-content: space-between; align-items: center; }
+
+        /* TABS (SCROLL) */
+        .status-scroll-wrapper { background: white; border-bottom: 1px solid #eee; margin-bottom: 25px; }
+        .status-scroll-container { display: flex; flex-wrap: nowrap; overflow-x: auto; gap: 15px; padding: 25px 20px; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+        .status-scroll-container::-webkit-scrollbar { display: none; }
+
+        .status-tab { flex: 0 0 auto; min-width: 125px; padding: 12px; background: #fff; border: 1px solid #e0e0e0; border-radius: 18px; display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); color: #6c757d; position: relative; }
+        .status-tab.active { background-color: #fff; color: #D35400; border-color: #D35400; transform: translateY(-10px); box-shadow: 0 15px 30px rgba(211, 84, 0, 0.15); z-index: 10; }
+        .status-tab.active .icon-circle { background-color: #D35400; color: white; }
+        
+        #tab-problema.active { color: #dc3545; border-color: #dc3545; box-shadow: 0 15px 30px rgba(220, 53, 69, 0.15); }
+        #tab-problema.active .icon-circle { background-color: #dc3545; color: white !important; }
+        #tab-problema.active .icon-circle i { color: white !important; }
+
+        .icon-circle { width: 42px; height: 42px; background-color: #f1f3f5; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 8px; transition: all 0.3s; font-size: 1.3rem; }
+        .status-name { font-weight: 700; font-size: 0.85rem; letter-spacing: 0.5px; }
+
+        /* TARJETAS ORIGINALES */
+        .order-card { background: white; border-radius: var(--card-radius); box-shadow: 0 8px 30px rgba(0,0,0,0.04); margin-bottom: 20px; overflow: hidden; border: 1px solid white; position: relative; }
+        .card-top { padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #f0f0f0; background: #fff; }
+        .order-id { font-weight: 800; font-size: 1.1rem; color: #1a1a1a; }
+        .time-badge { background: #f8f9fa; padding: 4px 10px; border-radius: 10px; font-size: 0.8rem; color: #666; font-weight: 600; }
+        .card-content { padding: 20px; }
+
+        /* BORDES DE ESTADO */
+        .card-new { border-left: 5px solid #E74C3C; }
+        .card-route { border-left: 5px solid #3498DB; opacity: 0.9; }
+        .card-problem { border-left: 5px solid #000; border: 2px solid #ffebee; }
+        
+        /* TICKET COCINA */
+        .kitchen-ticket {
+            background: #fff; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.06); margin-bottom: 25px; overflow: hidden;
+            border: 1px solid #eef0f2; position: relative;
+        }
+        .kitchen-ticket::before {
+            content: ''; position: absolute; top: 0; left: 0; right: 0; height: 6px; 
+            background: linear-gradient(90deg, #F39C12, #D35400);
+        }
+        .k-header {
+            padding: 20px 24px; border-bottom: 2px dashed #e0e0e0; display: flex; justify-content: space-between; align-items: center; background: #fff;
+        }
+        .k-body { padding: 20px 24px; background: #fff; }
+        .k-footer { padding: 15px 24px 20px 24px; background: #fafafa; border-top: 1px solid #f0f0f0; }
+        
+        .k-ticket-id { font-size: 1.6rem; font-weight: 800; color: #2c3e50; line-height: 1; letter-spacing: -1px; }
+        .k-ticket-label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; color: #adb5bd; letter-spacing: 1px; }
+        .k-client { font-weight: 600; font-size: 1.1rem; color: #34495e; }
+        
+        .k-row { display: flex; align-items: flex-start; margin-bottom: 12px; border-bottom: 1px solid #f8f9fa; padding-bottom: 12px; }
+        .k-row:last-child { border: none; margin: 0; padding: 0; }
+        .k-badge { 
+            background: #2c3e50; color: #fff; min-width: 34px; height: 34px; border-radius: 8px; 
+            display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1.1rem; margin-right: 12px; 
+        }
+        .k-prod { font-size: 1.05rem; font-weight: 500; color: #212529; line-height: 1.3; margin-top: 4px; }
+
+        .chef-list { background-color: #f8f9fa; border-radius: 12px; padding: 12px; margin-top: 15px; margin-bottom: 15px; border: 1px dashed #dee2e6; }
+        .chef-item { display: flex; align-items: flex-start; margin-bottom: 6px; font-size: 0.95rem; color: #333; }
+        .chef-item:last-child { margin-bottom: 0; }
+        .qty-box { background: #2c3e50; color: white; padding: 1px 6px; border-radius: 4px; font-weight: 700; font-size: 0.8rem; margin-right: 8px; min-width: 24px; text-align: center; margin-top: 2px; }
+        
+        .problem-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 6px; background: #e53935; }
+
+        .btn-action-wrapper { padding: 0 20px 20px 20px; }
+        .btn-main { width: 100%; padding: 14px; border-radius: 14px; font-weight: 700; border: none; display: flex; align-items: center; justify-content: center; gap: 8px; color: white; transition: transform 0.2s; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        .btn-main:active { transform: scale(0.98); }
+        .btn-accept { background: #2c3e50; } 
+        
+        .btn-ticket-done {
+            background: linear-gradient(135deg, #e67e22, #d35400); color: white; width: 100%; padding: 15px; border-radius: 12px;
+            font-weight: 700; border: none; font-size: 1rem; display: flex; align-items: center; justify-content: center; gap: 10px;
+            box-shadow: 0 8px 20px rgba(230, 126, 34, 0.25); transition: all 0.2s;
+        }
+        .btn-ticket-done:hover { box-shadow: 0 10px 25px rgba(230, 126, 34, 0.4); transform: translateY(-2px); }
+
+        .btn-wa-mini { display: inline-flex; align-items: center; gap: 4px; background-color: #25D366; color: white; padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 600; text-decoration: none; transition: 0.2s; margin-top: 4px; border: none; }
+        .btn-wa-mini:hover { background-color: #1ebc57; color: white; }
+        .btn-whatsapp { background-color: #25D366; color: white; border: none; width: 100%; padding: 12px; border-radius: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 10px; transition: transform 0.2s; text-decoration: none; }
+
+        .price-big { font-size: 1.4rem; font-weight: 800; color: var(--color-accent); }
+        .pay-method { font-size: 0.75rem; text-transform: uppercase; color: #aaa; font-weight: 700; letter-spacing: 1px; }
+
+        .colored-toast.swal2-icon-success { background-color: #2ecc71 !important; }
+        .colored-toast.swal2-icon-error { background-color: #f27474 !important; }
+        .colored-toast.swal2-icon-warning { background-color: #f8bb86 !important; }
+        .colored-toast .swal2-title, .colored-toast .swal2-html-container { color: white; }
+
+        .live-indicator { position: fixed; bottom: 20px; right: 20px; background: rgba(0,0,0,0.7); color: white; padding: 5px 12px; border-radius: 20px; font-size: 0.7rem; display: flex; align-items: center; gap: 5px; z-index: 9999; pointer-events: none; opacity: 0.5; }
+        .dot { width: 8px; height: 8px; background: #2ecc71; border-radius: 50%; animation: blink 1s infinite; }
+        @keyframes blink { 50% { opacity: 0.5; } }
+        
+        .dropdown-item:active { background-color: #f8f9fa; color: black; }
+        .dropdown-item:hover { background-color: #f1f1f1; }
+    </style>
+</head>
+<body>
+
+    <div class="live-indicator"><div class="dot"></div> En vivo</div>
+
+    {% if messages %}
+    <div id="django-messages-data" style="display:none;" 
+         data-messages='[
+            {% for message in messages %}
+                {"tag": "{{ message.tags }}", "text": "{{ message|escapejs }}"}{% if not forloop.last %},{% endif %}
+            {% endfor %}
+         ]'>
+    </div>
+    {% endif %}
+
+    <header class="admin-header">
+        <div class="d-flex align-items-center">
+            <h4 class="m-0 fw-bold text-dark">FoodBack<span style="color:#D35400"> .Admin</span></h4>
+        </div>
+        
+        <div class="dropdown">
+            <button class="btn btn-link text-dark p-0 border-0" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                <i class="bi bi-list fs-1" style="color: #1A1A1A;"></i>
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end shadow-lg border-0 rounded-4 p-2" style="min-width: 220px;">
+                <li><h6 class="dropdown-header text-uppercase small fw-bold opacity-50 mb-1">Cuenta</h6></li>
+                <li>
+                    <a class="dropdown-item d-flex align-items-center gap-3 py-2 rounded-3" href="{% url 'dashboard_metrics' %}">
+                        <div class="rounded-circle bg-success-subtle d-flex align-items-center justify-content-center" style="width:32px; height:32px;">
+                            <i class="bi bi-graph-up-arrow text-success"></i>
+                        </div>
+                        <span class="fw-semibold">Finanzas</span>
+                    </a>
+                </li>
+                <li>
+                    <a class="dropdown-item d-flex align-items-center gap-3 py-2 rounded-3" href="{% url 'admin_settings' %}">
+                        <div class="rounded-circle bg-light d-flex align-items-center justify-content-center" style="width:32px; height:32px;">
+                            <i class="bi bi-gear-fill text-dark"></i>
+                        </div>
+                        <span class="fw-semibold">Configuración</span>
+                    </a>
+                </li>
+                <li><hr class="dropdown-divider my-2 opacity-10"></li>
+                <li>
+                    <a class="dropdown-item d-flex align-items-center gap-3 py-2 rounded-3 text-danger" href="{% url 'logout' %}">
+                        <div class="rounded-circle bg-danger-subtle d-flex align-items-center justify-content-center" style="width:32px; height:32px;">
+                            <i class="bi bi-box-arrow-right text-danger"></i>
+                        </div>
+                        <span class="fw-bold">Cerrar Sesión</span>
+                    </a>
+                </li>
+            </ul>
+        </div>
+    </header>
+
+    <div class="status-scroll-wrapper">
+        <div class="status-scroll-container nav nav-pills" id="pills-tab" role="tablist">
+            <div class="status-tab active" id="tab-nuevos" data-bs-toggle="pill" data-bs-target="#pills-nuevos" role="button" onclick="saveTab('pills-nuevos')">
+                <div class="icon-circle"><i class="bi bi-bell-fill"></i></div><span class="status-name">Nuevos</span>
+            </div>
+            <div class="status-tab" id="tab-cocina" data-bs-toggle="pill" data-bs-target="#pills-cocina" role="button" onclick="saveTab('pills-cocina')">
+                <div class="icon-circle"><i class="bi bi-fire"></i></div><span class="status-name">Cocina</span>
+            </div>
+            <div class="status-tab" id="tab-ruta" data-bs-toggle="pill" data-bs-target="#pills-ruta" role="button" onclick="saveTab('pills-ruta')">
+                <div class="icon-circle"><i class="bi bi-bicycle"></i></div><span class="status-name">Ruta</span>
+            </div>
+            <div class="status-tab" id="tab-problema" data-bs-toggle="pill" data-bs-target="#pills-problema" role="button" onclick="saveTab('pills-problema')">
+                <div class="icon-circle"><i class="bi bi-exclamation-triangle-fill"></i></div><span class="status-name">Alertas</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="container tab-content" id="pills-tabContent">
+        
+        <div class="tab-pane fade show active" id="pills-nuevos">
+            <div class="row">
+                {% for p in pedidos %}
+                    {% if p.estado == 'RECIBIDO' or not p.estado %}
+                    <div class="col-md-6 col-lg-4">
+                        <div class="order-card card-new">
+                            <div class="card-top">
+                                <span class="order-id">Orden #{{ p.id }}</span>
+                                <span class="time-badge">{{ p.fecha_creacion|time:"H:i" }}</span>
+                            </div>
+                            <div class="card-content pb-2">
+                                <div class="d-flex justify-content-between">
+                                    <div>
+                                        <h5 class="fw-bold m-0">{{ p.cliente.nombre }} {{ p.cliente.apellido }}</h5>
+                                        <a href="https://wa.me/{{ p.cliente.telefono|cut:'+'|cut:' ' }}" target="_blank" class="btn-wa-mini">
+                                            <i class="bi bi-whatsapp"></i> Chat
+                                        </a>
+                                    </div>
+                                    <div class="text-end">
+                                        <div class="price-big">${{ p.total_final }}</div>
+                                        <div class="pay-method">{{ p.metodo_pago }}</div>
+                                    </div>
+                                </div>
+
+                                <div class="chef-list">
+                                    {% for item in p.detalles.all %}
+                                        <div class="chef-item">
+                                            <div class="qty-box">{{ item.cantidad }}</div>
+                                            <div>
+                                                {{ item.producto.nombre }}
+                                                {% if item.opcion %}
+                                                    <span class="fw-bold text-warning small">({{ item.opcion.nombre }})</span>
+                                                {% endif %}
+                                                
+                                                {% for extra in item.extras.all %}
+                                                    <div style="font-size: 0.8rem; color: #6c757d; margin-left: 2px;">
+                                                        + {{ extra.nombre }}
+                                                    </div>
+                                                {% endfor %}
+                                            </div>
+                                        </div>
+                                    {% empty %}
+                                        <small class="text-muted">Cargando productos...</small>
+                                    {% endfor %}
+                                </div>
+                                
+                                <small class="text-muted d-block mb-1 mt-2">
+                                    <i class="bi bi-geo-alt-fill text-danger"></i> {{ p.direccion_entrega|truncatechars:35 }}
+                                </small>
+                            </div>
+                            <div class="btn-action-wrapper">
+                                <form method="POST" onsubmit="pausePolling()"> {% csrf_token %}
+                                    <input type="hidden" name="pedido_id" value="{{ p.id }}">
+                                    <input type="hidden" name="accion" value="cocina">
+                                    <button class="btn-main btn-accept">Aceptar y Cocinar <i class="bi bi-fire ms-2"></i></button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                {% endfor %}
+                {% if not pedidos %} <p class="text-center text-muted mt-5">No hay pedidos pendientes.</p> {% endif %}
+            </div>
+        </div>
+
+        <div class="tab-pane fade" id="pills-cocina">
+            <div class="row">
+                {% for p in pedidos %}
+                    {% if p.estado == 'COCINA' %}
+                    <div class="col-md-6 col-lg-4">
+                        <div class="kitchen-ticket"> <div class="k-header">
+                                <div>
+                                    <div class="k-ticket-label">Ticket Cocina</div>
+                                    <div class="k-ticket-id">#{{ p.id }}</div>
+                                </div>
+                                <div class="text-end">
+                                     <div class="k-client">{{ p.cliente.nombre }}</div>
+                                     <span class="badge bg-light text-dark border">{{ p.fecha_creacion|time:"H:i" }}</span>
+                                </div>
+                            </div>
+                            <div class="k-body">
+                                {% for item in p.detalles.all %} 
+                                    <div class="k-row">
+                                        <div class="k-badge">{{ item.cantidad }}</div>
+                                        <div class="k-prod">
+                                            {{ item.producto.nombre }}
+                                            {% if item.opcion %}
+                                                <div style="font-size: 0.85rem; color: #D35400; font-weight: 700; margin-top: 2px;">
+                                                    ➜ {{ item.opcion.nombre }}
+                                                </div>
+                                            {% endif %}
+                                            
+                                            {% for extra in item.extras.all %}
+                                                <div style="font-size: 0.85rem; color: #666; font-weight: 600; margin-left: 10px;">
+                                                    + {{ extra.nombre }}
+                                                </div>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                {% empty %}
+                                    <span class="text-muted">Cargando...</span>
+                                {% endfor %}
+                            </div>
+                            <div class="k-footer">
+                                <form method="POST" onsubmit="pausePolling()"> {% csrf_token %}
+                                    <input type="hidden" name="pedido_id" value="{{ p.id }}">
+                                    <input type="hidden" name="accion" value="ruta">
+                                    <button class="btn-ticket-done">
+                                        ¡ORDEN LISTA! <i class="bi bi-check-lg"></i>
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="tab-pane fade" id="pills-ruta">
+            <div class="row">
+                {% for p in pedidos %}
+                    {% if p.estado == 'RUTA' %}
+                    <div class="col-md-6 col-lg-4">
+                        <div class="order-card card-route">
+                            <div class="card-content d-flex justify-content-between align-items-center">
+                                <div>
+                                    <h5 class="fw-bold mb-1">#{{ p.id }} - {{ p.cliente.nombre }}</h5>
+                                    {% if p.repartidor %}
+                                        <span class="badge bg-dark rounded-pill px-3 py-2"><i class="bi bi-helmet me-1"></i> {{ p.repartidor.username }}</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary rounded-pill px-3 py-2">Buscando Repartidor...</span>
+                                    {% endif %}
+                                </div>
+                                <div class="text-end">
+                                    <span class="fw-bold fs-5">${{ p.total_final }}</span>
+                                    <div class="small text-muted">{{ p.metodo_pago }}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="tab-pane fade" id="pills-problema">
+             {% for p in pedidos %}
+                {% if p.estado == 'PROBLEMA' or p.estado == 'CANCELADO' %}
+                <div class="col-md-6 col-lg-4">
+                    <div class="problem-card">
+                        <div class="d-flex align-items-center mb-3">
+                             <i class="bi bi-exclamation-octagon-fill text-danger fs-1 me-3"></i>
+                             <div>
+                                 <h4 class="fw-bold m-0 text-danger">Atención #{{ p.id }}</h4>
+                                 <small class="text-muted">Problema reportado.</small>
+                             </div>
+                        </div>
+                        <a href="https://wa.me/{{ p.cliente.telefono }}" target="_blank" class="btn-whatsapp">
+                            <i class="bi bi-whatsapp fs-5"></i> Chat con Cliente
+                        </a>
+                         <div class="row g-2 mt-3">
+                            <div class="col-6">
+                                <form method="POST" onsubmit="pausePolling()"> {% csrf_token %}
+                                    <input type="hidden" name="pedido_id" value="{{ p.id }}">
+                                    <input type="hidden" name="accion" value="reintentar">
+                                    <button class="btn btn-outline-primary w-100 fw-bold">Reintentar</button>
+                                </form>
+                            </div>
+                            <div class="col-6">
+                                <form method="POST" onsubmit="pausePolling()"> {% csrf_token %}
+                                    <input type="hidden" name="pedido_id" value="{{ p.id }}">
+                                    <input type="hidden" name="accion" value="cancelar">
+                                    <button class="btn btn-outline-dark w-100 fw-bold">Cancelar</button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+            {% endfor %}
+        </div>
+
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    
+    <script>
+        // 1. GESTIÓN DE AUDIO (Sin botón, activado por primer clic)
+        const notificacionAudio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+
+        // Hack para desbloquear audio en navegadores modernos:
+        // El navegador no deja reproducir sonido si el usuario no ha interactuado.
+        // Esperamos el primer clic en cualquier lugar para "despertar" el motor de audio.
+        document.addEventListener('click', function() {
+            notificacionAudio.load(); 
+            notificacionAudio.volume = 0; // Volumen 0 para que no suene feo el desbloqueo
+            notificacionAudio.play().then(() => {
+                notificacionAudio.pause();
+                notificacionAudio.volume = 1.0; // Restaurar volumen
+                notificacionAudio.currentTime = 0;
+            }).catch(e => {});
+        }, { once: true });
+
+        function reproducirSonido() {
+            notificacionAudio.play().catch(e => console.log("Esperando interacción para audio..."));
+        }
+
+        // 2. TOASTS
+        const Toast = Swal.mixin({
+            toast: true, position: 'top-end', iconColor: 'white', customClass: { popup: 'colored-toast' },
+            showConfirmButton: false, timer: 3000, timerProgressBar: true
+        });
+
+        // FUNCIÓN MAESTRA PARA MOSTRAR MENSAJES
+        function processMessages(docOrElement) {
+            const msgDiv = docOrElement.getElementById('django-messages-data');
+            if (msgDiv) {
+                try {
+                    const messages = JSON.parse(msgDiv.getAttribute('data-messages'));
+                    messages.forEach(msg => {
+                        let icon = 'success';
+                        if(msg.tag.includes('error')) icon = 'error';
+                        if(msg.tag.includes('warning')) icon = 'warning';
+                        Toast.fire({ icon: icon, title: msg.text });
+                    });
+                    msgDiv.remove();
+                } catch(e) { console.error("Error parseando mensajes", e); }
+            }
+        }
+
+        // Ejecutar al cargar la página
+        document.addEventListener("DOMContentLoaded", function() {
+            processMessages(document);
+            const activeTabId = localStorage.getItem('activeTab');
+            if (activeTabId) {
+                const tabBtn = document.querySelector(`[data-bs-target="#${activeTabId}"]`);
+                const tabPane = document.getElementById(activeTabId);
+                if(tabBtn && tabPane) { new bootstrap.Tab(tabBtn).show(); }
+            }
+        });
+
+        // 3. POLLING INTELIGENTE (Detecta pedidos nuevos y reproduce sonido)
+        let isPaused = false;
+        function pausePolling() { isPaused = true; }
+        document.addEventListener('mousedown', () => { isPaused = true; });
+        document.addEventListener('mouseup', () => { setTimeout(() => isPaused = false, 1000); });
+
+        setInterval(() => {
+            if (isPaused) return;
+
+            const url = new URL(window.location.href);
+            url.searchParams.set('sync_mode', 'true');
+
+            fetch(url)
+            .then(response => response.text())
+            .then(html => {
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+
+                processMessages(doc);
+
+                // DETECTAR SI HAY MÁS PEDIDOS "RECIBIDOS" (NUEVOS)
+                const actualesNuevos = document.querySelectorAll('#pills-nuevos .order-card').length;
+                const futurosNuevos = doc.querySelectorAll('#pills-nuevos .order-card').length;
+                
+                if (futurosNuevos > actualesNuevos) {
+                    reproducirSonido();
+                }
+
+                const zonas = ['pills-nuevos', 'pills-cocina', 'pills-ruta', 'pills-problema'];
+                zonas.forEach(zonaId => {
+                    const elActual = document.getElementById(zonaId);
+                    const elNuevo = doc.getElementById(zonaId);
+                    if (elActual && elNuevo && elActual.innerHTML !== elNuevo.innerHTML) {
+                        elActual.innerHTML = elNuevo.innerHTML;
+                    }
+                });
+            })
+            .catch(err => console.error('Error sync:', err));
+        }, 5000);
+
+        function saveTab(tabId) {
+            localStorage.setItem('activeTab', tabId);
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Finanzas | FoodBack Engine</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+    
+    <style>
+        :root { --bg-dark: #0a0a0a; --card-dark: #141414; --accent: #2ecc71; --text-gray: #888; }
+        body { background-color: var(--bg-dark); color: white; font-family: 'Segoe UI', sans-serif; padding-bottom: 40px; }
+        
+        /* HEADER */
+        .header-nav { display: flex; justify-content: space-between; align-items: center; padding: 20px 0; margin-bottom: 20px; border-bottom: 1px solid #222; }
+
+        /* TARJETAS KPI */
+        .kpi-card {
+            background: var(--card-dark); border: 1px solid #222; border-radius: 16px; padding: 20px;
+            height: 100%; transition: transform 0.2s; position: relative; overflow: hidden;
+            display: flex; flex-direction: column; justify-content: center;
+        }
+        .kpi-card:hover { transform: translateY(-5px); border-color: #333; }
+        
+        .kpi-title { font-size: 0.8rem; color: var(--text-gray); text-transform: uppercase; letter-spacing: 1px; font-weight: 700; margin-bottom: 5px; }
+        .kpi-value { font-size: 2.2rem; font-weight: 800; letter-spacing: -1px; margin-bottom: 0; line-height: 1.1; }
+        .text-money { color: var(--accent); }
+        
+        /* CAJAS PEQUEÑAS DE DESGLOSE */
+        .breakdown-box {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 10px;
+            padding: 10px;
+            margin-top: 15px;
+        }
+        .breakdown-label { font-size: 0.65rem; text-transform: uppercase; color: #aaa; font-weight: 700; display: block; margin-bottom: 2px; }
+        .breakdown-val { font-size: 1.1rem; font-weight: 700; }
+
+        /* GRÁFICA (CONTENEDOR RESPONSIVO) */
+        .chart-wrapper {
+            background: var(--card-dark); border: 1px solid #222; border-radius: 16px; padding: 20px; margin-top: 30px;
+            height: 350px; /* Altura fija para escritorio */
+            position: relative;
+        }
+
+        /* TABLA TOP */
+        .top-table { width: 100%; border-collapse: separate; border-spacing: 0 8px; margin-top: 20px; }
+        .top-table th { color: var(--text-gray); font-size: 0.75rem; text-transform: uppercase; padding-bottom: 10px; font-weight: 700; letter-spacing: 0.5px; }
+        .top-table td { background: #1a1a1a; padding: 12px 15px; border-top: 1px solid #222; border-bottom: 1px solid #222; font-size: 0.95rem; }
+        .top-table td:first-child { border-top-left-radius: 10px; border-bottom-left-radius: 10px; border-left: 1px solid #222; font-weight: 600; }
+        .top-table td:last-child { border-top-right-radius: 10px; border-bottom-right-radius: 10px; border-right: 1px solid #222; color: var(--accent); font-weight: 700; text-align: right; }
+        
+        /* AJUSTES MÓVIL */
+        @media (max-width: 768px) {
+            .kpi-value { font-size: 1.8rem; }
+            .chart-wrapper { height: 300px; padding: 15px; }
+            .header-nav h3 { font-size: 1.5rem; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    
+    <div class="header-nav">
+        <h3 class="m-0 fw-bold">FoodBack <span style="color:var(--accent)">.Finance</span></h3>
+        <a href="{% url 'dashboard_admin' %}" class="btn btn-outline-secondary rounded-pill btn-sm px-3">
+            <i class="bi bi-arrow-left"></i> Volver
+        </a>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-12 col-md-6">
+            <div class="kpi-card">
+                <div>
+                    <div class="kpi-title"><i class="bi bi-cash-stack me-2 text-warning"></i>Ventas Hoy (Neto)</div>
+                    <div class="kpi-value text-money">${{ total_ventas_hoy|floatformat:2 }}</div>
+                    <small class="text-white-50" style="font-size: 0.75rem;">Excluye cancelados y pendientes</small>
+                </div>
+
+                <div class="row g-2">
+                    <div class="col-6">
+                        <div class="breakdown-box">
+                            <span class="breakdown-label"><i class="bi bi-wallet2"></i> Efectivo (Caja)</span>
+                            <span class="breakdown-val text-white">${{ dinero_en_caja|floatformat:2 }}</span>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="breakdown-box">
+                            <span class="breakdown-label"><i class="bi bi-credit-card"></i> Wompi (Banco)</span>
+                            <span class="breakdown-val text-info">${{ dinero_banco|floatformat:2 }}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-md-6">
+            <div class="row g-3 h-100">
+                <div class="col-6">
+                    <div class="kpi-card">
+                        <div class="kpi-title"><i class="bi bi-bag-check me-2"></i>Pedidos</div>
+                        <div class="kpi-value text-white">{{ cantidad_pedidos_hoy }}</div>
+                        <small class="text-white-50">Confirmados</small>
+                    </div>
+                </div>
+                <div class="col-6">
+                    <div class="kpi-card">
+                        <div class="kpi-title"><i class="bi bi-people me-2"></i>Ticket Prom.</div>
+                        <div class="kpi-value text-warning">${{ ticket_promedio|floatformat:2 }}</div>
+                        <small class="text-white-50">Por cliente</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="chart-wrapper">
+        <h6 class="fw-bold mb-3 text-white-50 text-uppercase small">Rendimiento (7 Días)</h6>
+        <div style="position: relative; height: 100%; width: 100%;">
+            <canvas id="salesChart"></canvas>
+        </div>
+    </div>
+
+    <div class="row mt-4">
+        <div class="col-12">
+            <h6 class="fw-bold mb-2 text-white text-uppercase small"><i class="bi bi-fire text-warning me-1"></i> Lo más vendido</h6>
+            <div class="table-responsive">
+                <table class="top-table">
+                    <thead>
+                        <tr>
+                            <th>Producto</th>
+                            <th class="text-center">Cant.</th>
+                            <th class="text-end">Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in top_productos %}
+                        <tr>
+                            <td>{{ item.producto__nombre }}</td>
+                            <td class="text-center">{{ item.total_vendido }}</td>
+                            <td>${{ item.dinero_generado|floatformat:2 }}</td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="3" class="text-center text-muted small py-4">Aún no hay datos de ventas.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    const ctx = document.getElementById('salesChart').getContext('2d');
+    
+    // Datos inyectados desde Django
+    const labels = {{ fechas_grafica|safe }};
+    const data = {{ montos_grafica|safe }};
+
+    // Gradiente para las barras (Toque Premium)
+    const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+    gradient.addColorStop(0, '#2ecc71');
+    gradient.addColorStop(1, '#27ae60');
+
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Ventas',
+                data: data,
+                backgroundColor: gradient,
+                borderRadius: 4,
+                maxBarThickness: 40,
+                minBarLength: 5,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: '#222',
+                    titleColor: '#fff',
+                    bodyColor: '#ccc',
+                    borderColor: '#333',
+                    borderWidth: 1,
+                    callbacks: {
+                        label: function(context) { return '$ ' + context.parsed.y.toFixed(2); }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    grid: { color: '#222', drawBorder: false },
+                    ticks: { color: '#666', font: { size: 10 }, callback: function(value) { return '$' + value; } }
+                },
+                x: {
+                    grid: { display: false },
+                    ticks: { color: '#999', font: { size: 10 }, maxRotation: 0, autoSkip: true }
+                }
+            }
+        }
+    });
+</script>
+
+</body>
+</html>

@@ -29,6 +29,15 @@
             scroll-behavior: smooth;
         }
 
+        /* --- FIX SAFARI IOS (MODAL BLOQUEADO) --- */
+        /* Esto asegura que el fondo negro nunca tape el contenido en iPhone */
+        .modal-backdrop { z-index: 1040 !important; }
+        .modal { z-index: 1055 !important; }
+        .modal-dialog { 
+            -webkit-transform: translate3d(0,0,0); /* Fuerza aceleración hardware en iOS */
+            transform: translate3d(0,0,0); 
+        }
+
         /* HEADER */
         .premium-header {
             background: rgba(255, 255, 255, 0.95);
@@ -335,69 +344,6 @@
                             {% endif %}
                         </div>
                     </div>
-
-                    {% if producto.opciones.exists or producto.extras.exists %}
-                    <div class="modal fade" id="modalProduct{{ producto.id }}" tabindex="-1" aria-hidden="true">
-                        <div class="modal-dialog modal-dialog-centered"> 
-                            <div class="modal-content">
-                                <div class="modal-header">
-                                    <h5 class="modal-title fw-bold">{{ producto.nombre }}</h5>
-                                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                                </div>
-                                <form action="{% url 'add_to_cart' producto.id %}" method="POST">
-                                    {% csrf_token %}
-                                    <div class="modal-body">
-                                        
-                                        {% if producto.opciones.exists %}
-                                            <p class="text-muted small mb-2 fw-bold">Elige tu estilo:</p>
-                                            {% for opcion in producto.opciones.all %}
-                                                {% if opcion.disponible %}
-                                                <input type="radio" name="opcion_id" id="opcion_{{ opcion.id }}" value="{{ opcion.id }}" class="option-radio" {% if forloop.first %}checked{% endif %} required>
-                                                <label for="opcion_{{ opcion.id }}" class="option-label">
-                                                    <div class="d-flex align-items-center">
-                                                        <div class="option-circle"></div>
-                                                        <span class="fw-semibold">{{ opcion.nombre }}</span>
-                                                    </div>
-                                                    {% if opcion.precio_extra > 0 %}
-                                                        <span class="option-price">+${{ opcion.precio_extra }}</span>
-                                                    {% else %}
-                                                        <span class="option-free">Gratis</span>
-                                                    {% endif %}
-                                                </label>
-                                                {% endif %}
-                                            {% endfor %}
-                                            
-                                            {% if producto.extras.exists %}<hr class="my-3 opacity-10">{% endif %}
-                                        {% endif %}
-
-                                        {% if producto.extras.exists %}
-                                            <p class="text-muted small mb-2 fw-bold">Agrégale sabor (Opcional):</p>
-                                            {% for extra in producto.extras.all %}
-                                                {% if extra.disponible %}
-                                                <div class="mb-2">
-                                                    <input type="checkbox" name="extras" id="extra_{{ extra.id }}" value="{{ extra.id }}" class="extra-check-input">
-                                                    
-                                                    <label class="extra-check-label" for="extra_{{ extra.id }}">
-                                                        <span class="extra-name">
-                                                            <i class="bi bi-plus-circle me-2 small opacity-50"></i>{{ extra.nombre }}
-                                                        </span>
-                                                        <span class="extra-price">+${{ extra.precio }}</span>
-                                                    </label>
-                                                </div>
-                                                {% endif %}
-                                            {% endfor %}
-                                        {% endif %}
-
-                                    </div>
-                                    <div class="modal-footer">
-                                        <button type="submit" class="btn-modal-add save-scroll-click">Agregar al Pedido</button>
-                                    </div>
-                                </form>
-                            </div>
-                        </div>
-                    </div>
-                    {% endif %}
-
                     {% endif %}
                 {% endfor %}
             </div>
@@ -405,6 +351,73 @@
         {% endfor %}
     </div>
 
+    {% for categoria in categorias %}
+        {% for producto in categoria.productos.all %}
+            {% if producto.disponible and abierto %}
+                {% if producto.opciones.exists or producto.extras.exists %}
+                <div class="modal fade" id="modalProduct{{ producto.id }}" tabindex="-1" aria-hidden="true">
+                    <div class="modal-dialog modal-dialog-centered"> 
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title fw-bold">{{ producto.nombre }}</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <form action="{% url 'add_to_cart' producto.id %}" method="POST">
+                                {% csrf_token %}
+                                <div class="modal-body">
+                                    
+                                    {% if producto.opciones.exists %}
+                                        <p class="text-muted small mb-2 fw-bold">Elige tu estilo:</p>
+                                        {% for opcion in producto.opciones.all %}
+                                            {% if opcion.disponible %}
+                                            <input type="radio" name="opcion_id" id="opcion_{{ opcion.id }}" value="{{ opcion.id }}" class="option-radio" {% if forloop.first %}checked{% endif %} required>
+                                            <label for="opcion_{{ opcion.id }}" class="option-label">
+                                                <div class="d-flex align-items-center">
+                                                    <div class="option-circle"></div>
+                                                    <span class="fw-semibold">{{ opcion.nombre }}</span>
+                                                </div>
+                                                {% if opcion.precio_extra > 0 %}
+                                                    <span class="option-price">+${{ opcion.precio_extra }}</span>
+                                                {% else %}
+                                                    <span class="option-free">Gratis</span>
+                                                {% endif %}
+                                            </label>
+                                            {% endif %}
+                                        {% endfor %}
+                                        
+                                        {% if producto.extras.exists %}<hr class="my-3 opacity-10">{% endif %}
+                                    {% endif %}
+
+                                    {% if producto.extras.exists %}
+                                        <p class="text-muted small mb-2 fw-bold">Agrégale sabor (Opcional):</p>
+                                        {% for extra in producto.extras.all %}
+                                            {% if extra.disponible %}
+                                            <div class="mb-2">
+                                                <input type="checkbox" name="extras" id="extra_{{ extra.id }}" value="{{ extra.id }}" class="extra-check-input">
+                                                
+                                                <label class="extra-check-label" for="extra_{{ extra.id }}">
+                                                    <span class="extra-name">
+                                                        <i class="bi bi-plus-circle me-2 small opacity-50"></i>{{ extra.nombre }}
+                                                    </span>
+                                                    <span class="extra-price">+${{ extra.precio }}</span>
+                                                </label>
+                                            </div>
+                                            {% endif %}
+                                        {% endfor %}
+                                    {% endif %}
+
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="submit" class="btn-modal-add save-scroll-click">Agregar al Pedido</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+            {% endif %}
+        {% endfor %}
+    {% endfor %}
     <button id="btnBackToTop" class="btn-back-to-top" onclick="scrollToTop()"> <i class="bi bi-arrow-up-short fs-3"></i> </button>
 
     <footer class="app-footer">

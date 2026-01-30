@@ -35,19 +35,19 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     
-    # 1. Cloudinary Storage (IMPORTANTE: Antes de staticfiles)
+    # 1. Cloudinary Storage
     'cloudinary_storage',
     'django.contrib.staticfiles',
-    # 2. Cloudinary Lib (Después de staticfiles)
+    # 2. Cloudinary Lib
     'cloudinary',
     
-    'pedidos', # Tu app principal
+    'pedidos',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     
-    # --- WHITENOISE (El motor que hace que el Admin se vea bien) ---
+    # MANTENEMOS EL MIDDLEWARE PARA QUE SIRVA LOS ARCHIVOS
     "whitenoise.middleware.WhiteNoiseMiddleware",
     
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -99,21 +99,22 @@ TIME_ZONE = 'America/Mexico_City'
 USE_I18N = True
 USE_TZ = True
 
-# --- ARCHIVOS ESTÁTICOS (CSS, JS, EL ADMIN) ---
+# --- ARCHIVOS ESTÁTICOS ---
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
-# --- CONFIGURACIÓN DE ALMACENAMIENTO (DJANGO 4.2) ---
+# --------------------------------------------------------
+# AQUÍ ESTÁ EL CAMBIO CLAVE PARA QUE NO FALLE
+# --------------------------------------------------------
 
-# 1. WhiteNoise: Usamos 'Compressed'.
-# En Django 4.2 esto funciona perfecto. Comprime los archivos para velocidad,
-# pero NO es 'Manifest', así que no explotará si falta un icono raro en el admin.
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedStaticFilesStorage'
+# Usamos el almacenamiento NATIVO de Django. 
+# Esto elimina la compresión de WhiteNoise durante el build.
+# Es imposible que falle por "FileNotFound" con esto.
+STATICFILES_STORAGE = 'django.contrib.staticfiles.storage.StaticFilesStorage'
 
-# 2. Cloudinary: Para las fotos de tus hamburguesas
+# Cloudinary sigue manejando las imágenes subidas
 DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
 
-# --- CONFIGURACIÓN CLOUDINARY ---
 CLOUDINARY_STORAGE = {
     'CLOUD_NAME': os.getenv('CLOUDINARY_CLOUD_NAME'),
     'API_KEY': os.getenv('CLOUDINARY_API_KEY'),

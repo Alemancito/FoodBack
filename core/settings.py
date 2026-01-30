@@ -1,7 +1,7 @@
 """
 Django settings for core project.
-Optimized for Railway & Cloudinary (Full Cloud Mode)
-Django Version: 4.2 (LTS)
+Optimizado para Railway + WhiteNoise + Cloudinary (FORMA CORRECTA)
+Django 4.2 LTS
 """
 
 from pathlib import Path
@@ -9,48 +9,52 @@ import os
 import dj_database_url
 from dotenv import load_dotenv
 
-# Cargar variables de entorno (.env)
+# ===============================
+# BASE
+# ===============================
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# --- SEGURIDAD ---
-SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-dev-key-change-me-in-prod')
+# ===============================
+# SEGURIDAD
+# ===============================
+SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-dev-key')
+
 DEBUG = 'RAILWAY_ENVIRONMENT' not in os.environ
 
 ALLOWED_HOSTS = ['*']
 
 CSRF_TRUSTED_ORIGINS = [
-    'https://*.ngrok-free.dev', 
-    'https://*.ngrok-free.app',
-    'https://*.railway.app', 
-    'https://*.up.railway.app'
+    'https://*.railway.app',
+    'https://*.up.railway.app',
 ]
 
-# --- APLICACIONES ---
+# ===============================
+# APLICACIONES
+# ===============================
 INSTALLED_APPS = [
-    # 1. Cloudinary Storage (IMPORTANTE: Debe ir PRIMERO para tomar el control de los estilos)
-    'cloudinary_storage',
-    'django.contrib.staticfiles',
-    
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
-    
-    # 2. Cloudinary Lib
+    'django.contrib.staticfiles',
+
+    # Cloudinary SOLO para media
     'cloudinary',
-    
+
+    # Tu app
     'pedidos',
 ]
 
+# ===============================
+# MIDDLEWARE
+# ===============================
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
-    
-    # --- WHITENOISE ELIMINADO ---
-    # Ya no lo usamos. Cloudinary servirá los archivos directamente.
-    
+    'whitenoise.middleware.WhiteNoiseMiddleware',
+
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -59,6 +63,9 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
+# ===============================
+# URLS / TEMPLATES
+# ===============================
 ROOT_URLCONF = 'core.urls'
 
 TEMPLATES = [
@@ -78,7 +85,9 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'core.wsgi.application'
 
-# --- BASE DE DATOS ---
+# ===============================
+# BASE DE DATOS
+# ===============================
 DATABASES = {
     'default': dj_database_url.config(
         default='sqlite:///' + str(BASE_DIR / 'db.sqlite3'),
@@ -86,7 +95,9 @@ DATABASES = {
     )
 }
 
-# --- VALIDACIÓN DE PASSWORD ---
+# ===============================
+# PASSWORDS
+# ===============================
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
     {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
@@ -94,36 +105,36 @@ AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
 
-# --- INTERNACIONALIZACIÓN ---
-LANGUAGE_CODE = 'es-mx'
-TIME_ZONE = 'America/Mexico_City'
+# ===============================
+# INTERNACIONALIZACIÓN
+# ===============================
+LANGUAGE_CODE = 'es-sv'
+TIME_ZONE = 'America/El_Salvador'
 USE_I18N = True
 USE_TZ = True
 
-# --- CONFIGURACIÓN CLOUDINARY PARA TODO ---
+# ===============================
+# ARCHIVOS ESTÁTICOS (ADMIN, CSS, JS)
+# ===============================
+STATIC_URL = '/static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+STATICFILES_STORAGE = 'whitenoise.storage.StaticFilesStorage'
+
+# ===============================
+# MEDIA (IMÁGENES → CLOUDINARY)
+# ===============================
+DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
+
 CLOUDINARY_STORAGE = {
     'CLOUD_NAME': os.getenv('CLOUDINARY_CLOUD_NAME'),
     'API_KEY': os.getenv('CLOUDINARY_API_KEY'),
     'API_SECRET': os.getenv('CLOUDINARY_API_SECRET'),
-    # Carpeta local temporal para el manifiesto (evita errores de compilación)
-    'STATICFILES_MANIFEST_ROOT': os.path.join(BASE_DIR, 'staticfiles-manifest'),
 }
 
-# --- ARCHIVOS ESTÁTICOS (CSS, JS, ADMIN) ---
-STATIC_URL = '/static/'
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
-
-# ALMACENAMIENTO DE ESTÁTICOS:
-# Usamos 'StaticHashedCloudinaryStorage'. Esto sube el CSS del admin a la nube.
-STATICFILES_STORAGE = 'cloudinary_storage.storage.StaticHashedCloudinaryStorage'
-
-# --- ARCHIVOS MEDIA (FOTOS DE PRODUCTOS) ---
 MEDIA_URL = '/media/'
 
-# ALMACENAMIENTO DE MEDIA:
-# Tus fotos de hamburguesas también van a la nube.
-DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
-
-# --- CORRECCIÓN DE ADVERTENCIAS ---
-# Esto elimina los warnings amarillos de "Auto-created primary key"
+# ===============================
+# OTROS
+# ===============================
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'

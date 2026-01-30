@@ -122,10 +122,6 @@ STORAGES = {
 # Y actualiza el parche del final también:
 STATICFILES_STORAGE = "whitenoise.storage.CompressedStaticFilesStorage"
 
-# --- PARCHE DE COMPATIBILIDAD ---
-# CAMBIO AQUÍ: También quitamos "Compressed"
-STATICFILES_STORAGE = "whitenoise.storage.ManifestStaticFilesStorage"
-
 # --- CONFIGURACIÓN CLOUDINARY ---
 CLOUDINARY_STORAGE = {
     'CLOUD_NAME': os.getenv('CLOUDINARY_CLOUD_NAME'),

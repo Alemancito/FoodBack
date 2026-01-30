@@ -1,6 +1,6 @@
 """
 Django settings for core project.
-Optimized for Railway & Cloudinary by NovaCode Studio 🦁
+Optimized for Railway & Cloudinary (Full Cloud Mode)
 Django Version: 4.2 (LTS)
 """
 
@@ -29,15 +29,16 @@ CSRF_TRUSTED_ORIGINS = [
 
 # --- APLICACIONES ---
 INSTALLED_APPS = [
+    # 1. Cloudinary Storage (IMPORTANTE: Debe ir PRIMERO para tomar el control de los estilos)
+    'cloudinary_storage',
+    'django.contrib.staticfiles',
+    
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     
-    # 1. Cloudinary Storage
-    'cloudinary_storage',
-    'django.contrib.staticfiles',
     # 2. Cloudinary Lib
     'cloudinary',
     
@@ -47,8 +48,8 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     
-    # MANTENEMOS EL MIDDLEWARE PARA QUE SIRVA LOS ARCHIVOS
-    "whitenoise.middleware.WhiteNoiseMiddleware",
+    # --- WHITENOISE ELIMINADO ---
+    # Ya no lo usamos. Cloudinary servirá los archivos directamente.
     
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -99,24 +100,30 @@ TIME_ZONE = 'America/Mexico_City'
 USE_I18N = True
 USE_TZ = True
 
-# --- ARCHIVOS ESTÁTICOS ---
-STATIC_URL = '/static/'
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
-
-# --------------------------------------------------------
-# AQUÍ ESTÁ EL CAMBIO CLAVE PARA QUE NO FALLE
-# --------------------------------------------------------
-
-# Usamos el almacenamiento NATIVO de Django. 
-# Esto elimina la compresión de WhiteNoise durante el build.
-# Es imposible que falle por "FileNotFound" con esto.
-STATICFILES_STORAGE = 'django.contrib.staticfiles.storage.StaticFilesStorage'
-
-# Cloudinary sigue manejando las imágenes subidas
-DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
-
+# --- CONFIGURACIÓN CLOUDINARY PARA TODO ---
 CLOUDINARY_STORAGE = {
     'CLOUD_NAME': os.getenv('CLOUDINARY_CLOUD_NAME'),
     'API_KEY': os.getenv('CLOUDINARY_API_KEY'),
     'API_SECRET': os.getenv('CLOUDINARY_API_SECRET'),
+    # Carpeta local temporal para el manifiesto (evita errores de compilación)
+    'STATICFILES_MANIFEST_ROOT': os.path.join(BASE_DIR, 'staticfiles-manifest'),
 }
+
+# --- ARCHIVOS ESTÁTICOS (CSS, JS, ADMIN) ---
+STATIC_URL = '/static/'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+
+# ALMACENAMIENTO DE ESTÁTICOS:
+# Usamos 'StaticHashedCloudinaryStorage'. Esto sube el CSS del admin a la nube.
+STATICFILES_STORAGE = 'cloudinary_storage.storage.StaticHashedCloudinaryStorage'
+
+# --- ARCHIVOS MEDIA (FOTOS DE PRODUCTOS) ---
+MEDIA_URL = '/media/'
+
+# ALMACENAMIENTO DE MEDIA:
+# Tus fotos de hamburguesas también van a la nube.
+DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
+
+# --- CORRECCIÓN DE ADVERTENCIAS ---
+# Esto elimina los warnings amarillos de "Auto-created primary key"
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'

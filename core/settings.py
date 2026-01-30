@@ -106,21 +106,21 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 # no en la raíz. Django buscará automáticamente dentro de 'pedidos/static'.
 # STATICFILES_DIRS = [BASE_DIR / 'static'] 
 
-# --- CONFIGURACIÓN MAESTRA (Django 6.0) ---
-# --- CONFIGURACIÓN MAESTRA DE ALMACENAMIENTO (CORREGIDA) ---
+# --- CONFIGURACIÓN MAESTRA DE ALMACENAMIENTO (MODO SEGURO) ---
 STORAGES = {
     "staticfiles": {
-        # CAMBIO AQUÍ: Usamos "CompressedStaticFilesStorage"
-        # Esto comprime los archivos pero NO verifica links rotos dentro del CSS.
-        "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
+        # CAMBIO FINAL: Usamos el almacenamiento BÁSICO de Django.
+        # Esto evita cualquier error de compresión o archivos faltantes.
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
     },
     "default": {
         "BACKEND": "cloudinary_storage.storage.MediaCloudinaryStorage",
     },
 }
 
-# Y actualiza el parche del final también:
-STATICFILES_STORAGE = "whitenoise.storage.CompressedStaticFilesStorage"
+# --- PARCHE DE COMPATIBILIDAD ---
+# Igualamos esto al modo básico para evitar conflictos
+STATICFILES_STORAGE = "django.contrib.staticfiles.storage.StaticFilesStorage"
 
 # --- CONFIGURACIÓN CLOUDINARY ---
 CLOUDINARY_STORAGE = {

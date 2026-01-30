@@ -107,15 +107,20 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 # STATICFILES_DIRS = [BASE_DIR / 'static'] 
 
 # --- CONFIGURACIÓN MAESTRA (Django 6.0) ---
+# --- CONFIGURACIÓN MAESTRA DE ALMACENAMIENTO (CORREGIDA) ---
 STORAGES = {
     "staticfiles": {
-        # CAMBIO AQUÍ: Quitamos "Compressed" del nombre
-        "BACKEND": "whitenoise.storage.ManifestStaticFilesStorage",
+        # CAMBIO AQUÍ: Usamos "CompressedStaticFilesStorage"
+        # Esto comprime los archivos pero NO verifica links rotos dentro del CSS.
+        "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
     },
     "default": {
         "BACKEND": "cloudinary_storage.storage.MediaCloudinaryStorage",
     },
 }
+
+# Y actualiza el parche del final también:
+STATICFILES_STORAGE = "whitenoise.storage.CompressedStaticFilesStorage"
 
 # --- PARCHE DE COMPATIBILIDAD ---
 # CAMBIO AQUÍ: También quitamos "Compressed"

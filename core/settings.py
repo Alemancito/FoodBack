@@ -109,16 +109,17 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 # --- CONFIGURACIÓN MAESTRA (Django 6.0) ---
 STORAGES = {
     "staticfiles": {
-        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+        # CAMBIO AQUÍ: Quitamos "Compressed" del nombre
+        "BACKEND": "whitenoise.storage.ManifestStaticFilesStorage",
     },
     "default": {
         "BACKEND": "cloudinary_storage.storage.MediaCloudinaryStorage",
     },
 }
 
-# --- PARCHE DE COMPATIBILIDAD (CRUCIAL) ---
-# Esto evita que 'django-cloudinary-storage' crashee buscando la config vieja.
-STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+# --- PARCHE DE COMPATIBILIDAD ---
+# CAMBIO AQUÍ: También quitamos "Compressed"
+STATICFILES_STORAGE = "whitenoise.storage.ManifestStaticFilesStorage"
 
 # --- CONFIGURACIÓN CLOUDINARY ---
 CLOUDINARY_STORAGE = {

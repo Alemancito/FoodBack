@@ -1,7 +1,7 @@
 """
 Django settings for core project.
 Optimized for Railway & Cloudinary by NovaCode Studio 🦁
-Django Version: 6.0.1
+Django Version: 4.2 (LTS)
 """
 
 from pathlib import Path
@@ -35,17 +35,18 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     
-    # 1. Cloudinary Storage (Antes de staticfiles)
+    # 1. Cloudinary Storage (Debe ir antes de staticfiles)
     'cloudinary_storage',
     'django.contrib.staticfiles',
     # 2. Cloudinary Lib (Después de staticfiles)
     'cloudinary',
     
-    'pedidos', # Tu app (Aquí es donde tienes tu carpeta static real)
+    'pedidos', # Tu app
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    
     # --- WHITENOISE (Motor de archivos estáticos) ---
     "whitenoise.middleware.WhiteNoiseMiddleware",
     
@@ -100,29 +101,22 @@ USE_TZ = True
 
 # --- ARCHIVOS ESTÁTICOS (CSS, JS) ---
 STATIC_URL = '/static/'
-STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
-# IMPORTANTE: Comenté esta línea porque tu carpeta 'static' está dentro de 'pedidos',
-# no en la raíz. Django buscará automáticamente dentro de 'pedidos/static'.
-# STATICFILES_DIRS = [BASE_DIR / 'static'] 
+# Como tus estáticos están dentro de la app 'pedidos', no necesitas STATICFILES_DIRS
+# Django los encontrará automáticamente.
 
-# --- CONFIGURACIÓN MAESTRA DE ALMACENAMIENTO (MODO SEGURO) ---
-STORAGES = {
-    "staticfiles": {
-        # CAMBIO FINAL: Usamos el almacenamiento BÁSICO de Django.
-        # Esto evita cualquier error de compresión o archivos faltantes.
-        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
-    },
-    "default": {
-        "BACKEND": "cloudinary_storage.storage.MediaCloudinaryStorage",
-    },
-}
+# --- CONFIGURACIÓN DE ALMACENAMIENTO (VERSIÓN DJANGO 4.2) ---
 
-# --- PARCHE DE COMPATIBILIDAD ---
-# Igualamos esto al modo básico para evitar conflictos
-STATICFILES_STORAGE = "django.contrib.staticfiles.storage.StaticFilesStorage"
+# 1. WhiteNoise para archivos estáticos (CSS/JS del sistema)
+# Usamos CompressedStaticFilesStorage que es eficiente y seguro
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedStaticFilesStorage'
 
-# --- CONFIGURACIÓN CLOUDINARY ---
+# 2. Cloudinary para archivos multimedia (Imágenes de productos)
+# Esta es la configuración clásica que no falla en Django 4.2
+DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
+
+# --- CONFIGURACIÓN CLOUDINARY (CREDENCIALES) ---
 CLOUDINARY_STORAGE = {
     'CLOUD_NAME': os.getenv('CLOUDINARY_CLOUD_NAME'),
     'API_KEY': os.getenv('CLOUDINARY_API_KEY'),

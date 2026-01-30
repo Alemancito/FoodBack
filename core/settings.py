@@ -35,19 +35,19 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     
-    # 1. Cloudinary Storage (Debe ir antes de staticfiles)
+    # 1. Cloudinary Storage (IMPORTANTE: Antes de staticfiles)
     'cloudinary_storage',
     'django.contrib.staticfiles',
     # 2. Cloudinary Lib (Después de staticfiles)
     'cloudinary',
     
-    'pedidos', # Tu app
+    'pedidos', # Tu app principal
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     
-    # --- WHITENOISE (Motor de archivos estáticos) ---
+    # --- WHITENOISE (El motor que hace que el Admin se vea bien) ---
     "whitenoise.middleware.WhiteNoiseMiddleware",
     
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -99,24 +99,21 @@ TIME_ZONE = 'America/Mexico_City'
 USE_I18N = True
 USE_TZ = True
 
-# --- ARCHIVOS ESTÁTICOS (CSS, JS) ---
+# --- ARCHIVOS ESTÁTICOS (CSS, JS, EL ADMIN) ---
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
-# Como tus estáticos están dentro de la app 'pedidos', no necesitas STATICFILES_DIRS
-# Django los encontrará automáticamente.
+# --- CONFIGURACIÓN DE ALMACENAMIENTO (DJANGO 4.2) ---
 
-# --- CONFIGURACIÓN DE ALMACENAMIENTO (VERSIÓN DJANGO 4.2) ---
-
-# 1. WhiteNoise para archivos estáticos (CSS/JS del sistema)
-# Usamos CompressedStaticFilesStorage que es eficiente y seguro
+# 1. WhiteNoise: Usamos 'Compressed'.
+# En Django 4.2 esto funciona perfecto. Comprime los archivos para velocidad,
+# pero NO es 'Manifest', así que no explotará si falta un icono raro en el admin.
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedStaticFilesStorage'
 
-# 2. Cloudinary para archivos multimedia (Imágenes de productos)
-# Esta es la configuración clásica que no falla en Django 4.2
+# 2. Cloudinary: Para las fotos de tus hamburguesas
 DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
 
-# --- CONFIGURACIÓN CLOUDINARY (CREDENCIALES) ---
+# --- CONFIGURACIÓN CLOUDINARY ---
 CLOUDINARY_STORAGE = {
     'CLOUD_NAME': os.getenv('CLOUDINARY_CLOUD_NAME'),
     'API_KEY': os.getenv('CLOUDINARY_API_KEY'),

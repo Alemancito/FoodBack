@@ -6,7 +6,7 @@ Django Version: 6.0.1
 
 from pathlib import Path
 import os
-import dj_database_url # <--- Necesario para Base de Datos
+import dj_database_url
 from dotenv import load_dotenv
 
 # Cargar variables de entorno (.env)
@@ -15,10 +15,7 @@ load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # --- SEGURIDAD ---
-# Si no hay clave en .env, usa una por defecto (SOLO para desarrollo)
 SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-dev-key-change-me-in-prod')
-
-# DEBUG: True en local, False en Producción (si existe RAILWAY_ENVIRONMENT)
 DEBUG = 'RAILWAY_ENVIRONMENT' not in os.environ
 
 ALLOWED_HOSTS = ['*']
@@ -38,20 +35,19 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     
-    # 1. Cloudinary Storage (Arriba de staticfiles)
+    # 1. Cloudinary Storage (Antes de staticfiles)
     'cloudinary_storage',
     'django.contrib.staticfiles',
-    # 2. Cloudinary Lib (Abajo de staticfiles)
+    # 2. Cloudinary Lib (Después de staticfiles)
     'cloudinary',
     
-    'pedidos', # Tu app
+    'pedidos', # Tu app (Aquí es donde tienes tu carpeta static real)
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
-    
     # --- WHITENOISE (Motor de archivos estáticos) ---
-    "whitenoise.middleware.WhiteNoiseMiddleware",  # <--- VITAL
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -66,7 +62,7 @@ ROOT_URLCONF = 'core.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [BASE_DIR / 'templates'], # <--- Asegúrate de que apunte a tu carpeta templates
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -80,8 +76,7 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'core.wsgi.application'
 
-# --- BASE DE DATOS (HÍBRIDA) ---
-# Usa SQLite en tu PC y PostgreSQL en Railway automáticamente
+# --- BASE DE DATOS ---
 DATABASES = {
     'default': dj_database_url.config(
         default='sqlite:///' + str(BASE_DIR / 'db.sqlite3'),
@@ -98,28 +93,32 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 # --- INTERNACIONALIZACIÓN ---
-LANGUAGE_CODE = 'es-mx' # Puesto en Español México
-TIME_ZONE = 'America/Mexico_City' # Ajusta a tu zona horaria
+LANGUAGE_CODE = 'es-mx'
+TIME_ZONE = 'America/Mexico_City'
 USE_I18N = True
 USE_TZ = True
 
 # --- ARCHIVOS ESTÁTICOS (CSS, JS) ---
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
-STATICFILES_DIRS = [BASE_DIR / 'static'] # Si tienes carpeta static global
 
-# --- CONFIGURACIÓN MAESTRA DE ALMACENAMIENTO (Django 5.0 / 6.0) ---
-# Aquí es donde ocurre la magia para Cloudinary y WhiteNoise
+# IMPORTANTE: Comenté esta línea porque tu carpeta 'static' está dentro de 'pedidos',
+# no en la raíz. Django buscará automáticamente dentro de 'pedidos/static'.
+# STATICFILES_DIRS = [BASE_DIR / 'static'] 
+
+# --- CONFIGURACIÓN MAESTRA (Django 6.0) ---
 STORAGES = {
-    # 1. Archivos Estáticos (CSS/JS) -> WhiteNoise (Comprimido y Rápido)
     "staticfiles": {
         "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
     },
-    # 2. Archivos Media (Imágenes subidas) -> Cloudinary (Nube)
     "default": {
         "BACKEND": "cloudinary_storage.storage.MediaCloudinaryStorage",
     },
 }
+
+# --- PARCHE DE COMPATIBILIDAD (CRUCIAL) ---
+# Esto evita que 'django-cloudinary-storage' crashee buscando la config vieja.
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 # --- CONFIGURACIÓN CLOUDINARY ---
 CLOUDINARY_STORAGE = {
@@ -127,4 +126,3 @@ CLOUDINARY_STORAGE = {
     'API_KEY': os.getenv('CLOUDINARY_API_KEY'),
     'API_SECRET': os.getenv('CLOUDINARY_API_SECRET'),
 }
-

@@ -595,6 +595,9 @@ def dashboard_admin_view(request):
 @login_required(login_url='login_custom')
 @user_passes_test(es_admin, login_url='login_custom')
 def admin_settings_view(request):
+    # --- LIMPIEZA AUTOMÁTICA (NUEVO) ---
+    # Borra cualquier excepción anterior a hoy para no llenar la BD de basura
+    DiaEspecial.objects.filter(fecha__lt=date.today()).delete()
     config_negocio = ConfiguracionNegocio.objects.first()
     if not config_negocio:
         config_negocio = ConfiguracionNegocio.objects.create()

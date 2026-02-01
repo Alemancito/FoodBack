@@ -25,7 +25,7 @@
         input#phone_visual { border-radius: 16px; border: 1px solid #e5e7eb; background-color: #fff; padding-top: 10px; padding-bottom: 10px; height: 58px; }
         .form-section-title { font-size: 0.9rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin: 30px 0 15px 0; opacity: 0.6; }
         
-        /* Contenedor Mapa Estilo Uber */
+        /* Mapa Uber Style */
         #map-container { position: relative; width: 100%; height: 250px; border-radius: var(--card-radius); overflow: hidden; border: 1px solid #eee; margin-bottom: 10px; }
         #map { width: 100%; height: 100%; background-color: #e9ecef; }
         .center-pin { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -100%); z-index: 10; pointer-events: none; display: none; }
@@ -34,13 +34,15 @@
         .payment-option { display: none; }
         .payment-card { border: 1px solid #eee; border-radius: 15px; padding: 15px; cursor: pointer; transition: all 0.2s; background: white; display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
         .payment-option:checked + .payment-card { border-color: var(--color-accent); background-color: #fff5f0; box-shadow: 0 4px 12px rgba(211, 84, 0, 0.15); }
+        .payment-option:checked + .payment-card .bi-check-circle-fill { color: var(--color-accent); display: block; }
+        .check-icon { display: none; }
+
         .total-bar { position: fixed; bottom: 0; left: 0; width: 100%; background: white; padding: 20px; border-top-left-radius: 25px; border-top-right-radius: 25px; box-shadow: 0 -5px 20px rgba(0,0,0,0.05); z-index: 1050; }
         .btn-confirm { background-color: var(--color-dark); color: white; width: 100%; padding: 15px; border-radius: 15px; font-weight: 600; border: none; font-size: 1.1rem; transition: background 0.3s; }
         .btn-confirm:disabled { background-color: #ccc; cursor: not-allowed; opacity: 0.7; }
         
         .btn-trash-premium { width: 30px; height: 30px; border-radius: 8px; background-color: transparent; color: #b0b0b0; display: flex; align-items: center; justify-content: center; border: 1px solid transparent; transition: all 0.2s ease; cursor: pointer; }
         
-        /* SweetAlert Premium Estilos */
         .swal-premium-popup { border-radius: 24px !important; padding: 25px !important; font-family: 'Poppins', sans-serif !important; }
         .swal-premium-title { font-size: 1.5rem !important; font-weight: 700 !important; color: #111827 !important; }
         .swal-premium-confirm { border-radius: 12px !important; font-weight: 600 !important; padding: 12px 24px !important; background-color: #EF4444 !important; color: white !important; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3) !important; }
@@ -51,7 +53,7 @@
 <body>
 
     <div class="checkout-header">
-        <a href="{% url 'menu' %}" class="btn-back"><i class="bi bi-chevron-left"></i></a>
+        <a href="/" class="btn-back"><i class="bi bi-chevron-left"></i></a>
         <h5 class="m-0 fw-bold">Finalizar Pedido</h5>
     </div>
 
@@ -90,7 +92,7 @@
                     <div class="text-center py-4">
                         <i class="bi bi-cart-x fs-1 text-muted opacity-50"></i>
                         <p class="mt-2 text-muted">Tu carrito está vacío.</p>
-                        <a href="{% url 'menu' %}" class="btn btn-sm btn-outline-dark rounded-pill px-3">Ir al Menú</a>
+                        <a href="/" class="btn btn-sm btn-outline-dark rounded-pill px-3">Ir al Menú</a>
                     </div>
                 {% endif %}
             </div>
@@ -103,35 +105,39 @@
                 <div class="row g-2">
                     <div class="col-6"><div class="form-floating mb-2"><input type="text" class="form-control" id="nombre" name="nombre" placeholder="Nombre" required><label>Nombre</label></div></div>
                     <div class="col-6"><div class="form-floating mb-2"><input type="text" class="form-control" id="apellido" name="apellido" placeholder="Apellido" required><label>Apellido</label></div></div>
-                    <div class="col-12">
-                        <div class="mb-2 position-relative">
-                            <input type="tel" id="phone_visual" class="form-control" placeholder="WhatsApp">
-                            <input type="hidden" id="telefono_real" name="telefono">
-                        </div>
-                    </div>
+                    <div class="col-12"><div class="mb-2 position-relative"><input type="tel" id="phone_visual" class="form-control" placeholder="WhatsApp"><input type="hidden" id="telefono_real" name="telefono"></div></div>
                 </div>
 
                 <div class="form-section-title">Lugar de Entrega</div>
                 <div class="mb-3">
-                    <div class="form-floating mb-3">
-                        <textarea class="form-control" placeholder="Dirección" id="direccion" name="direccion" style="height: 90px; resize: none;" required></textarea>
-                        <label>Dirección exacta</label>
-                    </div>
+                    <div class="form-floating mb-3"><textarea class="form-control" placeholder="D" id="direccion" name="direccion" style="height: 90px; resize: none;" required></textarea><label>Dirección exacta</label></div>
                     <div id="map-container"><div id="map"></div><div id="uber-pin" class="center-pin"><i class="bi bi-geo-alt-fill"></i></div></div>
-                    <button type="button" class="btn btn-white border w-100 rounded-pill py-3 fw-semibold shadow-sm" onclick="detectarUbicacionInteligente(true)">
-                        <i class="bi bi-geo-alt-fill me-1 text-danger"></i> Usar mi ubicación actual
-                    </button>
-                    <div class="text-center mt-2">
-                        <a href="#" class="text-muted small fw-600" data-bs-toggle="modal" data-bs-target="#helpGPSModal">
-                            <i class="bi bi-question-circle me-1"></i> ¿Problemas con el GPS?
-                        </a>
-                    </div>
+                    <button type="button" class="btn btn-white border w-100 rounded-pill py-3 fw-semibold shadow-sm" onclick="detectarUbicacionInteligente(true)"><i class="bi bi-geo-alt-fill me-1 text-danger"></i> Usar mi ubicación actual</button>
+                    <div class="text-center mt-2"><a href="#" class="text-muted small fw-600" data-bs-toggle="modal" data-bs-target="#helpGPSModal"><i class="bi bi-question-circle me-1"></i> ¿Problemas con el GPS? Mira la ayuda</a></div>
                     <input type="hidden" name="latitud" id="lat"><input type="hidden" name="longitud" id="lng">
                 </div>
 
                 <div class="form-section-title">Método de Pago</div>
-                <label class="w-100"><input type="radio" name="metodo_pago" value="EFECTIVO" class="payment-option" checked onchange="actualizarTotal()"><div class="payment-card"><div>Efectivo</div><i class="bi bi-check-circle-fill fs-4 check-icon"></i></div></label>
-                <label class="w-100"><input type="radio" name="metodo_pago" value="TARJETA" class="payment-option" onchange="actualizarTotal()"><div class="payment-card"><div>Tarjeta (+5%)</div><i class="bi bi-check-circle-fill fs-4 check-icon"></i></div></label>
+                <label class="w-100">
+                    <input type="radio" name="metodo_pago" value="EFECTIVO" class="payment-option" checked onchange="actualizarTotal()">
+                    <div class="payment-card">
+                        <div class="d-flex align-items-center gap-3">
+                            <i class="bi bi-cash-coin fs-4 text-success"></i>
+                            <div><div class="fw-bold">Efectivo</div><small class="text-muted">Pagas al recibir</small></div>
+                        </div>
+                        <i class="bi bi-check-circle-fill fs-4 check-icon"></i>
+                    </div>
+                </label>
+                <label class="w-100">
+                    <input type="radio" name="metodo_pago" value="TARJETA" class="payment-option" onchange="actualizarTotal()">
+                    <div class="payment-card">
+                        <div class="d-flex align-items-center gap-3">
+                            <i class="bi bi-credit-card-2-front fs-4 text-primary"></i>
+                            <div><div class="fw-bold">Tarjeta / Wompi</div><small class="text-muted" style="color: var(--color-accent);">+5% Servicio Digital</small></div>
+                        </div>
+                        <i class="bi bi-check-circle-fill fs-4 check-icon"></i>
+                    </div>
+                </label>
 
                 <div class="total-bar">
                     <button type="submit" class="btn-confirm" id="btn-finalizar" disabled>Realizar Pedido <span id="total-display">${{ total_productos }}</span></button>
@@ -148,7 +154,7 @@
                     <ul class="nav nav-pills nav-fill mb-3"><li class="nav-item"><button class="nav-link active rounded-pill" data-bs-toggle="pill" data-bs-target="#tab-iphone">iPhone</button></li><li class="nav-item"><button class="nav-link rounded-pill" data-bs-toggle="pill" data-bs-target="#tab-android">Android</button></li></ul>
                     <div class="tab-content pt-2">
                         <div class="tab-pane fade show active" id="tab-iphone"><p class="small text-muted">1. Toca <b>"AA"</b> en Safari.<br>2. Configuración del sitio web.<br>3. Cambia Ubicación a <b>Permitir</b>.</p></div>
-                        <div class="tab-pane fade" id="tab-android"><p class="small text-muted">1. Activa el GPS del móvil.<br>2. Toca el candado junto a la URL.<br>3. Activa permisos de ubicación.</p></div>
+                        <div class="tab-pane fade" id="tab-android"><p class="small text-muted">1. Activa GPS.<br>2. Toca el candado junto a la URL.<br>3. Activa permisos de ubicación.</p></div>
                     </div>
                 </div>
             </div>
@@ -209,13 +215,7 @@
                 showCancelButton: true, 
                 confirmButtonText: 'Sí, eliminar', 
                 cancelButtonText: 'Cancelar', 
-                customClass: { 
-                    popup: 'swal-premium-popup', 
-                    title: 'swal-premium-title',
-                    confirmButton: 'swal-premium-confirm', 
-                    cancelButton: 'swal-premium-cancel',
-                    actions: 'swal2-actions'
-                }, 
+                customClass: { popup: 'swal-premium-popup', title: 'swal-premium-title', confirmButton: 'swal-premium-confirm', cancelButton: 'swal-premium-cancel', actions: 'swal2-actions' }, 
                 buttonsStyling: false 
             })
             .then((result) => {
@@ -225,13 +225,12 @@
                     .then(data => {
                         if(data.status === 'ok') {
                             if(data.vacio) { 
-                                // CAMBIO AQUÍ: En lugar de reload, manipulamos el DOM
                                 document.getElementById('checkout-form-container').style.display = 'none';
                                 document.getElementById('resumen-carrito').innerHTML = `
                                     <div class="text-center py-4">
                                         <i class="bi bi-cart-x fs-1 text-muted opacity-50"></i>
                                         <p class="mt-2 text-muted">Tu carrito está vacío.</p>
-                                        <a href="/menu/" class="btn btn-sm btn-outline-dark rounded-pill px-3">Ir al Menú</a>
+                                        <a href="/" class="btn btn-sm btn-outline-dark rounded-pill px-3">Ir al Menú</a>
                                     </div>`;
                             } else { 
                                 document.getElementById('resumen-carrito').innerHTML = data.html; 

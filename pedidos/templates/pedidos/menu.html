@@ -30,11 +30,10 @@
         }
 
         /* --- FIX SAFARI IOS (MODAL BLOQUEADO) --- */
-        /* Esto asegura que el fondo negro nunca tape el contenido en iPhone */
         .modal-backdrop { z-index: 1040 !important; }
         .modal { z-index: 1055 !important; }
         .modal-dialog { 
-            -webkit-transform: translate3d(0,0,0); /* Fuerza aceleración hardware en iOS */
+            -webkit-transform: translate3d(0,0,0);
             transform: translate3d(0,0,0); 
         }
 
@@ -120,17 +119,17 @@
         .card-content { padding: 15px; }
         .product-title { font-weight: 600; font-size: 1rem; margin-bottom: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         
-        /* DESCRIPCIÓN CON SCROLL INVISIBLE */
+        /* DESCRIPCIÓN MODIFICADA: MÁS ESPACIO */
         .product-desc {
             color: var(--color-gray); font-size: 0.8rem; line-height: 1.4; 
-            height: 38px; /* Altura fija */
-            overflow-y: auto; /* Scroll activado */
-            scrollbar-width: none; /* Firefox */
-            -ms-overflow-style: none; /* IE */
+            height: 65px; /* AUMENTADO DE 38px A 65px */
+            overflow-y: auto; 
+            scrollbar-width: none; 
+            -ms-overflow-style: none; 
             scroll-behavior: smooth;
             margin-bottom: 15px;
         }
-        .product-desc::-webkit-scrollbar { display: none; /* Chrome/Safari */ }
+        .product-desc::-webkit-scrollbar { display: none; }
 
         /* BOTONES */
         .btn-add-minimal {
@@ -253,26 +252,17 @@
         .staff-link { text-decoration: none; font-weight: 500; font-size: 0.75rem; padding: 5px 10px;}
 
         /* --- SOLUCIÓN PARA PC (GRID VIEW) --- */
-        /* En pantallas medianas y grandes, cambiamos de scroll a GRID */
         @media (min-width: 768px) {
             .scrolling-wrapper {
-                flex-wrap: wrap; /* Permitir que bajen a nueva línea */
-                overflow-x: visible; /* Quitar scroll horizontal */
+                flex-wrap: wrap; 
+                overflow-x: visible; 
                 display: grid;
-                /* Crear columnas automáticas de mínimo 280px */
                 grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); 
-                gap: 25px; /* Espacio entre tarjetas */
-                padding-right: 0; /* Ajuste de padding */
+                gap: 25px; 
+                padding-right: 0; 
             }
-            
-            .card-premium {
-                width: 100% !important; /* Llenar la celda del grid */
-                margin-right: 0;
-            }
-            
-            .card-img-wrapper {
-                height: 220px; /* Un poco más altas para aprovechar espacio */
-            }
+            .card-premium { width: 100% !important; margin-right: 0; }
+            .card-img-wrapper { height: 220px; }
         }
     </style>
 </head>
@@ -394,7 +384,6 @@
                                             {% if extra.disponible %}
                                             <div class="mb-2">
                                                 <input type="checkbox" name="extras" id="extra_{{ producto.id }}_{{ extra.id }}" value="{{ extra.id }}" class="extra-check-input">
-                                                
                                                 <label class="extra-check-label" for="extra_{{ producto.id }}_{{ extra.id }}">
                                                     <span class="extra-name">
                                                         <i class="bi bi-plus-circle me-2 small opacity-50"></i>{{ extra.nombre }}
@@ -484,7 +473,6 @@
             });
 
             // --- AUTO-RESET SCROLL DE DESCRIPCIONES ---
-            // 1. Cuando el mouse sale de la tarjeta (Desktop)
             const tarjetas = document.querySelectorAll('.card-premium');
             tarjetas.forEach(tarjeta => {
                 tarjeta.addEventListener('mouseleave', () => {
@@ -493,11 +481,9 @@
                 });
             });
 
-            // 2. Cuando se desliza el carrusel (Mobile)
             const carruseles = document.querySelectorAll('.scrolling-wrapper');
             carruseles.forEach(carrusel => {
                 carrusel.addEventListener('scroll', () => {
-                    // Pequeño delay para no molestar mientras deslizan
                     clearTimeout(carrusel.scrollTimeout);
                     carrusel.scrollTimeout = setTimeout(() => {
                         carrusel.querySelectorAll('.product-desc').forEach(txt => txt.scrollTop = 0);

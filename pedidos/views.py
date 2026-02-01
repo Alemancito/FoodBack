@@ -264,6 +264,13 @@ def eliminar_item_carrito(request, producto_id):
     return redirect('checkout')
 
 def checkout_view(request):
+    
+    # --- FILTRO DE SEGURIDAD: HORARIO (NUEVO) ---
+    abierto, mensaje = verificar_estado_negocio()
+    
+    if not abierto:
+        messages.error(request, f"⛔ El restaurante ha cerrado. {mensaje}")
+        return redirect('menu')
     cart = request.session.get('cart', {})
     
     if request.method == 'POST':

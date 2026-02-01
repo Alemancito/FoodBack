@@ -39,9 +39,13 @@
         .btn-confirm:disabled { background-color: #ccc; cursor: not-allowed; opacity: 0.7; }
         
         .btn-trash-premium { width: 30px; height: 30px; border-radius: 8px; background-color: transparent; color: #b0b0b0; display: flex; align-items: center; justify-content: center; border: 1px solid transparent; transition: all 0.2s ease; cursor: pointer; }
+        
+        /* SweetAlert Premium Estilos */
         .swal-premium-popup { border-radius: 24px !important; padding: 25px !important; font-family: 'Poppins', sans-serif !important; }
-        .swal-premium-confirm { border-radius: 12px !important; font-weight: 600 !important; padding: 12px 24px !important; background-color: #EF4444 !important; }
+        .swal-premium-title { font-size: 1.5rem !important; font-weight: 700 !important; color: #111827 !important; }
+        .swal-premium-confirm { border-radius: 12px !important; font-weight: 600 !important; padding: 12px 24px !important; background-color: #EF4444 !important; color: white !important; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3) !important; }
         .swal-premium-cancel { border-radius: 12px !important; font-weight: 600 !important; padding: 12px 24px !important; background-color: #f3f4f6 !important; color: #374151 !important; margin-right: 15px !important; }
+        .swal2-actions { gap: 10px !important; margin-top: 20px !important; }
     </style>
 </head>
 <body>
@@ -52,7 +56,7 @@
     </div>
 
     <div class="container px-3">
-        <div id="resumen-container">
+        <div id="seccion-carrito-padre">
             <div class="form-section-title">Tu Carrito</div>
             <div class="order-summary" id="resumen-carrito">
                 {% if items %}
@@ -95,10 +99,10 @@
         <div id="checkout-form-container" {% if not items %}style="display:none;"{% endif %}>
             <form method="POST" action="{% url 'checkout' %}" id="pedidoForm" novalidate> 
                 {% csrf_token %}
-                <div class="form-section-title">Contacto</div>
+                <div class="form-section-title">Información de contacto</div>
                 <div class="row g-2">
-                    <div class="col-6"><div class="form-floating mb-2"><input type="text" class="form-control" id="nombre" name="nombre" placeholder="N" required><label>Nombre</label></div></div>
-                    <div class="col-6"><div class="form-floating mb-2"><input type="text" class="form-control" id="apellido" name="apellido" placeholder="A" required><label>Apellido</label></div></div>
+                    <div class="col-6"><div class="form-floating mb-2"><input type="text" class="form-control" id="nombre" name="nombre" placeholder="Nombre" required><label>Nombre</label></div></div>
+                    <div class="col-6"><div class="form-floating mb-2"><input type="text" class="form-control" id="apellido" name="apellido" placeholder="Apellido" required><label>Apellido</label></div></div>
                     <div class="col-12">
                         <div class="mb-2 position-relative">
                             <input type="tel" id="phone_visual" class="form-control" placeholder="WhatsApp">
@@ -107,15 +111,15 @@
                     </div>
                 </div>
 
-                <div class="form-section-title">Entrega</div>
+                <div class="form-section-title">Lugar de Entrega</div>
                 <div class="mb-3">
                     <div class="form-floating mb-3">
-                        <textarea class="form-control" placeholder="D" id="direccion" name="direccion" style="height: 90px; resize: none;" required></textarea>
+                        <textarea class="form-control" placeholder="Dirección" id="direccion" name="direccion" style="height: 90px; resize: none;" required></textarea>
                         <label>Dirección exacta</label>
                     </div>
                     <div id="map-container"><div id="map"></div><div id="uber-pin" class="center-pin"><i class="bi bi-geo-alt-fill"></i></div></div>
                     <button type="button" class="btn btn-white border w-100 rounded-pill py-3 fw-semibold shadow-sm" onclick="detectarUbicacionInteligente(true)">
-                        <i class="bi bi-geo-alt-fill me-1 text-danger"></i> Mi ubicación actual
+                        <i class="bi bi-geo-alt-fill me-1 text-danger"></i> Usar mi ubicación actual
                     </button>
                     <div class="text-center mt-2">
                         <a href="#" class="text-muted small fw-600" data-bs-toggle="modal" data-bs-target="#helpGPSModal">
@@ -125,7 +129,7 @@
                     <input type="hidden" name="latitud" id="lat"><input type="hidden" name="longitud" id="lng">
                 </div>
 
-                <div class="form-section-title">Pago</div>
+                <div class="form-section-title">Método de Pago</div>
                 <label class="w-100"><input type="radio" name="metodo_pago" value="EFECTIVO" class="payment-option" checked onchange="actualizarTotal()"><div class="payment-card"><div>Efectivo</div><i class="bi bi-check-circle-fill fs-4 check-icon"></i></div></label>
                 <label class="w-100"><input type="radio" name="metodo_pago" value="TARJETA" class="payment-option" onchange="actualizarTotal()"><div class="payment-card"><div>Tarjeta (+5%)</div><i class="bi bi-check-circle-fill fs-4 check-icon"></i></div></label>
 
@@ -143,8 +147,8 @@
                 <div class="modal-body">
                     <ul class="nav nav-pills nav-fill mb-3"><li class="nav-item"><button class="nav-link active rounded-pill" data-bs-toggle="pill" data-bs-target="#tab-iphone">iPhone</button></li><li class="nav-item"><button class="nav-link rounded-pill" data-bs-toggle="pill" data-bs-target="#tab-android">Android</button></li></ul>
                     <div class="tab-content pt-2">
-                        <div class="tab-pane fade show active" id="tab-iphone"><p class="small">1. Toca <b>"AA"</b> en Safari.<br>2. Configuración del sitio web.<br>3. Cambia Ubicación a <b>Permitir</b>.</p></div>
-                        <div class="tab-pane fade" id="tab-android"><p class="small">1. Activa el GPS del móvil.<br>2. Toca el candado en el navegador.<br>3. Activa los permisos de ubicación.</p></div>
+                        <div class="tab-pane fade show active" id="tab-iphone"><p class="small text-muted">1. Toca <b>"AA"</b> en Safari.<br>2. Configuración del sitio web.<br>3. Cambia Ubicación a <b>Permitir</b>.</p></div>
+                        <div class="tab-pane fade" id="tab-android"><p class="small text-muted">1. Activa el GPS del móvil.<br>2. Toca el candado junto a la URL.<br>3. Activa permisos de ubicación.</p></div>
                     </div>
                 </div>
             </div>
@@ -193,21 +197,47 @@
                     if(manual) Swal.close(); 
                     map.setCenter(p); map.setZoom(17); 
                 },
-                (error) => { if(manual) { Swal.close(); Swal.fire({ title: 'Aviso', text: 'Activa el GPS en ajustes.', icon: 'info' }); } },
+                (error) => { if(manual) { Swal.close(); Swal.fire({ title: 'Aviso', text: 'Activa el GPS.', icon: 'info' }); } },
                 { enableHighAccuracy: true, timeout: 10000 }
             );
         }
 
         function borrarItemSinRecargar(key) {
-            Swal.fire({ title: '¿Eliminar?', icon: 'warning', showCancelButton: true, confirmButtonText: 'Sí', cancelButtonText: 'No', customClass: { popup: 'swal-premium-popup', confirmButton: 'swal-premium-confirm', cancelButton: 'swal-premium-cancel' }, buttonsStyling: false })
+            Swal.fire({ 
+                title: '¿Eliminar producto?', 
+                icon: 'warning', 
+                showCancelButton: true, 
+                confirmButtonText: 'Sí, eliminar', 
+                cancelButtonText: 'Cancelar', 
+                customClass: { 
+                    popup: 'swal-premium-popup', 
+                    title: 'swal-premium-title',
+                    confirmButton: 'swal-premium-confirm', 
+                    cancelButton: 'swal-premium-cancel',
+                    actions: 'swal2-actions'
+                }, 
+                buttonsStyling: false 
+            })
             .then((result) => {
                 if (result.isConfirmed) {
                     fetch(`/eliminar-item/${key}/`, { method: 'GET', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
                     .then(response => response.json())
                     .then(data => {
                         if(data.status === 'ok') {
-                            if(data.vacio) { window.location.reload(); } // Recarga para mostrar carrito vacío original
-                            else { document.getElementById('resumen-carrito').innerHTML = data.html; precioBaseGlobal = data.total; actualizarTotal(); }
+                            if(data.vacio) { 
+                                // CAMBIO AQUÍ: En lugar de reload, manipulamos el DOM
+                                document.getElementById('checkout-form-container').style.display = 'none';
+                                document.getElementById('resumen-carrito').innerHTML = `
+                                    <div class="text-center py-4">
+                                        <i class="bi bi-cart-x fs-1 text-muted opacity-50"></i>
+                                        <p class="mt-2 text-muted">Tu carrito está vacío.</p>
+                                        <a href="/menu/" class="btn btn-sm btn-outline-dark rounded-pill px-3">Ir al Menú</a>
+                                    </div>`;
+                            } else { 
+                                document.getElementById('resumen-carrito').innerHTML = data.html; 
+                                precioBaseGlobal = data.total; 
+                                actualizarTotal(); 
+                            }
                         }
                     });
                 }

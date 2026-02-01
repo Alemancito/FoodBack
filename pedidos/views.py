@@ -487,39 +487,76 @@ def pagar_wompi_view(request, pedido_id):
 def wompi_respuesta_view(request):
     pedido_ref = request.GET.get('pedido_ref')
     id_transaccion = request.GET.get('idTransaccion') 
-    es_aprobada = request.GET.get('esAprobada') 
     
     print(f"📡 Wompi Retorno -> Pedido: {pedido_ref}, Transaccion: {id_transaccion}")
 
-    if pedido_ref:
-        pedido = get_object_or_404(Pedido, id=pedido_ref)
+    if not pedido_ref or not id_transaccion:
+        messages.error(request, "Datos de pago incompletos.")
+        return redirect('menu')
+
+    pedido = get_object_or_404(Pedido, id=pedido_ref)
+
+    # --- 1. MEMORIA DEL PERFIL ---
+    request.session['ultimo_pedido_id'] = pedido.id
+    historial = request.session.get('historial_pedidos', [])
+    if pedido.id not in historial:
+        historial.append(pedido.id)
+    request.session['historial_pedidos'] = historial
+    # -----------------------------
+
+    # --- 2. VALIDACIÓN DE SEGURIDAD (SERVER-TO-SERVER) ---
+    # No confiamos en la URL, preguntamos a Wompi directamente.
+    
+    CLIENT_ID = config('WOMPI_APP_ID')
+    CLIENT_SECRET = config('WOMPI_API_SECRET')
+    AUTH_URL = config('WOMPI_AUTH_URL', default='https://id.wompi.sv/connect/token')
+    
+    # URL para consultar la transacción específica (Ajusta si la doc de Wompi SV indica otra ruta)
+    # Generalmente es: https://api.wompi.sv/Transacciones/{id}
+    VALIDATION_URL = f"https://api.wompi.sv/Transacciones/{id_transaccion}"
+
+    try:
+        # A) Obtener Token de Acceso (Igual que al pagar)
+        auth_payload = {
+            'grant_type': 'client_credentials',
+            'client_id': CLIENT_ID,
+            'client_secret': CLIENT_SECRET,
+            'audience': 'wompi_api'
+        }
+        auth_response = requests.post(AUTH_URL, data=auth_payload)
         
-        # --- MEMORIA DEL PERFIL (HISTORIAL) ---
-        request.session['ultimo_pedido_id'] = pedido.id
-        
-        historial = request.session.get('historial_pedidos', [])
-        if pedido.id not in historial:
-            historial.append(pedido.id)
-        request.session['historial_pedidos'] = historial
-        # --------------------------------------
-        
-        if id_transaccion: 
-            if pedido.estado == 'PENDIENTE':
-                pedido.estado = 'RECIBIDO'
-                pedido.save()
-            messages.success(request, f"¡Pago Confirmado! Referencia: {id_transaccion[:8]}")
-            return redirect('order_tracker', pedido_id=pedido.id)
+        if auth_response.status_code != 200:
+            raise Exception("Error autenticando con Wompi para validación.")
             
-        elif es_aprobada and str(es_aprobada).lower() in ['true', '1']:
+        token = auth_response.json().get('access_token')
+        
+        # B) Consultar el estado REAL de la transacción
+        headers = { 'Authorization': f'Bearer {token}' }
+        validation_response = requests.get(VALIDATION_URL, headers=headers)
+        
+        if validation_response.status_code != 200:
+            raise Exception("No se encontró la transacción en Wompi.")
+            
+        data_wompi = validation_response.json()
+        
+        # C) Verificar si Wompi dice que es verdadera y aprobada
+        # Wompi suele devolver un campo 'esAprobada': true o false
+        es_realmente_aprobada = data_wompi.get('esAprobada') == True
+        
+        if es_realmente_aprobada:
             if pedido.estado == 'PENDIENTE':
                 pedido.estado = 'RECIBIDO'
                 pedido.save()
+            messages.success(request, f"¡Pago Verificado! Ref: {id_transaccion[:8]}")
             return redirect('order_tracker', pedido_id=pedido.id)
         else:
-            messages.error(request, "Error al verificar el pago.")
+            messages.error(request, "El pago no fue aprobado por el banco.")
             return redirect('menu')
-            
-    return redirect('menu')
+
+    except Exception as e:
+        print(f"⚠️ Alerta de Seguridad o Error Wompi: {e}")
+        messages.error(request, "No pudimos verificar el pago. Contacta soporte.")
+        return redirect('menu')
 
 def pedido_exito_view(request, pedido_id):
     return redirect('order_tracker', pedido_id=pedido_id)

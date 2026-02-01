@@ -370,8 +370,8 @@
                                         <p class="text-muted small mb-2 fw-bold">Elige tu estilo:</p>
                                         {% for opcion in producto.opciones.all %}
                                             {% if opcion.disponible %}
-                                            <input type="radio" name="opcion_id" id="opcion_{{ opcion.id }}" value="{{ opcion.id }}" class="option-radio" {% if forloop.first %}checked{% endif %} required>
-                                            <label for="opcion_{{ opcion.id }}" class="option-label">
+                                            <input type="radio" name="opcion_id" id="opcion_{{ producto.id }}_{{ opcion.id }}" value="{{ opcion.id }}" class="option-radio" {% if forloop.first %}checked{% endif %} required>
+                                            <label for="opcion_{{ producto.id }}_{{ opcion.id }}" class="option-label">
                                                 <div class="d-flex align-items-center">
                                                     <div class="option-circle"></div>
                                                     <span class="fw-semibold">{{ opcion.nombre }}</span>
@@ -393,9 +393,9 @@
                                         {% for extra in producto.extras.all %}
                                             {% if extra.disponible %}
                                             <div class="mb-2">
-                                                <input type="checkbox" name="extras" id="extra_{{ extra.id }}" value="{{ extra.id }}" class="extra-check-input">
+                                                <input type="checkbox" name="extras" id="extra_{{ producto.id }}_{{ extra.id }}" value="{{ extra.id }}" class="extra-check-input">
                                                 
-                                                <label class="extra-check-label" for="extra_{{ extra.id }}">
+                                                <label class="extra-check-label" for="extra_{{ producto.id }}_{{ extra.id }}">
                                                     <span class="extra-name">
                                                         <i class="bi bi-plus-circle me-2 small opacity-50"></i>{{ extra.nombre }}
                                                     </span>

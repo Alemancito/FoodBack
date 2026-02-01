@@ -26,7 +26,21 @@
         .iti__country-list { z-index: 9999 !important; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); border: none; }
         input#phone_visual { border-radius: 16px; border: 1px solid #e5e7eb; background-color: #fff; padding-top: 10px; padding-bottom: 10px; height: 58px; }
         .form-section-title { font-size: 0.9rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin: 30px 0 15px 0; opacity: 0.6; }
-        #map { width: 100%; height: 250px; border-radius: var(--card-radius); margin-bottom: 10px; border: 1px solid #eee; background-color: #e9ecef; }
+        
+        /* Contenedor Mapa Estilo Uber */
+        #map-container { position: relative; width: 100%; height: 250px; border-radius: var(--card-radius); overflow: hidden; border: 1px solid #eee; margin-bottom: 10px; }
+        #map { width: 100%; height: 100%; background-color: #e9ecef; }
+        .center-pin {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -100%);
+            z-index: 10;
+            pointer-events: none;
+            display: none;
+        }
+        .center-pin i { font-size: 45px; color: var(--color-accent); text-shadow: 0 4px 8px rgba(0,0,0,0.2); }
+
         .payment-option { display: none; }
         .payment-card { border: 1px solid #eee; border-radius: 15px; padding: 15px; cursor: pointer; transition: all 0.2s; background: white; display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
         .payment-option:checked + .payment-card { border-color: var(--color-accent); background-color: #fff5f0; box-shadow: 0 4px 12px rgba(211, 84, 0, 0.15); }
@@ -34,16 +48,14 @@
         .check-icon { display: none; }
         .total-bar { position: fixed; bottom: 0; left: 0; width: 100%; background: white; padding: 20px; border-top-left-radius: 25px; border-top-right-radius: 25px; box-shadow: 0 -5px 20px rgba(0,0,0,0.05); z-index: 1050; }
         .btn-confirm { background-color: var(--color-dark); color: white; width: 100%; padding: 15px; border-radius: 15px; font-weight: 600; border: none; font-size: 1.1rem; transition: background 0.3s; }
-        .btn-confirm:disabled { background-color: #ccc; cursor: not-allowed; }
+        .btn-confirm:disabled { background-color: #ccc; cursor: not-allowed; opacity: 0.7; }
         
         .btn-trash-premium { width: 30px; height: 30px; border-radius: 8px; background-color: transparent; color: #b0b0b0; display: flex; align-items: center; justify-content: center; border: 1px solid transparent; transition: all 0.2s ease; cursor: pointer; }
         .btn-trash-premium:active, .btn-trash-premium:hover { background-color: #FEF2F2; color: #EF4444; border-color: #FEE2E2; }
         
         .swal-premium-popup { border-radius: 24px !important; padding: 25px !important; font-family: 'Poppins', sans-serif !important; }
-        .swal-premium-title { font-size: 1.5rem !important; font-weight: 700 !important; color: #111827 !important; }
-        .swal-premium-confirm { border-radius: 12px !important; font-weight: 600 !important; padding: 12px 24px !important; background-color: #EF4444 !important; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3) !important; }
+        .swal-premium-confirm { border-radius: 12px !important; font-weight: 600 !important; padding: 12px 24px !important; background-color: #EF4444 !important; }
         .swal-premium-cancel { border-radius: 12px !important; font-weight: 600 !important; padding: 12px 24px !important; background-color: #f3f4f6 !important; color: #374151 !important; margin-right: 15px !important; }
-        .swal2-actions { gap: 10px !important; margin-top: 20px !important; }
     </style>
 </head>
 <body>
@@ -91,7 +103,7 @@
                         
                         <div class="d-flex justify-content-between align-items-center mt-2">
                             <span class="badge bg-light text-dark border px-2">Cant: {{ item.cantidad }}</span>
-                            <button onclick="borrarItemSinRecargar('{{ item.key }}')" class="btn-trash-premium">
+                            <button type="button" onclick="borrarItemSinRecargar('{{ item.key }}')" class="btn-trash-premium">
                                 <i class="bi bi-trash"></i>
                             </button>
                         </div>
@@ -110,7 +122,7 @@
                     <a href="{% url 'menu' %}" class="btn btn-sm btn-outline-dark rounded-pill px-3">Ir al Menú</a>
                 </div>
             {% endif %}
-            </div>
+        </div>
 
         <div id="checkout-form-container" {% if not items %}style="display:none;"{% endif %}>
             <form method="POST" action="{% url 'checkout' %}" id="pedidoForm" novalidate> 
@@ -145,10 +157,18 @@
                         <textarea class="form-control" placeholder="Dirección" id="direccion" name="direccion" style="height: 90px; resize: none;" required></textarea>
                         <label>Dirección exacta (Casa #, Calle, Color)</label>
                     </div>
-                    <div id="map"></div>
+
+                    <div id="map-container">
+                        <div id="map"></div>
+                        <div id="uber-pin" class="center-pin">
+                            <i class="bi bi-geo-alt-fill"></i>
+                        </div>
+                    </div>
+
                     <button type="button" class="btn btn-white border w-100 rounded-pill mb-2 py-3 fw-semibold text-dark shadow-sm" onclick="detectarUbicacionInteligente(true)">
                         <i class="bi bi-geo-alt-fill me-1 text-danger"></i> Usar mi ubicación actual
                     </button>
+                    
                     <input type="hidden" name="latitud" id="lat">
                     <input type="hidden" name="longitud" id="lng">
                 </div>
@@ -181,7 +201,7 @@
                     <small id="aviso-comision" class="text-danger fw-bold d-none d-block mb-3 text-center bg-danger-subtle py-1 px-3 rounded-pill mx-auto" style="font-size: 0.75rem; width: fit-content;">
                         <i class="bi bi-info-circle me-1"></i> Incluye cargo por servicio digital
                     </small>
-                    <button type="submit" class="btn-confirm">
+                    <button type="submit" class="btn-confirm" id="btn-finalizar" disabled>
                         <span>Realizar Pedido</span>
                         <span id="total-display">${{ total_productos }}</span>
                     </button>
@@ -196,7 +216,6 @@
                 <span class="visually-hidden">Cargando...</span>
             </div>
             <h4 class="mt-4 fw-bold text-dark">Procesando tu pedido...</h4>
-            <p class="text-muted small">Por favor, no cierres esta ventana.</p>
         </div>
     </div>
 
@@ -205,106 +224,154 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/intl-tel-input/17.0.8/js/intlTelInput.min.js"></script>
     <script src="https://maps.googleapis.com/maps/api/js?key={{ GOOGLE_MAPS_API_KEY }}&libraries=places&callback=initMap" async defer></script>
 
-<script>
-    let map, marker, autocomplete;
-    const DEFAULT_SV = { lat: 13.6929, lng: -89.2182 };
+    <script>
+        let map, autocomplete;
+        let precioBaseGlobal = parseFloat("{{ total_productos|default:0 }}");
+        let iti;
+        const DEFAULT_SV = { lat: 13.6929, lng: -89.2182 };
 
-    function initMap() {
-        const mapElement = document.getElementById("map");
-        if (!mapElement) return;
-
-        map = new google.maps.Map(mapElement, { 
-            zoom: 15, 
-            center: DEFAULT_SV, 
-            disableDefaultUI: true, 
-            zoomControl: true 
-        });
-
-        marker = new google.maps.Marker({ 
-            position: DEFAULT_SV, 
-            map: map, 
-            draggable: true, 
-            animation: google.maps.Animation.DROP 
-        });
-
-        // 1. AUTOCOMPLETADO (La solución para PC y Direcciones escritas)
-        const inputDireccion = document.getElementById("direccion");
-        autocomplete = new google.maps.places.Autocomplete(inputDireccion, {
-            componentRestrictions: { country: "sv" }, // Restringido a El Salvador
-            fields: ["geometry", "formatted_address"]
-        });
-
-        autocomplete.addListener("place_changed", () => {
-            const place = autocomplete.getPlace();
-            if (!place.geometry) return;
-
-            map.setCenter(place.geometry.location);
-            marker.setPosition(place.geometry.location);
-            map.setZoom(17);
-            updatePosition(place.geometry.location);
-        });
-
-        // Eventos del marcador
-        marker.addListener("dragend", () => updatePosition(marker.getPosition()));
-        map.addListener("click", (e) => {
-            marker.setPosition(e.latLng);
-            updatePosition(e.latLng);
-        });
-
-        detectarUbicacionInteligente(false);
-    }
-
-    function updatePosition(latLng) {
-        document.getElementById("lat").value = latLng.lat();
-        document.getElementById("lng").value = latLng.lng();
-    }
-
-    // GPS DE ALTA PRECISIÓN PARA MÓVILES
-    function detectarUbicacionInteligente(manual) {
-        if (!navigator.geolocation) {
-            if(manual) alert("Tu navegador no soporta GPS.");
-            return;
-        }
-
-        if(manual) {
-            Swal.fire({
-                title: 'Buscando satélites...',
-                text: 'Esto puede tardar unos segundos en interiores.',
-                allowOutsideClick: false,
-                didOpen: () => { Swal.showLoading() }
+        // --- CONFIG TELÉFONO ---
+        const phoneInput = document.querySelector("#phone_visual");
+        if(phoneInput){
+            iti = window.intlTelInput(phoneInput, {
+                utilsScript: "https://cdnjs.cloudflare.com/ajax/libs/intl-tel-input/17.0.8/js/utils.js",
+                preferredCountries: ["sv", "gt", "us"],
+                separateDialCode: true,
+                initialCountry: "sv", 
             });
         }
 
-        navigator.geolocation.getCurrentPosition(
-            (pos) => {
-                const p = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-                if(manual) Swal.close();
-                
-                map.setCenter(p);
-                marker.setPosition(p);
-                map.setZoom(17);
-                updatePosition(marker.getPosition());
+        // --- MAPA ---
+        function initMap() {
+            const mapElement = document.getElementById("map");
+            if (!mapElement) return;
 
-                if(manual) {
-                    Swal.fire({ icon: 'success', title: 'Ubicación GPS Exacta', timer: 2000, showConfirmButton: false });
+            map = new google.maps.Map(mapElement, { 
+                zoom: 15, 
+                center: DEFAULT_SV, 
+                disableDefaultUI: true, 
+                zoomControl: true,
+                gestureHandling: 'greedy' 
+            });
+
+            document.getElementById('uber-pin').style.display = 'block';
+
+            // Actualizar coordenadas cuando el mapa deja de moverse (Idle)
+            map.addListener("idle", () => {
+                const centro = map.getCenter();
+                // Solo activamos si el usuario movió el mapa o usó GPS
+                updatePosition(centro);
+            });
+
+            // Autocompletado
+            const inputDireccion = document.getElementById("direccion");
+            autocomplete = new google.maps.places.Autocomplete(inputDireccion, {
+                componentRestrictions: { country: "sv" },
+                fields: ["geometry", "formatted_address"]
+            });
+
+            autocomplete.addListener("place_changed", () => {
+                const place = autocomplete.getPlace();
+                if (!place.geometry) return;
+                map.setCenter(place.geometry.location);
+                map.setZoom(17);
+            });
+        }
+
+        function updatePosition(latLng) {
+            document.getElementById("lat").value = latLng.lat();
+            document.getElementById("lng").value = latLng.lng();
+            // Desbloqueamos el botón una vez el mapa tiene posición
+            document.getElementById('btn-finalizar').disabled = false;
+        }
+
+        function detectarUbicacionInteligente(manual) {
+            if (!navigator.geolocation) return;
+            if(manual) Swal.fire({ title: 'Buscando...', didOpen: () => Swal.showLoading() });
+
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    const p = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                    if(manual) Swal.close();
+                    map.setCenter(p);
+                    map.setZoom(17);
+                },
+                (error) => {
+                    if(manual) {
+                        Swal.close();
+                        Swal.fire({ title: 'GPS no detectado', text: 'Por favor, activa tu ubicación o mueve el mapa manualmente.', icon: 'info' });
+                    }
+                },
+                { enableHighAccuracy: true, timeout: 10000 }
+            );
+        }
+
+        // --- CARRITO Y TOTALES ---
+        function borrarItemSinRecargar(key) {
+            Swal.fire({
+                title: '¿Eliminar producto?',
+                text: "Se quitará de tu carrito.",
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonText: 'Sí, eliminar',
+                cancelButtonText: 'Cancelar',
+                customClass: { popup: 'swal-premium-popup', confirmButton: 'swal-premium-confirm', cancelButton: 'swal-premium-cancel' },
+                buttonsStyling: false
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    fetch(`/eliminar-item/${key}/`, { 
+                        method: 'GET', 
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' } 
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if(data.status === 'ok') {
+                            document.getElementById('resumen-carrito').innerHTML = data.html;
+                            precioBaseGlobal = data.total;
+                            actualizarTotal();
+                            if(data.vacio) window.location.reload();
+                        }
+                    });
                 }
-            },
-            (error) => {
-                if(manual) {
-                    Swal.close();
-                    let msg = "No pudimos obtener GPS preciso. Por favor escribe tu dirección o mueve el pin.";
-                    if(error.code === 1) msg = "Debes permitir el acceso a la ubicación en tu navegador.";
-                    
-                    Swal.fire({ title: 'Aviso', text: msg, icon: 'info' });
+            });
+        }
+
+        function actualizarTotal() {
+            const radios = document.getElementsByName('metodo_pago');
+            let metodo = 'EFECTIVO';
+            for(let i = 0; i < radios.length; i++) { if(radios[i].checked) metodo = radios[i].value; }
+            const display = document.getElementById('total-display');
+            const aviso = document.getElementById('aviso-comision');
+            let totalFinal = precioBaseGlobal;
+            if (metodo === 'TARJETA') { totalFinal = precioBaseGlobal * 1.05; aviso.classList.remove('d-none'); } 
+            else { aviso.classList.add('d-none'); }
+            display.innerText = '$' + totalFinal.toFixed(2);
+        }
+
+        // --- VALIDACIÓN FORMULARIO ---
+        const form = document.getElementById('pedidoForm');
+        if (form) {
+            form.addEventListener('submit', function(event) {
+                event.preventDefault(); 
+                const nombre = document.getElementById('nombre').value.trim();
+                const direccion = document.getElementById('direccion').value.trim();
+                const lat = document.getElementById('lat').value;
+                
+                if (!nombre || !direccion || !lat) {
+                    Swal.fire({ title: 'Faltan datos', text: 'Asegúrate de poner tu nombre y marcar tu ubicación en el mapa.', icon: 'warning' });
+                    return;
                 }
-            },
-            {
-                enableHighAccuracy: true, // ESTO ACTIVA EL CHIP GPS DEL MÓVIL
-                timeout: 10000,           // Espera 10 segundos
-                maximumAge: 0             // No usar caché
-            }
-        );
-    }
-</script>
+
+                if (iti && !iti.isValidNumber()) {
+                    Swal.fire({ title: 'WhatsApp inválido', text: 'Revisa el número de teléfono.', icon: 'error' });
+                    return;
+                }
+
+                document.getElementById('loadingOverlay').classList.remove('d-none');
+                document.getElementById('telefono_real').value = iti ? iti.getNumber() : "";
+                form.submit();
+            });
+        }
+    </script>
 </body>
 </html>

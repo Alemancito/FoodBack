@@ -28,7 +28,7 @@
         .iti { width: 100%; }
         input#phone_visual { border-radius: 16px; border: 1px solid #e5e7eb; background-color: #fff; padding-top: 10px; padding-bottom: 10px; height: 58px; }
         
-        /* Mapa Uber */
+        /* Mapa Estilo Uber */
         #map-container { position: relative; width: 100%; height: 250px; border-radius: var(--card-radius); overflow: hidden; border: 1px solid #eee; margin-bottom: 10px; }
         #map { width: 100%; height: 100%; background-color: #e9ecef; }
         .center-pin { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -100%); z-index: 10; pointer-events: none; display: none; }
@@ -44,39 +44,21 @@
         .total-bar { position: fixed; bottom: 0; left: 0; width: 100%; background: white; padding: 20px; border-top-left-radius: 25px; border-top-right-radius: 25px; box-shadow: 0 -5px 20px rgba(0,0,0,0.05); z-index: 1050; }
         .btn-confirm { background-color: var(--color-dark); color: white; width: 100%; padding: 15px; border-radius: 15px; font-weight: 600; border: none; font-size: 1.1rem; transition: background 0.3s; }
         .btn-confirm:disabled { background-color: #ccc; cursor: not-allowed; opacity: 0.7; }
+        
         .btn-trash-premium { width: 30px; height: 30px; border-radius: 8px; background-color: transparent; color: #b0b0b0; display: flex; align-items: center; justify-content: center; border: 1px solid transparent; transition: all 0.2s ease; cursor: pointer; }
         
-        /* Estilos del Modal de Ayuda (Diseño Premium) */
-        .swal-premium-popup, .modal-content { border-radius: 24px !important; border: none; font-family: 'Poppins', sans-serif !important; }
-        .guide-step {
-            background: #fff;
-            border: 1px solid #eee;
-            border-left: 4px solid var(--color-accent);
-            border-radius: 12px;
-            padding: 15px;
-            margin-bottom: 12px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.03);
-            display: flex;
-            gap: 15px;
-            align-items: flex-start;
-        }
-        .step-number {
-            background: var(--color-accent);
-            color: white;
-            min-width: 24px;
-            height: 24px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 0.75rem;
-            font-weight: 700;
-            margin-top: 2px;
-        }
+        /* SweetAlert Premium */
+        .swal-premium-popup { border-radius: 24px !important; padding: 25px !important; font-family: 'Poppins', sans-serif !important; }
+        .swal-premium-title { font-size: 1.5rem !important; font-weight: 700 !important; color: #111827 !important; }
+        .swal-premium-confirm { border-radius: 12px !important; font-weight: 600 !important; padding: 12px 24px !important; background-color: #EF4444 !important; color: white !important; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3) !important; }
+        .swal-premium-cancel { border-radius: 12px !important; font-weight: 600 !important; padding: 12px 24px !important; background-color: #f3f4f6 !important; color: #374151 !important; margin-right: 15px !important; }
+        .swal2-actions { gap: 10px !important; margin-top: 20px !important; }
+
+        /* Estilos Guía de Pasos */
+        .guide-step { background: white; border: 1px solid #f0f0f0; border-left: 4px solid var(--color-accent); border-radius: 12px; padding: 12px 15px; margin-bottom: 10px; display: flex; align-items: flex-start; gap: 12px; box-shadow: 0 2px 5px rgba(0,0,0,0.02); }
+        .step-number { background: var(--color-accent); color: white; min-width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; margin-top: 2px; }
         .step-text { font-size: 0.9rem; color: #444; line-height: 1.4; }
         .step-text b { color: #000; }
-        
-        .swal-premium-confirm { background-color: #EF4444 !important; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3) !important; }
     </style>
 </head>
 <body>
@@ -98,6 +80,7 @@
                         {% else %}
                             <div class="item-img me-3 d-flex align-items-center justify-content-center text-muted"><i class="bi bi-image"></i></div>
                         {% endif %}
+                        
                         <div class="flex-grow-1">
                             <div class="d-flex justify-content-between align-items-start">
                                 <div>
@@ -118,6 +101,7 @@
                                 </div>
                                 <div class="text-end"><div class="fw-bold">${{ item.subtotal }}</div></div>
                             </div>
+                            
                             <div class="d-flex justify-content-between align-items-center mt-2">
                                 <span class="badge bg-light text-dark border px-2">Cant: {{ item.cantidad }}</span>
                                 <button type="button" onclick="borrarItemSinRecargar('{{ item.key }}')" class="btn-trash-premium"><i class="bi bi-trash"></i></button>
@@ -150,17 +134,16 @@
                         <div class="mb-2 position-relative">
                             <input type="tel" id="phone_visual" class="form-control" placeholder="WhatsApp">
                             <input type="hidden" id="telefono_real" name="telefono">
+                            <div id="phone-feedback" class="form-text text-danger d-none small ms-2"><i class="bi bi-exclamation-circle me-1"></i> Número inválido</div>
                         </div>
                     </div>
                 </div>
 
-                <div class="form-section-title">Entrega</div>
+                <div class="form-section-title">Lugar de Entrega</div>
                 <div class="mb-3">
                     <div class="form-floating mb-3"><textarea class="form-control" placeholder="Dirección" id="direccion" name="direccion" style="height: 90px; resize: none;" required></textarea><label>Dirección exacta</label></div>
                     <div id="map-container"><div id="map"></div><div id="uber-pin" class="center-pin"><i class="bi bi-geo-alt-fill"></i></div></div>
-                    <button type="button" class="btn btn-white border w-100 rounded-pill py-3 fw-semibold shadow-sm" onclick="detectarUbicacionInteligente(true)">
-                        <i class="bi bi-geo-alt-fill me-1 text-danger"></i> Usar mi ubicación actual
-                    </button>
+                    <button type="button" class="btn btn-white border w-100 rounded-pill py-3 fw-semibold shadow-sm" onclick="detectarUbicacionInteligente(true)"><i class="bi bi-geo-alt-fill me-1 text-danger"></i> Usar mi ubicación actual</button>
                     <div class="text-center mt-2">
                         <a href="#" class="text-muted small fw-600" data-bs-toggle="modal" data-bs-target="#helpGPSModal">
                             <i class="bi bi-question-circle me-1"></i> ¿Problemas con el GPS? Mira la ayuda
@@ -219,28 +202,14 @@
                     
                     <div class="tab-content">
                         <div class="tab-pane fade show active" id="tab-iphone">
-                            <div class="guide-step">
-                                <div class="step-number">1</div>
-                                <div class="step-text">Ve a la app de <b>Configuración</b> de tu iPhone.</div>
-                            </div>
-                            <div class="guide-step">
-                                <div class="step-number">2</div>
-                                <div class="step-text">En la lupa escribe <b>Localización</b> y selecciona la primera opción.</div>
-                            </div>
-                            <div class="guide-step">
-                                <div class="step-number">3</div>
-                                <div class="step-text">Baja hasta encontrar <b>Sitios web de Safari</b> (o Chrome).</div>
-                            </div>
-                            <div class="guide-step">
-                                <div class="step-number">4</div>
-                                <div class="step-text">Selecciona la opción <b>"Al usar la app"</b> o "Preguntar la próxima vez".</div>
-                            </div>
-                            <div class="guide-step">
-                                <div class="step-number">5</div>
-                                <div class="step-text">Asegúrate de que el switch <b>Ubicación Precisa</b> esté encendido.</div>
-                            </div>
-                            <div class="alert alert-warning small border-0 text-dark">
-                                <i class="bi bi-info-circle-fill me-1"></i> Vuelve aquí y presiona el botón negro de abajo.
+                            <div class="guide-step"><div class="step-number">1</div><div class="step-text">Ve a la app de <b>Configuración</b> ⚙️ de tu iPhone.</div></div>
+                            <div class="guide-step"><div class="step-number">2</div><div class="step-text">En la lupa 🔍 escribe <b>Localización</b> y selecciona la opción.</div></div>
+                            <div class="guide-step"><div class="step-number">3</div><div class="step-text">Baja y busca <b>Sitios web de Safari</b> (o Chrome).</div></div>
+                            <div class="guide-step"><div class="step-number">4</div><div class="step-text">Elige la opción <b>"Al usar la app"</b> o "Preguntar la próxima vez".</div></div>
+                            <div class="guide-step"><div class="step-number">5</div><div class="step-text">Asegúrate de que el switch <b>Ubicación Precisa</b> esté encendido ✅.</div></div>
+                            
+                            <div class="alert alert-warning small border-0 text-dark mt-3 mb-2">
+                                <i class="bi bi-info-circle-fill me-1"></i> Vuelve aquí y presiona el botón negro para aplicar cambios.
                             </div>
                             <button class="btn btn-dark w-100 rounded-pill py-3 fw-bold shadow-sm" onclick="location.reload()">
                                 <i class="bi bi-arrow-clockwise me-1"></i> Reintentar / Recargar
@@ -248,25 +217,25 @@
                         </div>
 
                         <div class="tab-pane fade" id="tab-android">
-                            <div class="guide-step">
-                                <div class="step-number">1</div>
-                                <div class="step-text">Desliza la barra superior y activa el <b>GPS / Ubicación</b>.</div>
-                            </div>
-                            <div class="guide-step">
-                                <div class="step-number">2</div>
-                                <div class="step-text">Toca el ícono de <b>candado</b> 🔒 junto a la dirección web arriba.</div>
-                            </div>
-                            <div class="guide-step">
-                                <div class="step-number">3</div>
-                                <div class="step-text">Entra en <b>Permisos</b> y activa el interruptor de Ubicación.</div>
-                            </div>
-                            <button class="btn btn-dark w-100 rounded-pill py-3 fw-bold shadow-sm mt-2" onclick="location.reload()">
+                            <div class="guide-step"><div class="step-number">1</div><div class="step-text">Desliza la barra superior y activa el <b>GPS / Ubicación</b> 📍.</div></div>
+                            <div class="guide-step"><div class="step-number">2</div><div class="step-text">Toca el ícono de <b>candado</b> 🔒 junto a la dirección web arriba.</div></div>
+                            <div class="guide-step"><div class="step-number">3</div><div class="step-text">Entra en <b>Permisos</b> y activa el interruptor de Ubicación.</div></div>
+                            <button class="btn btn-dark w-100 rounded-pill py-3 fw-bold shadow-sm mt-3" onclick="location.reload()">
                                 <i class="bi bi-arrow-clockwise me-1"></i> Recargar Página
                             </button>
                         </div>
                     </div>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <div id="loadingOverlay" class="d-none position-fixed top-0 start-0 w-100 h-100 bg-white d-flex justify-content-center align-items-center" style="z-index: 9999; opacity: 0.95;">
+        <div class="text-center">
+            <div class="spinner-border" role="status" style="width: 4rem; height: 4rem; color: var(--color-accent);">
+                <span class="visually-hidden">Cargando...</span>
+            </div>
+            <h4 class="mt-4 fw-bold text-dark">Procesando tu pedido...</h4>
         </div>
     </div>
 
@@ -369,9 +338,36 @@
         const phoneVisual = document.querySelector("#phone_visual");
         if(phoneVisual) { iti = window.intlTelInput(phoneVisual, { utilsScript: "https://cdnjs.cloudflare.com/ajax/libs/intl-tel-input/17.0.8/js/utils.js", preferredCountries: ["sv"], separateDialCode: true, initialCountry: "sv" }); }
         
+        // RECUPERADO: Validación estricta del formulario
         document.getElementById('pedidoForm').addEventListener('submit', function(e) {
             e.preventDefault();
-            if (!document.getElementById('lat').value) { Swal.fire({ text: 'Por favor, mueve el mapa para marcar tu ubicación exacta.', icon: 'warning', confirmButtonColor: '#D35400' }); return; }
+            
+            const nombre = document.getElementById('nombre').value.trim();
+            const apellido = document.getElementById('apellido').value.trim();
+            const direccion = document.getElementById('direccion').value.trim();
+            const lat = document.getElementById('lat').value;
+
+            // Filtro de campos vacíos
+            if (!nombre || !apellido || !direccion) {
+                Swal.fire({ title: 'Faltan datos', text: 'Por favor completa todos los campos de texto.', icon: 'warning', confirmButtonColor: '#D35400' });
+                return;
+            }
+
+            // Filtro de mapa
+            if (!lat) { 
+                Swal.fire({ text: 'Por favor, mueve el mapa para marcar tu ubicación exacta.', icon: 'warning', confirmButtonColor: '#D35400' }); 
+                return; 
+            }
+
+            // Filtro de teléfono
+            if (iti && !iti.isValidNumber()) {
+                document.getElementById("phone-feedback").classList.remove("d-none");
+                Swal.fire({ title: 'Teléfono inválido', text: 'Revisa el número de WhatsApp.', icon: 'error', confirmButtonColor: '#D35400' });
+                return;
+            } else {
+                document.getElementById("phone-feedback").classList.add("d-none");
+            }
+
             document.getElementById('telefono_real').value = iti.getNumber();
             
             // Bloqueo visual del botón

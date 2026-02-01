@@ -13,41 +13,70 @@
     <style>
         :root { --color-accent: #D35400; --color-dark: #1A1A1A; --color-gray: #888888; --color-bg: #FAFAFA; --card-radius: 20px; }
         body { background-color: var(--color-bg); font-family: 'Poppins', sans-serif; color: var(--color-dark); padding-bottom: 100px; }
+        
         .checkout-header { background: white; padding: 15px 20px; display: flex; align-items: center; gap: 15px; position: sticky; top: 0; z-index: 1000; box-shadow: 0 2px 10px rgba(0,0,0,0.03); }
         .btn-back { color: var(--color-dark); font-size: 1.2rem; text-decoration: none; }
+        .form-section-title { font-size: 0.9rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin: 30px 0 15px 0; opacity: 0.6; }
+        
         .order-summary { background: white; border-radius: var(--card-radius); padding: 20px; margin-top: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.03); }
         .item-row { display: flex; align-items: flex-start; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px dashed #eee; }
         .item-row:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
         .item-img { width: 60px; height: 60px; border-radius: 12px; object-fit: cover; background-color: #eee; flex-shrink: 0; }
+        
         .form-floating > .form-control { border-radius: 12px; border: 1px solid #eee; background-color: #fcfcfc; }
         .form-floating > .form-control:focus { border-color: var(--color-dark); box-shadow: none; }
         .iti { width: 100%; }
         input#phone_visual { border-radius: 16px; border: 1px solid #e5e7eb; background-color: #fff; padding-top: 10px; padding-bottom: 10px; height: 58px; }
-        .form-section-title { font-size: 0.9rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin: 30px 0 15px 0; opacity: 0.6; }
         
-        /* Mapa Uber Style */
+        /* Mapa Uber */
         #map-container { position: relative; width: 100%; height: 250px; border-radius: var(--card-radius); overflow: hidden; border: 1px solid #eee; margin-bottom: 10px; }
         #map { width: 100%; height: 100%; background-color: #e9ecef; }
         .center-pin { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -100%); z-index: 10; pointer-events: none; display: none; }
         .center-pin i { font-size: 45px; color: var(--color-accent); text-shadow: 0 4px 8px rgba(0,0,0,0.2); }
 
+        /* Tarjetas de Pago */
         .payment-option { display: none; }
         .payment-card { border: 1px solid #eee; border-radius: 15px; padding: 15px; cursor: pointer; transition: all 0.2s; background: white; display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
         .payment-option:checked + .payment-card { border-color: var(--color-accent); background-color: #fff5f0; box-shadow: 0 4px 12px rgba(211, 84, 0, 0.15); }
         .payment-option:checked + .payment-card .bi-check-circle-fill { color: var(--color-accent); display: block; }
+        .check-icon { display: none; }
 
         .total-bar { position: fixed; bottom: 0; left: 0; width: 100%; background: white; padding: 20px; border-top-left-radius: 25px; border-top-right-radius: 25px; box-shadow: 0 -5px 20px rgba(0,0,0,0.05); z-index: 1050; }
         .btn-confirm { background-color: var(--color-dark); color: white; width: 100%; padding: 15px; border-radius: 15px; font-weight: 600; border: none; font-size: 1.1rem; transition: background 0.3s; }
         .btn-confirm:disabled { background-color: #ccc; cursor: not-allowed; opacity: 0.7; }
-        
         .btn-trash-premium { width: 30px; height: 30px; border-radius: 8px; background-color: transparent; color: #b0b0b0; display: flex; align-items: center; justify-content: center; border: 1px solid transparent; transition: all 0.2s ease; cursor: pointer; }
         
-        /* SweetAlert Premium */
-        .swal-premium-popup { border-radius: 24px !important; padding: 25px !important; font-family: 'Poppins', sans-serif !important; }
-        .swal-premium-title { font-size: 1.5rem !important; font-weight: 700 !important; color: #111827 !important; }
-        .swal-premium-confirm { border-radius: 12px !important; font-weight: 600 !important; padding: 12px 24px !important; background-color: #EF4444 !important; color: white !important; }
-        .swal-premium-cancel { border-radius: 12px !important; font-weight: 600 !important; padding: 12px 24px !important; background-color: #f3f4f6 !important; color: #374151 !important; margin-right: 15px !important; }
-        .swal2-actions { gap: 10px !important; margin-top: 20px !important; }
+        /* Estilos del Modal de Ayuda (Diseño Premium) */
+        .swal-premium-popup, .modal-content { border-radius: 24px !important; border: none; font-family: 'Poppins', sans-serif !important; }
+        .guide-step {
+            background: #fff;
+            border: 1px solid #eee;
+            border-left: 4px solid var(--color-accent);
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.03);
+            display: flex;
+            gap: 15px;
+            align-items: flex-start;
+        }
+        .step-number {
+            background: var(--color-accent);
+            color: white;
+            min-width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+            font-weight: 700;
+            margin-top: 2px;
+        }
+        .step-text { font-size: 0.9rem; color: #444; line-height: 1.4; }
+        .step-text b { color: #000; }
+        
+        .swal-premium-confirm { background-color: #EF4444 !important; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3) !important; }
     </style>
 </head>
 <body>
@@ -113,60 +142,127 @@
         <div id="checkout-form-container" {% if not items %}style="display:none;"{% endif %}>
             <form method="POST" action="{% url 'checkout' %}" id="pedidoForm" novalidate> 
                 {% csrf_token %}
-                <div class="form-section-title">Información de contacto</div>
+                <div class="form-section-title">Contacto</div>
                 <div class="row g-2">
                     <div class="col-6"><div class="form-floating mb-2"><input type="text" class="form-control" id="nombre" name="nombre" placeholder="Nombre" required><label>Nombre</label></div></div>
                     <div class="col-6"><div class="form-floating mb-2"><input type="text" class="form-control" id="apellido" name="apellido" placeholder="Apellido" required><label>Apellido</label></div></div>
-                    <div class="col-12"><div class="mb-2 position-relative"><input type="tel" id="phone_visual" class="form-control" placeholder="WhatsApp"><input type="hidden" id="telefono_real" name="telefono"></div></div>
+                    <div class="col-12">
+                        <div class="mb-2 position-relative">
+                            <input type="tel" id="phone_visual" class="form-control" placeholder="WhatsApp">
+                            <input type="hidden" id="telefono_real" name="telefono">
+                        </div>
+                    </div>
                 </div>
 
-                <div class="form-section-title">Lugar de Entrega</div>
+                <div class="form-section-title">Entrega</div>
                 <div class="mb-3">
-                    <div class="form-floating mb-3"><textarea class="form-control" placeholder="D" id="direccion" name="direccion" style="height: 90px; resize: none;" required></textarea><label>Dirección exacta</label></div>
+                    <div class="form-floating mb-3"><textarea class="form-control" placeholder="Dirección" id="direccion" name="direccion" style="height: 90px; resize: none;" required></textarea><label>Dirección exacta</label></div>
                     <div id="map-container"><div id="map"></div><div id="uber-pin" class="center-pin"><i class="bi bi-geo-alt-fill"></i></div></div>
-                    <button type="button" class="btn btn-white border w-100 rounded-pill py-3 fw-semibold shadow-sm" onclick="detectarUbicacionInteligente(true)"><i class="bi bi-geo-alt-fill me-1 text-danger"></i> Usar mi ubicación actual</button>
-                    <div class="text-center mt-2"><a href="#" class="text-muted small fw-600" data-bs-toggle="modal" data-bs-target="#helpGPSModal"><i class="bi bi-question-circle me-1"></i> ¿Problemas con el GPS? Mira la ayuda</a></div>
+                    <button type="button" class="btn btn-white border w-100 rounded-pill py-3 fw-semibold shadow-sm" onclick="detectarUbicacionInteligente(true)">
+                        <i class="bi bi-geo-alt-fill me-1 text-danger"></i> Usar mi ubicación actual
+                    </button>
+                    <div class="text-center mt-2">
+                        <a href="#" class="text-muted small fw-600" data-bs-toggle="modal" data-bs-target="#helpGPSModal">
+                            <i class="bi bi-question-circle me-1"></i> ¿Problemas con el GPS? Mira la ayuda
+                        </a>
+                    </div>
                     <input type="hidden" name="latitud" id="lat"><input type="hidden" name="longitud" id="lng">
                 </div>
 
                 <div class="form-section-title">Método de Pago</div>
-                <label class="w-100"><input type="radio" name="metodo_pago" value="EFECTIVO" class="payment-option" checked onchange="actualizarTotal()"><div class="payment-card"><div class="d-flex align-items-center gap-3"><i class="bi bi-cash-coin fs-4 text-success"></i><div><div class="fw-bold">Efectivo</div><small class="text-muted">Pagas al recibir</small></div></div><i class="bi bi-check-circle-fill fs-4 check-icon"></i></div></label>
-                <label class="w-100"><input type="radio" name="metodo_pago" value="TARJETA" class="payment-option" onchange="actualizarTotal()"><div class="payment-card"><div class="d-flex align-items-center gap-3"><i class="bi bi-credit-card-2-front fs-4 text-primary"></i><div><div class="fw-bold">Tarjeta / Wompi</div><small class="text-muted">+5% Servicio Digital</small></div></div><i class="bi bi-check-circle-fill fs-4 check-icon"></i></div></label>
+                <label class="w-100">
+                    <input type="radio" name="metodo_pago" value="EFECTIVO" class="payment-option" checked onchange="actualizarTotal()">
+                    <div class="payment-card">
+                        <div class="d-flex align-items-center gap-3">
+                            <i class="bi bi-cash-coin fs-4 text-success"></i>
+                            <div><div class="fw-bold">Efectivo</div><small class="text-muted">Pagas al recibir</small></div>
+                        </div>
+                        <i class="bi bi-check-circle-fill fs-4 check-icon"></i>
+                    </div>
+                </label>
+                <label class="w-100">
+                    <input type="radio" name="metodo_pago" value="TARJETA" class="payment-option" onchange="actualizarTotal()">
+                    <div class="payment-card">
+                        <div class="d-flex align-items-center gap-3">
+                            <i class="bi bi-credit-card-2-front fs-4 text-primary"></i>
+                            <div><div class="fw-bold">Tarjeta / Wompi</div><small class="text-muted" style="color: var(--color-accent);">+5% Servicio Digital</small></div>
+                        </div>
+                        <i class="bi bi-check-circle-fill fs-4 check-icon"></i>
+                    </div>
+                </label>
 
                 <div class="total-bar">
-                    <button type="submit" class="btn-confirm" id="btn-finalizar" disabled>Realizar Pedido <span id="total-display">${{ total_productos }}</span></button>
+                    <small id="aviso-comision" class="text-danger fw-bold d-none d-block mb-3 text-center bg-danger-subtle py-1 px-3 rounded-pill mx-auto" style="font-size: 0.75rem; width: fit-content;">
+                        <i class="bi bi-info-circle me-1"></i> Incluye cargo por servicio digital
+                    </small>
+                    <button type="submit" class="btn-confirm" id="btn-finalizar" disabled>
+                        <span>Realizar Pedido</span>
+                        <span id="total-display">${{ total_productos }}</span>
+                    </button>
                 </div>
             </form>
         </div>
     </div>
 
     <div class="modal fade" id="helpGPSModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content swal-premium-popup" style="border:none;">
-                <div class="modal-header border-0 pb-0"><h5 class="fw-bold m-0">Pasos para activar GPS</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-                <div class="modal-body pt-3">
-                    <ul class="nav nav-pills nav-fill mb-3"><li class="nav-item"><button class="nav-link active rounded-pill" data-bs-toggle="pill" data-bs-target="#tab-iphone">iPhone / iOS</button></li><li class="nav-item"><button class="nav-link rounded-pill" data-bs-toggle="pill" data-bs-target="#tab-android">Android / Otros</button></li></ul>
+        <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="fw-bold m-0">Activar Ubicación</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body pt-3 bg-light">
+                    <ul class="nav nav-pills nav-fill mb-3 bg-white p-1 rounded-pill border">
+                        <li class="nav-item"><button class="nav-link active rounded-pill" data-bs-toggle="pill" data-bs-target="#tab-iphone">iPhone / iOS</button></li>
+                        <li class="nav-item"><button class="nav-link rounded-pill" data-bs-toggle="pill" data-bs-target="#tab-android">Android</button></li>
+                    </ul>
+                    
                     <div class="tab-content">
                         <div class="tab-pane fade show active" id="tab-iphone">
-                            <ul class="list-unstyled">
-                                <li class="mb-3 d-flex align-items-start"><i class="bi bi-1-square-fill text-danger me-2 mt-1"></i> <span>Ve a tu aplicación de <b>Configuración</b>.</span></li>
-                                <li class="mb-3 d-flex align-items-start"><i class="bi bi-2-square-fill text-danger me-2 mt-1"></i> <span>En la lupa escribe <b>Localización</b>.</span></li>
-                                <li class="mb-3 d-flex align-items-start"><i class="bi bi-3-square-fill text-danger me-2 mt-1"></i> <span>Selecciona la opción <b>Localización</b> (exacta).</span></li>
-                                <li class="mb-3 d-flex align-items-start"><i class="bi bi-4-square-fill text-danger me-2 mt-1"></i> <span>Desliza hasta abajo y busca <b>Sitios web de Safari</b> (o el navegador que uses).</span></li>
-                                <li class="mb-3 d-flex align-items-start"><i class="bi bi-5-square-fill text-danger me-2 mt-1"></i> <span>Presiona la aplicación y verás 3 opciones.</span></li>
-                                <li class="mb-3 d-flex align-items-start"><i class="bi bi-6-square-fill text-danger me-2 mt-1"></i> <span>Elige <b>"Al usar la app"</b> o <b>"Preguntar la próxima vez"</b>.</span></li>
-                                <li class="mb-3 d-flex align-items-start"><i class="bi bi-7-square-fill text-danger me-2 mt-1"></i> <span>Activa el switch de <b>Ubicación Precisa</b>.</span></li>
-                                <li class="mb-3 d-flex align-items-start"><i class="bi bi-check-circle-fill text-success me-2 mt-1"></i> <span>Regresa aquí y presiona <b>Reintentar</b> para aplicar cambios.</span></li>
-                            </ul>
-                            <button class="btn btn-dark w-100 rounded-pill mt-2 fw-bold" onclick="location.reload()">Reintentar / Recargar</button>
+                            <div class="guide-step">
+                                <div class="step-number">1</div>
+                                <div class="step-text">Ve a la app de <b>Configuración</b> de tu iPhone.</div>
+                            </div>
+                            <div class="guide-step">
+                                <div class="step-number">2</div>
+                                <div class="step-text">En la lupa escribe <b>Localización</b> y selecciona la primera opción.</div>
+                            </div>
+                            <div class="guide-step">
+                                <div class="step-number">3</div>
+                                <div class="step-text">Baja hasta encontrar <b>Sitios web de Safari</b> (o Chrome).</div>
+                            </div>
+                            <div class="guide-step">
+                                <div class="step-number">4</div>
+                                <div class="step-text">Selecciona la opción <b>"Al usar la app"</b> o "Preguntar la próxima vez".</div>
+                            </div>
+                            <div class="guide-step">
+                                <div class="step-number">5</div>
+                                <div class="step-text">Asegúrate de que el switch <b>Ubicación Precisa</b> esté encendido.</div>
+                            </div>
+                            <div class="alert alert-warning small border-0 text-dark">
+                                <i class="bi bi-info-circle-fill me-1"></i> Vuelve aquí y presiona el botón negro de abajo.
+                            </div>
+                            <button class="btn btn-dark w-100 rounded-pill py-3 fw-bold shadow-sm" onclick="location.reload()">
+                                <i class="bi bi-arrow-clockwise me-1"></i> Reintentar / Recargar
+                            </button>
                         </div>
+
                         <div class="tab-pane fade" id="tab-android">
-                            <ul class="list-unstyled">
-                                <li class="mb-3 d-flex align-items-start"><i class="bi bi-geo-fill text-primary me-2"></i> <span>Activa el GPS/Ubicación en tu barra de notificaciones.</span></li>
-                                <li class="mb-3 d-flex align-items-start"><i class="bi bi-lock-fill text-primary me-2"></i> <span>Toca el <b>candado</b> junto a la dirección web.</span></li>
-                                <li class="mb-3 d-flex align-items-start"><i class="bi bi-shield-check text-primary me-2"></i> <span>Entra en Permisos y activa <b>Ubicación</b>.</span></li>
-                            </ul>
-                            <button class="btn btn-dark w-100 rounded-pill mt-2 fw-bold" onclick="location.reload()">Recargar Página</button>
+                            <div class="guide-step">
+                                <div class="step-number">1</div>
+                                <div class="step-text">Desliza la barra superior y activa el <b>GPS / Ubicación</b>.</div>
+                            </div>
+                            <div class="guide-step">
+                                <div class="step-number">2</div>
+                                <div class="step-text">Toca el ícono de <b>candado</b> 🔒 junto a la dirección web arriba.</div>
+                            </div>
+                            <div class="guide-step">
+                                <div class="step-number">3</div>
+                                <div class="step-text">Entra en <b>Permisos</b> y activa el interruptor de Ubicación.</div>
+                            </div>
+                            <button class="btn btn-dark w-100 rounded-pill py-3 fw-bold shadow-sm mt-2" onclick="location.reload()">
+                                <i class="bi bi-arrow-clockwise me-1"></i> Recargar Página
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -191,9 +287,11 @@
             map = new google.maps.Map(mapElement, { zoom: 15, center: DEFAULT_SV, disableDefaultUI: true, zoomControl: true, gestureHandling: 'greedy' });
             document.getElementById('uber-pin').style.display = 'block';
             map.addListener("idle", () => { updatePosition(map.getCenter()); });
+            
             const inputDir = document.getElementById("direccion");
             autocomplete = new google.maps.places.Autocomplete(inputDir, { componentRestrictions: { country: "sv" }, fields: ["geometry", "formatted_address"] });
             autocomplete.addListener("place_changed", () => { const place = autocomplete.getPlace(); if (place.geometry) { map.setCenter(place.geometry.location); map.setZoom(17); } });
+            
             detectarUbicacionInteligente(false);
         }
 
@@ -213,13 +311,13 @@
                         Swal.close();
                         Swal.fire({
                             title: 'GPS Desactivado',
-                            text: 'Sigue los pasos en el manual de ayuda para permitir el acceso.',
+                            text: 'El navegador no tiene permiso. Mira la guía de ayuda.',
                             icon: 'warning',
                             showCancelButton: true,
                             confirmButtonText: 'Ver pasos',
                             cancelButtonText: 'Cerrar',
                             confirmButtonColor: '#D35400',
-                            customClass: { popup: 'swal-premium-popup' }
+                            customClass: { popup: 'swal-premium-popup', confirmButton: 'swal-premium-confirm', cancelButton: 'swal-premium-cancel' }
                         }).then((result) => {
                             if (result.isConfirmed) {
                                 var myModal = new bootstrap.Modal(document.getElementById('helpGPSModal'));
@@ -252,16 +350,36 @@
 
         function actualizarTotal() {
             const radios = document.getElementsByName('metodo_pago');
-            let totalFinal = (radios[1].checked) ? precioBaseGlobal * 1.05 : precioBaseGlobal;
-            document.getElementById('total-display').innerText = '$' + totalFinal.toFixed(2);
+            let metodo = 'EFECTIVO';
+            for(let i = 0; i < radios.length; i++) { if(radios[i].checked) metodo = radios[i].value; }
+            
+            const display = document.getElementById('total-display');
+            const aviso = document.getElementById('aviso-comision');
+            let totalFinal = precioBaseGlobal;
+            
+            if (metodo === 'TARJETA') { 
+                totalFinal = precioBaseGlobal * 1.05; 
+                aviso.classList.remove('d-none'); 
+            } else { 
+                aviso.classList.add('d-none'); 
+            }
+            display.innerText = '$' + totalFinal.toFixed(2);
         }
 
         const phoneVisual = document.querySelector("#phone_visual");
         if(phoneVisual) { iti = window.intlTelInput(phoneVisual, { utilsScript: "https://cdnjs.cloudflare.com/ajax/libs/intl-tel-input/17.0.8/js/utils.js", preferredCountries: ["sv"], separateDialCode: true, initialCountry: "sv" }); }
+        
         document.getElementById('pedidoForm').addEventListener('submit', function(e) {
             e.preventDefault();
-            if (!document.getElementById('lat').value) { Swal.fire({ text: 'Mueve el mapa para marcar tu ubicación exacta.', icon: 'warning' }); return; }
+            if (!document.getElementById('lat').value) { Swal.fire({ text: 'Por favor, mueve el mapa para marcar tu ubicación exacta.', icon: 'warning', confirmButtonColor: '#D35400' }); return; }
             document.getElementById('telefono_real').value = iti.getNumber();
+            
+            // Bloqueo visual del botón
+            const btn = document.getElementById('btn-finalizar');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Procesando...';
+            document.getElementById('loadingOverlay').classList.remove('d-none');
+            
             this.submit();
         });
     </script>

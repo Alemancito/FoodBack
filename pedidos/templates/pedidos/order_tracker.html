@@ -227,8 +227,18 @@
                 <span class="item-qty">{{ item.cantidad }}x</span>
                 <span class="item-name">
                     {{ item.producto.nombre }}
+                    
                     {% if item.opcion %}
-                       <span style="color:var(--color-accent); font-size: 0.85rem;">({{ item.opcion.nombre }})</span>
+                        <span style="color:var(--color-accent); font-size: 0.85rem;">({{ item.opcion.nombre }})</span>
+                    {% endif %}
+
+                    {% if item.extras.all %}
+                        <br>
+                        <span style="font-size: 0.75rem; color: #888; font-weight: 400;">
+                            {% for extra in item.extras.all %}
+                                + {{ extra.nombre }}{% if not forloop.last %}<br>{% endif %}
+                            {% endfor %}
+                        </span>
                     {% endif %}
                 </span>
             </div>

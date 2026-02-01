@@ -141,7 +141,11 @@
 
                 <div class="form-section-title">Lugar de Entrega</div>
                 <div class="mb-3">
-                    <div class="form-floating mb-3"><textarea class="form-control" placeholder="Dirección" id="direccion" name="direccion" style="height: 90px; resize: none;" required></textarea><label>Dirección exacta</label></div>
+                    <div class="form-floating mb-3">
+                        <textarea class="form-control" placeholder="Ej: Casa color menta, frente al parque, portón negro..." id="direccion" name="direccion" style="height: 90px; resize: none;" required></textarea>
+                        <label>Referencias (Punto de referencia)</label>
+                    </div>
+                    
                     <div id="map-container"><div id="map"></div><div id="uber-pin" class="center-pin"><i class="bi bi-geo-alt-fill"></i></div></div>
                     <button type="button" class="btn btn-white border w-100 rounded-pill py-3 fw-semibold shadow-sm" onclick="detectarUbicacionInteligente(true)"><i class="bi bi-geo-alt-fill me-1 text-danger"></i> Usar mi ubicación actual</button>
                     <div class="text-center mt-2">
@@ -218,9 +222,8 @@
 
                         <div class="tab-pane fade" id="tab-android">
                             <div class="guide-step"><div class="step-number">1</div><div class="step-text">Desliza la barra superior (donde activas y desactivas el wifi) y activa la opcion <b>Ubicación</b> (<b>o GPS</b> dependiendo el modelo de dispositivo) 📍.</div></div>
-                            <div class="guide-step"><div class="step-number">2</div><div class="step-text">Asegurate de no estar utilizando ninguna app externa de <b>VPN / Firewall</b> 🔒  (sino has descargado esto o no sabes que es posiblemente no tengas una app de este estilo).</div></div>
+                            <div class="guide-step"><div class="step-number">2</div><div class="step-text">Asegurate de no estar utilizando ninguna app externa de <b>VPN / Firewall</b> 🔒  (sino has descargado esto o no sabes que es posiblemente no tengas una app de este estilo).</div></div>
                             <div class="guide-step"><div class="step-number">3</div><div class="step-text">Si al recargar la pagina te pide aceptar permitir la ubicacion presiona el boton <b>Aceptar</b> ✅.</div></div>
-
 
                             <div class="alert alert-warning small border-0 text-dark mt-3 mb-2">
                                 <i class="bi bi-info-circle-fill me-1"></i> Vuelve aquí y presiona el botón negro para aplicar cambios.
@@ -251,7 +254,7 @@
     <script src="https://maps.googleapis.com/maps/api/js?key={{ GOOGLE_MAPS_API_KEY }}&libraries=places&callback=initMap" async defer></script>
 
     <script>
-        let map, autocomplete;
+        let map;
         let precioBaseGlobal = parseFloat("{{ total_productos|default:0 }}");
         let iti;
         const DEFAULT_SV = { lat: 13.6929, lng: -89.2182 };
@@ -259,13 +262,13 @@
         function initMap() {
             const mapElement = document.getElementById("map");
             if (!mapElement) return;
+            
+            // Inicio del mapa SIN autocomplete vinculado al input de texto
             map = new google.maps.Map(mapElement, { zoom: 15, center: DEFAULT_SV, disableDefaultUI: true, zoomControl: true, gestureHandling: 'greedy' });
             document.getElementById('uber-pin').style.display = 'block';
-            map.addListener("idle", () => { updatePosition(map.getCenter()); });
             
-            const inputDir = document.getElementById("direccion");
-            autocomplete = new google.maps.places.Autocomplete(inputDir, { componentRestrictions: { country: "sv" }, fields: ["geometry", "formatted_address"] });
-            autocomplete.addListener("place_changed", () => { const place = autocomplete.getPlace(); if (place.geometry) { map.setCenter(place.geometry.location); map.setZoom(17); } });
+            // El mapa actualiza los inputs ocultos de lat/lng al moverse
+            map.addListener("idle", () => { updatePosition(map.getCenter()); });
             
             detectarUbicacionInteligente(false);
         }

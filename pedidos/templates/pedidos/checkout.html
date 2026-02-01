@@ -22,37 +22,23 @@
         .form-floating > .form-control { border-radius: 12px; border: 1px solid #eee; background-color: #fcfcfc; }
         .form-floating > .form-control:focus { border-color: var(--color-dark); box-shadow: none; }
         .iti { width: 100%; }
-        .iti__flag-container { border-top-left-radius: 12px; border-bottom-left-radius: 12px; }
-        .iti__country-list { z-index: 9999 !important; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); border: none; }
         input#phone_visual { border-radius: 16px; border: 1px solid #e5e7eb; background-color: #fff; padding-top: 10px; padding-bottom: 10px; height: 58px; }
         .form-section-title { font-size: 0.9rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin: 30px 0 15px 0; opacity: 0.6; }
         
         /* Contenedor Mapa Estilo Uber */
         #map-container { position: relative; width: 100%; height: 250px; border-radius: var(--card-radius); overflow: hidden; border: 1px solid #eee; margin-bottom: 10px; }
         #map { width: 100%; height: 100%; background-color: #e9ecef; }
-        .center-pin {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -100%);
-            z-index: 10;
-            pointer-events: none;
-            display: none;
-        }
+        .center-pin { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -100%); z-index: 10; pointer-events: none; display: none; }
         .center-pin i { font-size: 45px; color: var(--color-accent); text-shadow: 0 4px 8px rgba(0,0,0,0.2); }
 
         .payment-option { display: none; }
         .payment-card { border: 1px solid #eee; border-radius: 15px; padding: 15px; cursor: pointer; transition: all 0.2s; background: white; display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
         .payment-option:checked + .payment-card { border-color: var(--color-accent); background-color: #fff5f0; box-shadow: 0 4px 12px rgba(211, 84, 0, 0.15); }
-        .payment-option:checked + .payment-card .bi-check-circle-fill { color: var(--color-accent); display: block; }
-        .check-icon { display: none; }
         .total-bar { position: fixed; bottom: 0; left: 0; width: 100%; background: white; padding: 20px; border-top-left-radius: 25px; border-top-right-radius: 25px; box-shadow: 0 -5px 20px rgba(0,0,0,0.05); z-index: 1050; }
         .btn-confirm { background-color: var(--color-dark); color: white; width: 100%; padding: 15px; border-radius: 15px; font-weight: 600; border: none; font-size: 1.1rem; transition: background 0.3s; }
         .btn-confirm:disabled { background-color: #ccc; cursor: not-allowed; opacity: 0.7; }
         
         .btn-trash-premium { width: 30px; height: 30px; border-radius: 8px; background-color: transparent; color: #b0b0b0; display: flex; align-items: center; justify-content: center; border: 1px solid transparent; transition: all 0.2s ease; cursor: pointer; }
-        .btn-trash-premium:active, .btn-trash-premium:hover { background-color: #FEF2F2; color: #EF4444; border-color: #FEE2E2; }
-        
         .swal-premium-popup { border-radius: 24px !important; padding: 25px !important; font-family: 'Poppins', sans-serif !important; }
         .swal-premium-confirm { border-radius: 12px !important; font-weight: 600 !important; padding: 12px 24px !important; background-color: #EF4444 !important; }
         .swal-premium-cancel { border-radius: 12px !important; font-weight: 600 !important; padding: 12px 24px !important; background-color: #f3f4f6 !important; color: #374151 !important; margin-right: 15px !important; }
@@ -66,156 +52,102 @@
     </div>
 
     <div class="container px-3">
-        <div class="form-section-title">Tu Carrito</div>
-        
-        <div class="order-summary" id="resumen-carrito">
-            {% if items %}
-                {% for item in items %}
-                <div class="item-row">
-                    {% if item.producto.imagen %}
-                        <img src="{{ item.producto.imagen.url }}" class="item-img me-3">
-                    {% else %}
-                        <div class="item-img me-3 d-flex align-items-center justify-content-center text-muted"><i class="bi bi-image"></i></div>
-                    {% endif %}
-                    
-                    <div class="flex-grow-1">
-                        <div class="d-flex justify-content-between align-items-start">
-                            <div>
-                                <h6 class="fw-bold m-0">{{ item.producto.nombre }}</h6>
-                                {% if item.nombre_opcion %}
-                                    <div class="text-muted small">{{ item.nombre_opcion }}</div>
-                                {% endif %}
-                                
-                                {% if item.lista_extras %}
-                                    <div class="mt-1">
-                                        {% for extra in item.lista_extras %}
-                                            <div class="small fw-semibold text-secondary" style="font-size: 0.75rem;">
-                                                + {{ extra.nombre }}
-                                            </div>
-                                        {% endfor %}
-                                    </div>
-                                {% endif %}
+        <div id="resumen-container">
+            <div class="form-section-title">Tu Carrito</div>
+            <div class="order-summary" id="resumen-carrito">
+                {% if items %}
+                    {% for item in items %}
+                    <div class="item-row">
+                        {% if item.producto.imagen %}
+                            <img src="{{ item.producto.imagen.url }}" class="item-img me-3">
+                        {% else %}
+                            <div class="item-img me-3 d-flex align-items-center justify-content-center text-muted"><i class="bi bi-image"></i></div>
+                        {% endif %}
+                        <div class="flex-grow-1">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div>
+                                    <h6 class="fw-bold m-0">{{ item.producto.nombre }}</h6>
+                                    {% if item.nombre_opcion %}<div class="text-muted small">{{ item.nombre_opcion }}</div>{% endif %}
+                                </div>
+                                <div class="text-end"><div class="fw-bold">${{ item.subtotal }}</div></div>
                             </div>
-                            <div class="text-end">
-                                <div class="fw-bold">${{ item.subtotal }}</div>
+                            <div class="d-flex justify-content-between align-items-center mt-2">
+                                <span class="badge bg-light text-dark border px-2">Cant: {{ item.cantidad }}</span>
+                                <button type="button" onclick="borrarItemSinRecargar('{{ item.key }}')" class="btn-trash-premium"><i class="bi bi-trash"></i></button>
                             </div>
-                        </div>
-                        
-                        <div class="d-flex justify-content-between align-items-center mt-2">
-                            <span class="badge bg-light text-dark border px-2">Cant: {{ item.cantidad }}</span>
-                            <button type="button" onclick="borrarItemSinRecargar('{{ item.key }}')" class="btn-trash-premium">
-                                <i class="bi bi-trash"></i>
-                            </button>
                         </div>
                     </div>
-                </div>
-                {% endfor %}
-                
-                <div class="d-flex justify-content-between align-items-center pt-2 mt-2 border-top">
-                    <span class="text-muted">Total Productos</span>
-                    <span class="fw-bold fs-5">${{ total_productos }}</span>
-                </div>
-            {% else %}
-                <div class="text-center py-4">
-                    <i class="bi bi-cart-x fs-1 text-muted opacity-50"></i>
-                    <p class="mt-2 text-muted">Tu carrito está vacío.</p>
-                    <a href="{% url 'menu' %}" class="btn btn-sm btn-outline-dark rounded-pill px-3">Ir al Menú</a>
-                </div>
-            {% endif %}
+                    {% endfor %}
+                    <div class="d-flex justify-content-between align-items-center pt-2 mt-2 border-top">
+                        <span class="text-muted">Total Productos</span>
+                        <span class="fw-bold fs-5">${{ total_productos }}</span>
+                    </div>
+                {% else %}
+                    <div class="text-center py-4">
+                        <i class="bi bi-cart-x fs-1 text-muted opacity-50"></i>
+                        <p class="mt-2 text-muted">Tu carrito está vacío.</p>
+                        <a href="{% url 'menu' %}" class="btn btn-sm btn-outline-dark rounded-pill px-3">Ir al Menú</a>
+                    </div>
+                {% endif %}
+            </div>
         </div>
 
         <div id="checkout-form-container" {% if not items %}style="display:none;"{% endif %}>
             <form method="POST" action="{% url 'checkout' %}" id="pedidoForm" novalidate> 
                 {% csrf_token %}
-                
-                <div class="form-section-title">Información de contacto</div>
+                <div class="form-section-title">Contacto</div>
                 <div class="row g-2">
-                    <div class="col-6">
-                        <div class="form-floating mb-2">
-                            <input type="text" class="form-control" id="nombre" name="nombre" placeholder="Nombre" required>
-                            <label for="nombre">Nombre</label>
-                        </div>
-                    </div>
-                    <div class="col-6">
-                        <div class="form-floating mb-2">
-                            <input type="text" class="form-control" id="apellido" name="apellido" placeholder="Apellido" required>
-                            <label for="apellido">Apellido</label>
-                        </div>
-                    </div>
+                    <div class="col-6"><div class="form-floating mb-2"><input type="text" class="form-control" id="nombre" name="nombre" placeholder="N" required><label>Nombre</label></div></div>
+                    <div class="col-6"><div class="form-floating mb-2"><input type="text" class="form-control" id="apellido" name="apellido" placeholder="A" required><label>Apellido</label></div></div>
                     <div class="col-12">
                         <div class="mb-2 position-relative">
                             <input type="tel" id="phone_visual" class="form-control" placeholder="WhatsApp">
                             <input type="hidden" id="telefono_real" name="telefono">
-                            <div id="phone-feedback" class="form-text text-danger d-none small ms-2"><i class="bi bi-exclamation-circle me-1"></i> Número inválido</div>
                         </div>
                     </div>
                 </div>
 
-                <div class="form-section-title">Lugar de Entrega</div>
+                <div class="form-section-title">Entrega</div>
                 <div class="mb-3">
                     <div class="form-floating mb-3">
-                        <textarea class="form-control" placeholder="Dirección" id="direccion" name="direccion" style="height: 90px; resize: none;" required></textarea>
-                        <label>Dirección exacta (Casa #, Calle, Color)</label>
+                        <textarea class="form-control" placeholder="D" id="direccion" name="direccion" style="height: 90px; resize: none;" required></textarea>
+                        <label>Dirección exacta</label>
                     </div>
-
-                    <div id="map-container">
-                        <div id="map"></div>
-                        <div id="uber-pin" class="center-pin">
-                            <i class="bi bi-geo-alt-fill"></i>
-                        </div>
-                    </div>
-
-                    <button type="button" class="btn btn-white border w-100 rounded-pill mb-2 py-3 fw-semibold text-dark shadow-sm" onclick="detectarUbicacionInteligente(true)">
-                        <i class="bi bi-geo-alt-fill me-1 text-danger"></i> Usar mi ubicación actual
+                    <div id="map-container"><div id="map"></div><div id="uber-pin" class="center-pin"><i class="bi bi-geo-alt-fill"></i></div></div>
+                    <button type="button" class="btn btn-white border w-100 rounded-pill py-3 fw-semibold shadow-sm" onclick="detectarUbicacionInteligente(true)">
+                        <i class="bi bi-geo-alt-fill me-1 text-danger"></i> Mi ubicación actual
                     </button>
-                    
-                    <input type="hidden" name="latitud" id="lat">
-                    <input type="hidden" name="longitud" id="lng">
+                    <div class="text-center mt-2">
+                        <a href="#" class="text-muted small fw-600" data-bs-toggle="modal" data-bs-target="#helpGPSModal">
+                            <i class="bi bi-question-circle me-1"></i> ¿Problemas con el GPS?
+                        </a>
+                    </div>
+                    <input type="hidden" name="latitud" id="lat"><input type="hidden" name="longitud" id="lng">
                 </div>
 
-                <div class="form-section-title">Método de Pago</div>
-                <label class="w-100">
-                    <input type="radio" name="metodo_pago" value="EFECTIVO" class="payment-option" checked onchange="actualizarTotal()">
-                    <div class="payment-card">
-                        <div class="d-flex align-items-center gap-3">
-                            <i class="bi bi-cash-coin fs-4 text-success"></i>
-                            <div><div class="fw-bold">Efectivo</div><small class="text-muted">Pagas al recibir</small></div>
-                        </div>
-                        <i class="bi bi-check-circle-fill fs-4 check-icon"></i>
-                    </div>
-                </label>
-                <label class="w-100">
-                    <input type="radio" name="metodo_pago" value="TARJETA" class="payment-option" onchange="actualizarTotal()">
-                    <div class="payment-card">
-                        <div class="d-flex align-items-center gap-3">
-                            <i class="bi bi-credit-card-2-front fs-4 text-primary"></i>
-                            <div><div class="fw-bold">Tarjeta / Wompi</div><small class="text-muted" style="color: var(--color-accent);">+5% Servicio Digital</small></div>
-                        </div>
-                        <i class="bi bi-check-circle-fill fs-4 check-icon"></i>
-                    </div>
-                </label>
-
-                <div style="height: 120px;"></div>
+                <div class="form-section-title">Pago</div>
+                <label class="w-100"><input type="radio" name="metodo_pago" value="EFECTIVO" class="payment-option" checked onchange="actualizarTotal()"><div class="payment-card"><div>Efectivo</div><i class="bi bi-check-circle-fill fs-4 check-icon"></i></div></label>
+                <label class="w-100"><input type="radio" name="metodo_pago" value="TARJETA" class="payment-option" onchange="actualizarTotal()"><div class="payment-card"><div>Tarjeta (+5%)</div><i class="bi bi-check-circle-fill fs-4 check-icon"></i></div></label>
 
                 <div class="total-bar">
-                    <small id="aviso-comision" class="text-danger fw-bold d-none d-block mb-3 text-center bg-danger-subtle py-1 px-3 rounded-pill mx-auto" style="font-size: 0.75rem; width: fit-content;">
-                        <i class="bi bi-info-circle me-1"></i> Incluye cargo por servicio digital
-                    </small>
-                    <button type="submit" class="btn-confirm" id="btn-finalizar" disabled>
-                        <span>Realizar Pedido</span>
-                        <span id="total-display">${{ total_productos }}</span>
-                    </button>
+                    <button type="submit" class="btn-confirm" id="btn-finalizar" disabled>Realizar Pedido <span id="total-display">${{ total_productos }}</span></button>
                 </div>
             </form>
         </div>
     </div>
 
-    <div id="loadingOverlay" class="d-none position-fixed top-0 start-0 w-100 h-100 bg-white d-flex justify-content-center align-items-center" style="z-index: 9999; opacity: 0.95;">
-        <div class="text-center">
-            <div class="spinner-border" role="status" style="width: 4rem; height: 4rem; color: var(--color-accent);">
-                <span class="visually-hidden">Cargando...</span>
+    <div class="modal fade" id="helpGPSModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content swal-premium-popup" style="border:none;">
+                <div class="modal-header border-0 pb-0"><h5 class="fw-bold m-0">Activar Ubicación</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-body">
+                    <ul class="nav nav-pills nav-fill mb-3"><li class="nav-item"><button class="nav-link active rounded-pill" data-bs-toggle="pill" data-bs-target="#tab-iphone">iPhone</button></li><li class="nav-item"><button class="nav-link rounded-pill" data-bs-toggle="pill" data-bs-target="#tab-android">Android</button></li></ul>
+                    <div class="tab-content pt-2">
+                        <div class="tab-pane fade show active" id="tab-iphone"><p class="small">1. Toca <b>"AA"</b> en Safari.<br>2. Configuración del sitio web.<br>3. Cambia Ubicación a <b>Permitir</b>.</p></div>
+                        <div class="tab-pane fade" id="tab-android"><p class="small">1. Activa el GPS del móvil.<br>2. Toca el candado en el navegador.<br>3. Activa los permisos de ubicación.</p></div>
+                    </div>
+                </div>
             </div>
-            <h4 class="mt-4 fw-bold text-dark">Procesando tu pedido...</h4>
         </div>
     </div>
 
@@ -230,106 +162,52 @@
         let iti;
         const DEFAULT_SV = { lat: 13.6929, lng: -89.2182 };
 
-        // --- CONFIG TELÉFONO ---
-        const phoneInput = document.querySelector("#phone_visual");
-        if(phoneInput){
-            iti = window.intlTelInput(phoneInput, {
-                utilsScript: "https://cdnjs.cloudflare.com/ajax/libs/intl-tel-input/17.0.8/js/utils.js",
-                preferredCountries: ["sv", "gt", "us"],
-                separateDialCode: true,
-                initialCountry: "sv", 
-            });
-        }
-
-        // --- MAPA ---
         function initMap() {
             const mapElement = document.getElementById("map");
             if (!mapElement) return;
-
-            map = new google.maps.Map(mapElement, { 
-                zoom: 15, 
-                center: DEFAULT_SV, 
-                disableDefaultUI: true, 
-                zoomControl: true,
-                gestureHandling: 'greedy' 
-            });
-
+            map = new google.maps.Map(mapElement, { zoom: 15, center: DEFAULT_SV, disableDefaultUI: true, zoomControl: true, gestureHandling: 'greedy' });
             document.getElementById('uber-pin').style.display = 'block';
+            map.addListener("idle", () => { updatePosition(map.getCenter()); });
 
-            // Actualizar coordenadas cuando el mapa deja de moverse (Idle)
-            map.addListener("idle", () => {
-                const centro = map.getCenter();
-                // Solo activamos si el usuario movió el mapa o usó GPS
-                updatePosition(centro);
-            });
-
-            // Autocompletado
-            const inputDireccion = document.getElementById("direccion");
-            autocomplete = new google.maps.places.Autocomplete(inputDireccion, {
-                componentRestrictions: { country: "sv" },
-                fields: ["geometry", "formatted_address"]
-            });
-
+            const inputDir = document.getElementById("direccion");
+            autocomplete = new google.maps.places.Autocomplete(inputDir, { componentRestrictions: { country: "sv" }, fields: ["geometry", "formatted_address"] });
             autocomplete.addListener("place_changed", () => {
                 const place = autocomplete.getPlace();
-                if (!place.geometry) return;
-                map.setCenter(place.geometry.location);
-                map.setZoom(17);
+                if (place.geometry) { map.setCenter(place.geometry.location); map.setZoom(17); }
             });
+            detectarUbicacionInteligente(false);
         }
 
         function updatePosition(latLng) {
             document.getElementById("lat").value = latLng.lat();
             document.getElementById("lng").value = latLng.lng();
-            // Desbloqueamos el botón una vez el mapa tiene posición
             document.getElementById('btn-finalizar').disabled = false;
         }
 
         function detectarUbicacionInteligente(manual) {
             if (!navigator.geolocation) return;
             if(manual) Swal.fire({ title: 'Buscando...', didOpen: () => Swal.showLoading() });
-
             navigator.geolocation.getCurrentPosition(
-                (pos) => {
+                (pos) => { 
                     const p = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-                    if(manual) Swal.close();
-                    map.setCenter(p);
-                    map.setZoom(17);
+                    if(manual) Swal.close(); 
+                    map.setCenter(p); map.setZoom(17); 
                 },
-                (error) => {
-                    if(manual) {
-                        Swal.close();
-                        Swal.fire({ title: 'GPS no detectado', text: 'Por favor, activa tu ubicación o mueve el mapa manualmente.', icon: 'info' });
-                    }
-                },
+                (error) => { if(manual) { Swal.close(); Swal.fire({ title: 'Aviso', text: 'Activa el GPS en ajustes.', icon: 'info' }); } },
                 { enableHighAccuracy: true, timeout: 10000 }
             );
         }
 
-        // --- CARRITO Y TOTALES ---
         function borrarItemSinRecargar(key) {
-            Swal.fire({
-                title: '¿Eliminar producto?',
-                text: "Se quitará de tu carrito.",
-                icon: 'warning',
-                showCancelButton: true,
-                confirmButtonText: 'Sí, eliminar',
-                cancelButtonText: 'Cancelar',
-                customClass: { popup: 'swal-premium-popup', confirmButton: 'swal-premium-confirm', cancelButton: 'swal-premium-cancel' },
-                buttonsStyling: false
-            }).then((result) => {
+            Swal.fire({ title: '¿Eliminar?', icon: 'warning', showCancelButton: true, confirmButtonText: 'Sí', cancelButtonText: 'No', customClass: { popup: 'swal-premium-popup', confirmButton: 'swal-premium-confirm', cancelButton: 'swal-premium-cancel' }, buttonsStyling: false })
+            .then((result) => {
                 if (result.isConfirmed) {
-                    fetch(`/eliminar-item/${key}/`, { 
-                        method: 'GET', 
-                        headers: { 'X-Requested-With': 'XMLHttpRequest' } 
-                    })
+                    fetch(`/eliminar-item/${key}/`, { method: 'GET', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
                     .then(response => response.json())
                     .then(data => {
                         if(data.status === 'ok') {
-                            document.getElementById('resumen-carrito').innerHTML = data.html;
-                            precioBaseGlobal = data.total;
-                            actualizarTotal();
-                            if(data.vacio) window.location.reload();
+                            if(data.vacio) { window.location.reload(); } // Recarga para mostrar carrito vacío original
+                            else { document.getElementById('resumen-carrito').innerHTML = data.html; precioBaseGlobal = data.total; actualizarTotal(); }
                         }
                     });
                 }
@@ -338,40 +216,19 @@
 
         function actualizarTotal() {
             const radios = document.getElementsByName('metodo_pago');
-            let metodo = 'EFECTIVO';
-            for(let i = 0; i < radios.length; i++) { if(radios[i].checked) metodo = radios[i].value; }
-            const display = document.getElementById('total-display');
-            const aviso = document.getElementById('aviso-comision');
-            let totalFinal = precioBaseGlobal;
-            if (metodo === 'TARJETA') { totalFinal = precioBaseGlobal * 1.05; aviso.classList.remove('d-none'); } 
-            else { aviso.classList.add('d-none'); }
-            display.innerText = '$' + totalFinal.toFixed(2);
+            let totalFinal = (radios[1].checked) ? precioBaseGlobal * 1.05 : precioBaseGlobal;
+            document.getElementById('total-display').innerText = '$' + totalFinal.toFixed(2);
         }
 
-        // --- VALIDACIÓN FORMULARIO ---
-        const form = document.getElementById('pedidoForm');
-        if (form) {
-            form.addEventListener('submit', function(event) {
-                event.preventDefault(); 
-                const nombre = document.getElementById('nombre').value.trim();
-                const direccion = document.getElementById('direccion').value.trim();
-                const lat = document.getElementById('lat').value;
-                
-                if (!nombre || !direccion || !lat) {
-                    Swal.fire({ title: 'Faltan datos', text: 'Asegúrate de poner tu nombre y marcar tu ubicación en el mapa.', icon: 'warning' });
-                    return;
-                }
+        const phoneVisual = document.querySelector("#phone_visual");
+        if(phoneVisual) { iti = window.intlTelInput(phoneVisual, { utilsScript: "https://cdnjs.cloudflare.com/ajax/libs/intl-tel-input/17.0.8/js/utils.js", preferredCountries: ["sv"], separateDialCode: true, initialCountry: "sv" }); }
 
-                if (iti && !iti.isValidNumber()) {
-                    Swal.fire({ title: 'WhatsApp inválido', text: 'Revisa el número de teléfono.', icon: 'error' });
-                    return;
-                }
-
-                document.getElementById('loadingOverlay').classList.remove('d-none');
-                document.getElementById('telefono_real').value = iti ? iti.getNumber() : "";
-                form.submit();
-            });
-        }
+        document.getElementById('pedidoForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            if (!document.getElementById('lat').value) { Swal.fire({ text: 'Marca tu ubicación.', icon: 'warning' }); return; }
+            document.getElementById('telefono_real').value = iti.getNumber();
+            this.submit();
+        });
     </script>
 </body>
 </html>

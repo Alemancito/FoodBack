@@ -322,7 +322,7 @@
                             {% if abierto %}
                                 {% if producto.opciones.exists or producto.extras.exists %}
                                     <button type="button" class="btn-add-minimal" data-bs-toggle="modal" data-bs-target="#modalProduct{{ producto.id }}">
-                                        <span>Personalizar</span> <i class="bi bi-sliders"></i>
+                                        <span>Agregar</span> <i class="bi bi-sliders"></i>
                                     </button>
                                 {% else %}
                                     <a href="{% url 'add_to_cart' producto.id %}" class="btn-add-minimal save-scroll-click">

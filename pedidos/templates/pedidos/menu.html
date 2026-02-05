@@ -59,12 +59,26 @@
             display: flex; align-items: center; gap: 15px;
             animation: fadeIn 0.8s ease;
         }
-        .rest-logo-box {
-            width: 120px; height: 120px; background: #fff;
-            border: 1px solid #eee; border-radius: 24px; overflow: hidden;
-            display: flex; align-items: center; justify-content: center;
-            box-shadow: 0 6px 20px rgba(0,0,0,0.08); flex-shrink: 0;
-        }
+    .rest-logo-box {
+        width: 120px;
+        height: 120px;
+        background: #fff; /* Fondo blanco limpio */
+        /* border: 1px solid #eee; <-- ELIMINADO (causaba la línea fea) */
+        border-radius: 25px; /* Esquinas redondeadas suaves */
+        overflow: hidden; /* Recorta la imagen a la forma del borde */
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        /* Sombra mejorada: más difusa y suave para dar efecto 3D "elevado" */
+        box-shadow: 0 12px 30px rgba(0, 0, 0, 0.12); 
+        flex-shrink: 0;
+        transition: transform 0.3s ease; /* Pequeña animación si quieres */
+    }
+
+    /* Opcional: Un toquecito sutil al pasar el mouse */
+    .rest-logo-box:hover {
+        transform: scale(1.02); 
+    }
         .rest-info h1 { font-size: 1.6rem; font-weight: 800; margin: 0; line-height: 1.1; letter-spacing: -0.5px; }
         .rest-info p { margin: 0; font-size: 0.85rem; color: #888; font-weight: 500; }
         .verified-badge { color: #3498db; font-size: 0.9rem; margin-left: 4px; }

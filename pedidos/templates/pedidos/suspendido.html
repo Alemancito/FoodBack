@@ -1,0 +1,60 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mantenimiento | FoodBack</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;700&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f8f9fa;
+            font-family: 'Poppins', sans-serif;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 20px;
+        }
+        .maintenance-card {
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.08);
+            max-width: 500px;
+            width: 100%;
+        }
+        .icon-box {
+            font-size: 4rem;
+            margin-bottom: 20px;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.1); opacity: 0.7; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <div class="maintenance-card">
+        <div class="icon-box">👨‍🍳🔧</div>
+        <h2 class="fw-bold mb-3">Estamos mejorando tu experiencia</h2>
+        <p class="text-muted mb-4">
+            Nuestra plataforma de pedidos se encuentra en un breve mantenimiento técnico programado.
+        </p>
+        <p class="mb-4">
+            Estamos afinando los últimos detalles en la cocina digital para servirte mejor. 
+            ¡Volveremos a estar en línea muy pronto!
+        </p>
+        <div class="d-grid gap-2">
+            <button onclick="location.reload()" class="btn btn-dark rounded-pill py-2 fw-bold">
+                🔄 Intentar nuevamente
+            </button>
+        </div>
+        <p class="mt-4 small text-muted opacity-50">Powered by FoodBack</p>
+    </div>
+</body>
+</html>

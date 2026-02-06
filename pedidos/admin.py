@@ -1,7 +1,6 @@
 from django.contrib import admin
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
-# AGREGADO: Extra al final de la lista
 from .models import Categoria, Producto, Cliente, Pedido, DetallePedido, ConfiguracionNegocio, DiaEspecial, OpcionProducto, Extra
 from decouple import config 
 
@@ -25,7 +24,7 @@ class ProductoAdmin(admin.ModelAdmin):
     search_fields = ('nombre',)
     list_editable = ('precio', 'disponible')
     
-    # NUEVO: CAJITA PARA SELECCIONAR EXTRAS
+    # CAJITA PARA SELECCIONAR EXTRAS
     filter_horizontal = ('extras',)
     
     inlines = [OpcionProductoInline] 
@@ -41,7 +40,7 @@ class DetallePedidoInline(admin.TabularInline):
     model = DetallePedido
     extra = 0
     readonly_fields = ('subtotal',)
-    # Los extras se pueden editar aquí si es necesario (aparecerá una lista seleccionable múltiple)
+    # Los extras se pueden editar aquí si es necesario
     filter_horizontal = ('extras',)
 
 # 3. LA TORRE DE CONTROL (Pedidos)
@@ -101,6 +100,9 @@ admin.site.register(Cliente)
 
 @admin.register(ConfiguracionNegocio)
 class ConfigAdmin(admin.ModelAdmin):
+    # Agregamos 'fecha_vencimiento' para que puedas editarla y probar el bloqueo
+    list_display = ('nombre_negocio', 'fecha_vencimiento', 'hora_apertura', 'hora_cierre')
+    
     # Esto asegura que solo haya UN registro de configuración
     def has_add_permission(self, request):
         if self.model.objects.exists():

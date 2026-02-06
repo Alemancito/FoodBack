@@ -3,6 +3,7 @@ from django.db.models import Sum
 from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
 from django.contrib.auth.models import User
+from datetime import date, timedelta # IMPORTANTE: Agregar esto
 
 # --- NUEVO MODELO DE EXTRAS (Papas, Queso, Jalapeños...) ---
 class Extra(models.Model):
@@ -69,6 +70,10 @@ class ConfiguracionNegocio(models.Model):
         default="Ups, la cocina descansa. 😴\nVolvemos mañana con las pilas cargadas.",
         help_text="Mensaje gracioso que verá el cliente cuando esté cerrado."
     )
+
+    # --- NUEVO CAMPO DE SUSCRIPCIÓN ---
+    # Por defecto damos 30 días de gracia al crear la BD
+    fecha_vencimiento = models.DateField(default=date.today() + timedelta(days=30), verbose_name="Vencimiento Suscripción")
 
     def __str__(self): return f"Configuración de {self.nombre_negocio}"
     class Meta: verbose_name = "⚙️ Configuración del Negocio"

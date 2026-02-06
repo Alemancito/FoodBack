@@ -132,8 +132,25 @@
             box-shadow: 0 4px 10px rgba(0,0,0,0.1);
         }
         .card-content { padding: 15px; }
-        .product-title { font-weight: 600; font-size: 1rem; margin-bottom: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         
+    /* Busca esto en tu CSS y actualízalo */
+    .product-title { 
+        font-weight: 600; 
+        font-size: 1rem; 
+        margin-bottom: 5px; 
+        
+        /* --- CAMBIOS PARA NOMBRES LARGOS --- */
+        display: -webkit-box;
+        -webkit-line-clamp: 2;      /* Corta el texto solo después de la 2da línea */
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        white-space: normal;        /* Permite que el texto baje de renglón */
+        
+        line-height: 1.2;           /* Altura de cada renglón */
+        min-height: 2.4rem;         /* Reserva espacio fijo para 2 líneas (1.2 * 2) */
+        /* Esto asegura que TODAS las tarjetas midan lo mismo, tenga el nombre corto o largo */
+    }        
+
         /* DESCRIPCIÓN */
         .product-desc {
             color: var(--color-gray); font-size: 0.8rem; line-height: 1.4; 

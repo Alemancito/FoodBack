@@ -379,9 +379,14 @@
                     <p class="text-muted">Evita la interrupción del servicio realizando tu pago a tiempo.</p>
                 </div>
                 <div class="modal-footer justify-content-center border-0">
-                    <a href="https://wa.me/50360704219?text=Hola,%20quiero%20renovar%20mi%20suscripción%20de%20FoodBack" target="_blank" class="btn btn-dark rounded-pill px-4">
-                        <i class="bi bi-whatsapp"></i> Renovar Ahora
+                    <a href="{% url 'pagar_suscripcion' %}" class="btn btn-dark rounded-pill px-4 shadow-lg">
+                        <i class="bi bi-credit-card-2-front me-2"></i> Pagar Suscripción ($50.00)
                     </a>
+                    <div class="w-100 text-center mt-2">
+                        <a href="https://wa.me/50360704219" target="_blank" class="small text-muted text-decoration-none">
+                            o contáctanos por WhatsApp
+                        </a>
+                    </div>
                 </div>
             </div>
         </div>
@@ -395,17 +400,18 @@
                 <div style="max-width: 500px; padding: 30px;">
                     <i class="bi bi-slash-circle fs-1 text-danger mb-4 d-block" style="font-size: 5rem !important;"></i>
                     <h1 class="fw-bold display-4 mb-3">Servicio Suspendido</h1>
-                    <p class="lead text-white-50 mb-4">
-                        Tu suscripción a <strong>FoodBack</strong> ha expirado. 
-                        El acceso al panel administrativo y la recepción de pedidos han sido desactivados temporalmente.
-                    </p>
-                    <div class="card bg-secondary bg-opacity-25 border-0 p-3 mb-4 rounded-4">
-                        <p class="m-0 small text-white-50">Para reactivar el servicio inmediatamente, por favor gestiona tu pago.</p>
+                    <p class="m-0 small text-white-50">Para reactivar el servicio inmediatamente, por favor gestiona tu pago.</p>
                     </div>
-                    
-                    <a href="https://wa.me/50360704219?text=Hola,%20mi%20servicio%20esta%20suspendido,%20quiero%20pagar%20ya" target="_blank" class="btn btn-success btn-lg rounded-pill px-5 py-3 fw-bold shadow-lg">
-                        <i class="bi bi-whatsapp me-2"></i> REACTIVAR AHORA
+
+                    <a href="{% url 'pagar_suscripcion' %}" class="btn btn-success btn-lg rounded-pill px-5 py-3 fw-bold shadow-lg">
+                        <i class="bi bi-credit-card-2-front me-2"></i> PAGAR Y REACTIVAR ($50)
                     </a>
+
+                    <div class="mt-4">
+                        <a href="https://wa.me/50360704219" target="_blank" class="text-white-50 small text-decoration-none">
+                            <i class="bi bi-whatsapp"></i> ¿Problemas? Soporte Técnico
+                        </a>
+                    </div>
                 </div>
             </div>
         </div>

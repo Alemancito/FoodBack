@@ -28,6 +28,8 @@ ALLOWED_HOSTS = ['*']
 CSRF_TRUSTED_ORIGINS = [
     'https://*.railway.app',
     'https://*.up.railway.app',
+    'https://*.ngrok-free.app',  # Por si acaso te da una .app
+    'https://*.ngrok-free.dev',  # ESTA ES LA QUE TE DIO TU CONSOLA
 ]
 
 # ===============================
@@ -138,3 +140,19 @@ MEDIA_URL = '/media/'
 # OTROS
 # ===============================
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+# --- CONFIGURACIÓN DE SESIÓN (MODO TURNO FIJO) ---
+
+# 1. Duración exacta: 15 Horas en segundos
+# Matemática: 15 horas * 60 minutos * 60 segundos = 54000
+SESSION_COOKIE_AGE = 54000 
+
+# 2. EL TRUCO: False
+# Esto hace que el tiempo NO se reinicie con cada clic o pedido.
+# El cronómetro arranca al login y corta a las 15h exactas, hagas lo que hagas.
+SESSION_SAVE_EVERY_REQUEST = False 
+
+# 3. (Opcional) Si cierran el navegador por error y vuelven a abrir,
+# siguen logueados (siempre y cuando estén dentro de las 15h).
+SESSION_EXPIRE_AT_BROWSER_CLOSE = False

@@ -1,6 +1,7 @@
 from django.urls import path
 from . import views
 from .views import obtener_ubicacion_ip, CustomLoginView, logout_view # <--- NUEVOS IMPORTS
+from .views import pagar_suscripcion_view, wompi_suscripcion_respuesta_view
 
 urlpatterns = [
     path('', views.menu_view, name='menu'),
@@ -28,6 +29,8 @@ urlpatterns = [
     path('api/pedido/<int:pedido_id>/status/', views.api_order_status, name='api_order_status'),
     path('dashboard/metricas/', views.dashboard_metrics_view, name='dashboard_metrics'),
     path('mi-perfil/', views.perfil_usuario_view, name='perfil_usuario'),
+    path('pagar-suscripcion/', pagar_suscripcion_view, name='pagar_suscripcion'),
+    path('wompi-suscripcion-respuesta/', wompi_suscripcion_respuesta_view, name='wompi_suscripcion_respuesta'),
 
 ]
 

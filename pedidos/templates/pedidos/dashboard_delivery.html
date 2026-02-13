@@ -259,7 +259,11 @@
             {% endfor %}
         {% endif %}
 
-        // 3. POLLING INTELIGENTE (MEMORIA DE ACORDEÓN)
+        // 3. POLLING CORREGIDO (CUENTA EN MEMORIA, NO EN DOM)
+        
+        // Inicializamos la cuenta usando los datos del servidor que ya renderizó Django
+        let pedidosEnMemoria = {{ disponibles|length }};
+
         let isPaused = false;
         function pausePolling() { isPaused = true; }
         document.addEventListener('mousedown', () => { isPaused = true; });
@@ -280,10 +284,13 @@
                 const parser = new DOMParser();
                 const doc = parser.parseFromString(html, 'text/html');
 
-                const actualesPool = document.querySelectorAll('#zona-pool .pool-card').length;
+                // --- LOGICA CORREGIDA ---
+                // Contamos cuántos pedidos vienen en el HTML nuevo (lo que dice el servidor)
                 const nuevosPool = doc.querySelectorAll('#zona-pool .pool-card').length;
 
-                if (nuevosPool > actualesPool) {
+                // Comparamos servidor (futuro) vs memoria (pasado)
+                // Ya no usamos el DOM actual del usuario, que puede estar bugeado.
+                if (nuevosPool > pedidosEnMemoria) {
                     sonarAlerta(); 
                     if (navigator.vibrate) navigator.vibrate([200, 100, 200]); 
                     
@@ -292,6 +299,10 @@
                         timer: 3000, showConfirmButton: false, background: '#1E1E1E', color: '#fff'
                     });
                 }
+
+                // Actualizamos la memoria
+                pedidosEnMemoria = nuevosPool;
+                // -------------------------
 
                 const zonas = ['zona-mochila', 'zona-pool'];
                 zonas.forEach(id => {

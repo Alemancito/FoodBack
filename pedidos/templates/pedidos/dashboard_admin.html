@@ -424,15 +424,13 @@
     <script>
         // --- LOGICA DE MODALES DE PAGO ---
         document.addEventListener("DOMContentLoaded", function() {
-            // 1. Verificar Bloqueo (Prioridad Máxima)
             const blockModalEl = document.getElementById('paymentBlockModal');
             if (blockModalEl) {
                 const blockModal = new bootstrap.Modal(blockModalEl);
                 blockModal.show();
-                return; // Si está bloqueado, no ejecutamos nada más
+                return; 
             }
 
-            // 2. Verificar Advertencia (Solo 1 vez al día)
             const warningModalEl = document.getElementById('paymentWarningModal');
             if (warningModalEl) {
                 const hoy = new Date().toISOString().split('T')[0];
@@ -447,18 +445,14 @@
         });
         // ---------------------------------
 
-        // 1. GESTIÓN DE AUDIO (Sin botón, activado por primer clic)
+        // 1. GESTIÓN DE AUDIO 
         const notificacionAudio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
-
-        // Hack para desbloquear audio en navegadores modernos:
-        // El navegador no deja reproducir sonido si el usuario no ha interactuado.
-        // Esperamos el primer clic en cualquier lugar para "despertar" el motor de audio.
         document.addEventListener('click', function() {
             notificacionAudio.load(); 
-            notificacionAudio.volume = 0; // Volumen 0 para que no suene feo el desbloqueo
+            notificacionAudio.volume = 0; 
             notificacionAudio.play().then(() => {
                 notificacionAudio.pause();
-                notificacionAudio.volume = 1.0; // Restaurar volumen
+                notificacionAudio.volume = 1.0; 
                 notificacionAudio.currentTime = 0;
             }).catch(e => {});
         }, { once: true });
@@ -473,7 +467,6 @@
             showConfirmButton: false, timer: 3000, timerProgressBar: true
         });
 
-        // FUNCIÓN MAESTRA PARA MOSTRAR MENSAJES
         function processMessages(docOrElement) {
             const msgDiv = docOrElement.getElementById('django-messages-data');
             if (msgDiv) {
@@ -490,7 +483,6 @@
             }
         }
 
-        // Ejecutar al cargar la página
         document.addEventListener("DOMContentLoaded", function() {
             processMessages(document);
             const activeTabId = localStorage.getItem('activeTab');
@@ -501,16 +493,26 @@
             }
         });
 
-        // 3. POLLING INTELIGENTE (Detecta pedidos nuevos y reproduce sonido)
+        // 3. POLLING CORREGIDO (MEMORIA VS DOM)
+        
+        // Inicializamos la cuenta en memoria, NO confiamos en el DOM dinámico de móviles
+        let ultimosPedidosContados = {{ pedidos|length }}; // Django nos da el valor inicial al cargar
+        
+        // Ajuste: Contamos solo los que son 'RECIBIDO' o vacíos (Nuevos)
+        // Como Django template ya renderizó la lista, podemos contar cuantos .card-new hay al inicio
+        // para tener la referencia base correcta.
+        setTimeout(() => {
+             ultimosPedidosContados = document.querySelectorAll('#pills-nuevos .order-card').length;
+        }, 500);
+
+
         let isPaused = false;
         function pausePolling() { isPaused = true; }
         document.addEventListener('mousedown', () => { isPaused = true; });
         document.addEventListener('mouseup', () => { setTimeout(() => isPaused = false, 1000); });
 
         setInterval(() => {
-            // SI HAY UN MODAL DE BLOQUEO, DETENEMOS EL POLLING PARA AHORRAR RECURSOS
             if (document.getElementById('paymentBlockModal')) return; 
-
             if (isPaused) return;
 
             const url = new URL(window.location.href);
@@ -524,13 +526,20 @@
 
                 processMessages(doc);
 
-                // DETECTAR SI HAY MÁS PEDIDOS "RECIBIDOS" (NUEVOS)
-                const actualesNuevos = document.querySelectorAll('#pills-nuevos .order-card').length;
-                const futurosNuevos = doc.querySelectorAll('#pills-nuevos .order-card').length;
+                // --- CORRECCIÓN CLAVE AQUÍ ---
+                // En lugar de preguntar al DOM actual (que puede estar dormido/vacío),
+                // comparamos el número que trae el FETCH (futuro) contra nuestra VARIABLE en memoria.
                 
-                if (futurosNuevos > actualesNuevos) {
+                const nuevosEnServidor = doc.querySelectorAll('#pills-nuevos .order-card').length;
+                
+                // Si el servidor trae MÁS pedidos que los que teníamos en memoria -> Sonido
+                if (nuevosEnServidor > ultimosPedidosContados) {
                     reproducirSonido();
                 }
+
+                // Actualizamos la memoria
+                ultimosPedidosContados = nuevosEnServidor;
+                // -----------------------------
 
                 const zonas = ['pills-nuevos', 'pills-cocina', 'pills-ruta', 'pills-problema'];
                 zonas.forEach(zonaId => {

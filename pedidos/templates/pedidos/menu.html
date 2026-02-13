@@ -149,9 +149,18 @@
 
         /* TARJETAS */
         .card-premium {
-            flex: 0 0 auto; width: 260px; background: white; border-radius: var(--card-radius);
-            border: none; box-shadow: 0 10px 30px rgba(0,0,0,0.04); overflow: hidden;
-            transition: transform 0.3s ease; position: relative;
+            flex: 0 0 auto; 
+            width: 260px; 
+            background: white; 
+            border-radius: var(--card-radius);
+            border: none; 
+            
+            /* --- CAMBIO AQUÍ: Sombra más fuerte para definir contorno sin borde --- */
+            box-shadow: 0 10px 25px rgba(0,0,0,0.12); 
+            
+            overflow: hidden;
+            transition: transform 0.3s ease; 
+            position: relative;
         }
         .card-premium:active { transform: scale(0.98); }
         
@@ -461,8 +470,7 @@
                                     {% endif %}
 
                                     {% if producto.extras.exists %}
-                                        <p class="text-muted small mb-1 fw-bold">Agrega Extras para Acompañar (Opcional):</p>
-                                        <p class="text-muted small mb-3 ">Toca alguna opcion para añadirla</p>
+                                        <p class="text-muted small mb-2 fw-bold">Agrega algo de sabor para Acompañar (Opcional):</p>
                                         {% for extra in producto.extras.all %}
                                             {% if extra.disponible %}
                                             <div class="mb-2">

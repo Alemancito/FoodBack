@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Chizles | Powered by FoodBack</title>
+    <title>Rancheritos | Powered by FoodBack</title>
     
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700;800&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -12,7 +12,7 @@
     
     <style>
         :root {
-            --color-accent: #D35400;
+            --color-accent: #D35400; /* Naranja Rancheritos */
             --color-dark: #1A1A1A;
             --color-gray: #888888;
             --color-bg: #FAFAFA;
@@ -53,6 +53,27 @@
         .brand-logo { font-weight: 700; font-size: 1rem; color: #aaa; letter-spacing: -0.5px; } 
         .brand-dot { color: var(--color-accent); }
 
+        /* --- NUEVO BOTÓN DE PERFIL/PEDIDOS (UX MEJORADA) --- */
+        .header-profile-btn {
+            display: flex; align-items: center; gap: 8px;
+            background-color: #F3F4F6; /* Fondo gris muy suave */
+            color: var(--color-dark);
+            padding: 8px 14px;
+            border-radius: 25px; /* Forma de píldora */
+            text-decoration: none;
+            transition: all 0.2s ease;
+            border: 1px solid rgba(0,0,0,0.05);
+        }
+        .header-profile-btn:active {
+            background-color: #E5E7EB;
+            transform: scale(0.96);
+        }
+        .header-profile-text {
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        /* -------------------------------------------------- */
+
         /* IDENTITY */
         .saas-identity {
             padding: 25px 20px 10px 20px;
@@ -60,19 +81,13 @@
             animation: fadeIn 0.8s ease;
         }
 
-        /* --- LOGO FLOTANTE CON ESQUINAS REDONDEADAS (MODIFICADO) --- */
         .rest-logo-standalone {
             width: 120px; 
             height: 120px;
             object-fit: contain;
             flex-shrink: 0;
-            
-            /* --- NUEVO: Agregamos esquinas redondeadas a la imagen --- */
-            border-radius: 25px; /* Ajusta este valor si las quieres más o menos redondas (ej. 50% para círculo) */
-
-            /* Sombra aplicada a la silueta */
+            border-radius: 25px;
             filter: drop-shadow(0 10px 15px rgba(0, 0, 0, 0.15));
-            
             transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
         }
 
@@ -122,60 +137,77 @@
             border: none; box-shadow: 0 10px 30px rgba(0,0,0,0.04); overflow: hidden;
             transition: transform 0.3s ease; position: relative;
         }
-        .card-premium:active { transform: scale(0.97); }
-        .card-img-wrapper { height: 180px; background-color: #F0F0F0; position: relative; }
+        .card-premium:active { transform: scale(0.98); }
+        
+        .card-img-wrapper { 
+            height: 180px; 
+            background-color: #F0F0F0; 
+            position: relative;
+            cursor: pointer; /* Indicar que es clickeable */
+        }
+        
+        /* Efecto al presionar la imagen */
+        .card-img-wrapper:active { opacity: 0.9; }
+
         .card-img { width: 100%; height: 100%; object-fit: cover; }
+        
         .price-pill {
-            position: absolute; bottom: 10px; right: 10px; background: rgba(255, 255, 255, 0.9);
+            position: absolute; bottom: 10px; right: 10px; background: rgba(255, 255, 255, 0.95);
             backdrop-filter: blur(4px); padding: 5px 12px; border-radius: 15px;
-            font-weight: 700; font-size: 0.9rem; color: var(--color-dark);
-            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            font-weight: 800; font-size: 0.95rem; color: var(--color-dark);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.15);
         }
         .card-content { padding: 15px; }
         
-    /* Busca esto en tu CSS y actualízalo */
-    .product-title { 
-        font-weight: 600; 
-        font-size: 1rem; 
-        margin-bottom: 5px; 
-        
-        /* --- CAMBIOS PARA NOMBRES LARGOS --- */
-        display: -webkit-box;
-        -webkit-line-clamp: 2;      /* Corta el texto solo después de la 2da línea */
-        -webkit-box-orient: vertical;
-        overflow: hidden;
-        white-space: normal;        /* Permite que el texto baje de renglón */
-        
-        line-height: 1.2;           /* Altura de cada renglón */
-        min-height: 2.4rem;         /* Reserva espacio fijo para 2 líneas (1.2 * 2) */
-        /* Esto asegura que TODAS las tarjetas midan lo mismo, tenga el nombre corto o largo */
-    }        
+        .product-title { 
+            font-weight: 700; 
+            font-size: 1rem; 
+            margin-bottom: 5px; 
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            white-space: normal;
+            line-height: 1.2;
+            min-height: 2.4rem;
+        }        
 
-        /* DESCRIPCIÓN */
         .product-desc {
             color: var(--color-gray); font-size: 0.8rem; line-height: 1.4; 
-            height: 65px; 
-            overflow-y: auto; 
-            scrollbar-width: none; 
-            -ms-overflow-style: none; 
-            scroll-behavior: smooth;
-            margin-bottom: 15px;
+            height: 65px; overflow-y: auto; scrollbar-width: none; 
+            -ms-overflow-style: none; scroll-behavior: smooth; margin-bottom: 15px;
         }
         .product-desc::-webkit-scrollbar { display: none; }
 
-        /* BOTONES */
-        .btn-add-minimal {
-            width: 100%; background-color: #F8F9FA; color: var(--color-dark);
-            border: 1px solid #EEEEEE; border-radius: var(--btn-radius); padding: 10px;
-            font-weight: 600; font-size: 0.9rem; transition: all 0.2s;
-            display: flex; justify-content: center; align-items: center; gap: 8px; text-decoration: none; cursor: pointer;
+        /* --- BOTÓN PRIMARY (NARANJA) --- */
+        .btn-add-primary {
+            width: 100%; 
+            background-color: var(--color-accent); 
+            color: white;
+            border: none; 
+            border-radius: var(--btn-radius); 
+            padding: 12px;
+            font-weight: 700; 
+            font-size: 0.95rem; 
+            transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            gap: 8px; 
+            text-decoration: none; 
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(211, 84, 0, 0.25);
         }
-        .btn-add-minimal:hover, .btn-add-minimal:active {
-            background-color: var(--color-dark); color: white; border-color: var(--color-dark);
+        .btn-add-primary:hover, .btn-add-primary:active {
+            background-color: #ba4a00; 
+            transform: translateY(2px);
+            box-shadow: 0 2px 5px rgba(211, 84, 0, 0.3);
+            color: white;
         }
+        
         .btn-disabled {
             width: 100%; background-color: #eee; color: #999; border: 1px solid #eee;
-            border-radius: var(--btn-radius); padding: 10px; font-weight: 600; font-size: 0.9rem;
+            border-radius: var(--btn-radius); padding: 12px; font-weight: 600; font-size: 0.9rem;
             display: flex; justify-content: center; align-items: center; cursor: not-allowed;
         }
 
@@ -208,30 +240,19 @@
         .extra-check-input { display: none; }
         .extra-check-label {
             display: flex; justify-content: space-between; align-items: center;
-            width: 100%;
-            padding: 12px 15px;
-            border: 1px solid #e9ecef;
-            border-radius: 12px;
-            background-color: #fff;
-            color: var(--color-dark);
-            cursor: pointer;
-            transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
-            position: relative;
-            overflow: hidden;
+            width: 100%; padding: 12px 15px;
+            border: 1px solid #e9ecef; border-radius: 12px;
+            background-color: #fff; color: var(--color-dark);
+            cursor: pointer; transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+            position: relative; overflow: hidden;
         }
         .extra-check-input:checked + .extra-check-label {
-            background-color: var(--color-accent);
-            border-color: var(--color-accent);
-            color: white !important;
-            box-shadow: 0 4px 12px rgba(211, 84, 0, 0.3);
+            background-color: var(--color-accent); border-color: var(--color-accent);
+            color: white !important; box-shadow: 0 4px 12px rgba(211, 84, 0, 0.3);
             transform: translateY(-1px);
         }
-        .extra-name {
-            font-weight: 500; text-align: left; font-size: 0.9rem; line-height: 1.2; padding-right: 10px;
-        }
-        .extra-price {
-            font-weight: 700; white-space: nowrap; font-size: 0.9rem;
-        }
+        .extra-name { font-weight: 500; text-align: left; font-size: 0.9rem; line-height: 1.2; padding-right: 10px; }
+        .extra-price { font-weight: 700; white-space: nowrap; font-size: 0.9rem; }
         .extra-check-input:checked + .extra-check-label .extra-price { color: white; }
         .extra-check-input:checked + .extra-check-label .extra-name { color: white; }
 
@@ -302,17 +323,18 @@
 
     <header class="premium-header">
         <div class="brand-logo"><span class="small text-muted fw-normal">Powered by</span> FoodBack<span class="brand-dot">.</span></div>
-        <a href="{% url 'perfil_usuario' %}" class="text-decoration-none">
-            <i class="bi bi-person-circle fs-4 text-secondary"></i>
-        </a>
+        
+        <a href="{% url 'perfil_usuario' %}" class="header-profile-btn">
+            <span class="header-profile-text">Mis Pedidos</span>
+            <i class="bi bi-receipt fs-6"></i> </a>
     </header>
 
     <div class="saas-identity">
-        <img src="{% static 'pedidos/img/logo-chizles.png' %}" alt="Logo Chizles" class="rest-logo-standalone">
+        <img src="{% static 'pedidos/img/logo-rancheritos.png' %}" alt="Logo Chizles" class="rest-logo-standalone">
         
         <div class="rest-info">
-            <h1>Chizles 🌮<i class="bi bi-patch-check-fill verified-badge"></i></h1>
-            <p>Asado & Mexicano, Sabores que nacen de la llama 🔥</p>
+            <h1>Rancheritos 🍕<i class="bi bi-patch-check-fill verified-badge"></i></h1>
+            <p>Sabor autentico que conquista🔥</p>
         </div>
     </div>
 
@@ -336,14 +358,25 @@
                 {% for producto in categoria.productos.all %}
                     {% if producto.disponible %}
                     <div class="card-premium">
-                        <div class="card-img-wrapper">
+                        
+                        <div class="card-img-wrapper"
+                             {% if abierto %}
+                                 {% if producto.opciones.exists or producto.extras.exists %}
+                                     data-bs-toggle="modal" data-bs-target="#modalProduct{{ producto.id }}"
+                                 {% else %}
+                                     onclick="localStorage.setItem('foodback_scroll_pos', window.scrollY); window.location.href='{% url 'add_to_cart' producto.id %}';"
+                                 {% endif %}
+                             {% endif %}>
+                             
                             <span class="price-pill">${{ producto.precio }}</span>
+                            
                             {% if producto.imagen %}
                                 <img src="{{ producto.imagen.url }}" class="card-img" alt="{{ producto.nombre }}">
                             {% else %}
                                 <div class="d-flex align-items-center justify-content-center h-100 text-muted bg-light"><i class="bi bi-image fs-3 opacity-25"></i></div>
                             {% endif %}
                         </div>
+
                         <div class="card-content">
                             <h5 class="product-title">{{ producto.nombre }}</h5>
                             <p class="product-desc">
@@ -352,12 +385,12 @@
                             
                             {% if abierto %}
                                 {% if producto.opciones.exists or producto.extras.exists %}
-                                    <button type="button" class="btn-add-minimal" data-bs-toggle="modal" data-bs-target="#modalProduct{{ producto.id }}">
-                                        <span>Agregar</span> <i class="bi bi-sliders"></i>
+                                    <button type="button" class="btn-add-primary" data-bs-toggle="modal" data-bs-target="#modalProduct{{ producto.id }}">
+                                        <span>Agregar</span> <i class="bi bi-bag-plus-fill"></i>
                                     </button>
                                 {% else %}
-                                    <a href="{% url 'add_to_cart' producto.id %}" class="btn-add-minimal save-scroll-click">
-                                        <span>Agregar</span> <i class="bi bi-plus"></i>
+                                    <a href="{% url 'add_to_cart' producto.id %}" class="btn-add-primary save-scroll-click">
+                                        <span>Agregar</span> <i class="bi bi-bag-plus-fill"></i>
                                     </a>
                                 {% endif %}
                             {% else %}
@@ -438,6 +471,7 @@
             {% endif %}
         {% endfor %}
     {% endfor %}
+    
     <button id="btnBackToTop" class="btn-back-to-top" onclick="scrollToTop()"> <i class="bi bi-arrow-up-short fs-3"></i> </button>
 
     <footer class="app-footer">

@@ -37,6 +37,23 @@
             transform: translate3d(0,0,0); 
         }
 
+        /* --- SCROLL PERSONALIZADO PARA EL MODAL (Sutil/Invisible) --- */
+        .modal-body::-webkit-scrollbar {
+            width: 4px; /* Muy delgado */
+        }
+        .modal-body::-webkit-scrollbar-track {
+            background: transparent; 
+        }
+        .modal-body::-webkit-scrollbar-thumb {
+            background-color: rgba(0,0,0,0.2); 
+            border-radius: 10px;
+        }
+        /* Para Firefox */
+        .modal-body {
+            scrollbar-width: thin;
+            scrollbar-color: rgba(0,0,0,0.2) transparent;
+        }
+
         /* HEADER */
         .premium-header {
             background: rgba(255, 255, 255, 0.95);
@@ -53,7 +70,7 @@
         .brand-logo { font-weight: 700; font-size: 1rem; color: #aaa; letter-spacing: -0.5px; } 
         .brand-dot { color: var(--color-accent); }
 
-        /* --- NUEVO BOTÓN DE PERFIL/PEDIDOS (UX MEJORADA) --- */
+        /* --- BOTÓN DE PERFIL/PEDIDOS (UX MEJORADA) --- */
         .header-profile-btn {
             display: flex; align-items: center; gap: 8px;
             background-color: #F3F4F6; /* Fondo gris muy suave */
@@ -72,7 +89,6 @@
             font-size: 0.85rem;
             font-weight: 600;
         }
-        /* -------------------------------------------------- */
 
         /* IDENTITY */
         .saas-identity {
@@ -212,10 +228,10 @@
         }
 
         /* UI MODAL EXTRAS */
-        .modal-content { border-radius: 20px; border: none; overflow: hidden; }
-        .modal-header { border-bottom: none; padding: 20px 25px 0 25px; }
-        .modal-body { padding: 20px 25px; }
-        .modal-footer { border-top: none; padding: 0 25px 25px 25px; justify-content: space-between; }
+        .modal-content { border-radius: 20px; border: none; overflow: hidden; height: 100%; /* Fix para Safari */ }
+        .modal-header { border-bottom: none; padding: 20px 25px 0 25px; flex-shrink: 0; }
+        .modal-body { padding: 20px 25px; overflow-y: auto; } /* Habilita scroll interno */
+        .modal-footer { border-top: none; padding: 0 25px 25px 25px; justify-content: space-between; flex-shrink: 0; }
         
         /* Opciones (Radio) */
         .option-radio { display: none; }
@@ -410,15 +426,16 @@
             {% if producto.disponible and abierto %}
                 {% if producto.opciones.exists or producto.extras.exists %}
                 <div class="modal fade" id="modalProduct{{ producto.id }}" tabindex="-1" aria-hidden="true">
-                    <div class="modal-dialog modal-dialog-centered"> 
+                    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable"> 
                         <div class="modal-content">
                             <div class="modal-header">
                                 <h5 class="modal-title fw-bold">{{ producto.nombre }}</h5>
                                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                             </div>
-                            <form action="{% url 'add_to_cart' producto.id %}" method="POST">
-                                {% csrf_token %}
-                                <div class="modal-body">
+                            
+                            <div class="modal-body">
+                                <form id="form-{{ producto.id }}" action="{% url 'add_to_cart' producto.id %}" method="POST">
+                                    {% csrf_token %}
                                     
                                     {% if producto.opciones.exists %}
                                         <p class="text-muted small mb-2 fw-bold">Elige tu estilo:</p>
@@ -458,12 +475,12 @@
                                             {% endif %}
                                         {% endfor %}
                                     {% endif %}
-
-                                </div>
-                                <div class="modal-footer">
-                                    <button type="submit" class="btn-modal-add save-scroll-click">Agregar al Pedido</button>
-                                </div>
-                            </form>
+                                </form>
+                            </div>
+                            
+                            <div class="modal-footer">
+                                <button type="submit" form="form-{{ producto.id }}" class="btn-modal-add save-scroll-click">Agregar al Pedido</button>
+                            </div>
                         </div>
                     </div>
                 </div>

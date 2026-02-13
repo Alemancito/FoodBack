@@ -438,7 +438,8 @@
                                     {% csrf_token %}
                                     
                                     {% if producto.opciones.exists %}
-                                        <p class="text-muted small mb-2 fw-bold">Elige tu estilo:</p>
+                                        <p class="text-muted small mb-1 fw-bold">Elige tu estilo:</p>
+                                        <p class="text-muted small mb-3 ">Toca alguna opcion para cambiar</p>
                                         {% for opcion in producto.opciones.all %}
                                             {% if opcion.disponible %}
                                             <input type="radio" name="opcion_id" id="opcion_{{ producto.id }}_{{ opcion.id }}" value="{{ opcion.id }}" class="option-radio" {% if forloop.first %}checked{% endif %} required>
@@ -460,7 +461,8 @@
                                     {% endif %}
 
                                     {% if producto.extras.exists %}
-                                        <p class="text-muted small mb-2 fw-bold">Agrega algo de sabor para Acompañar (Opcional):</p>
+                                        <p class="text-muted small mb-1 fw-bold">Agrega Extras para Acompañar (Opcional):</p>
+                                        <p class="text-muted small mb-3 ">Toca alguna opcion para añadirla</p>
                                         {% for extra in producto.extras.all %}
                                             {% if extra.disponible %}
                                             <div class="mb-2">

@@ -357,9 +357,15 @@
                         </button>
 
                         {% if dia.es_excepcion and dia.id_db %}
-                            <a href="{% url 'eliminar_excepcion' dia.id_db %}" class="btn-reset-global">
-                                <i class="bi bi-arrow-counterclockwise"></i> Usar horario global
-                            </a>
+                            <button
+                                type="submit"
+                                formaction="{% url 'eliminar_excepcion' dia.id_db %}"
+                                formmethod="post"
+                                class="btn-reset-global"
+                            >
+                                <i class="bi bi-arrow-counterclockwise"></i>
+                                Usar horario global
+                            </button>
                         {% endif %}
 
                     </div>

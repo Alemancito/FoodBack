@@ -14,6 +14,7 @@ from django.contrib import messages
 from decouple import config
 from django.contrib.auth.decorators import login_required, user_passes_test
 from django.views.decorators.cache import never_cache
+from django.views.decorators.http import require_POST
 from django.views.decorators.csrf import csrf_exempt  # IMPORTANTE PARA EL WEBHOOK
 from django.contrib.auth.views import LoginView
 from django.contrib.auth import logout
@@ -41,6 +42,7 @@ class CustomLoginView(LoginView):
             return '/'
 
 
+@require_POST
 def logout_view(request):
     logout(request)
     return redirect('login_custom')
@@ -401,6 +403,7 @@ def menu_view(request):
     })
 
 
+@require_POST
 def cart_add(request, producto_id):
     if not suscripcion_activa():
         return render(
@@ -494,6 +497,7 @@ def cart_add(request, producto_id):
         )
     )
 
+@require_POST
 def cart_clear(request):
     request.session['cart'] = {}
     request.session.modified = True
@@ -501,6 +505,7 @@ def cart_clear(request):
     return redirect('menu')
 
 
+@require_POST
 def eliminar_item_carrito(request, producto_id):
     cart = request.session.get('cart', {})
     key_to_delete = str(producto_id)
@@ -1649,7 +1654,6 @@ def admin_settings_view(request):
             request, "⛔ Acceso denegado a Configuración. Suscripción vencida.")
         return redirect('dashboard_admin')
 
-    DiaEspecial.objects.filter(fecha__lt=date.today()).delete()
     config_negocio = ConfiguracionNegocio.objects.first()
     if not config_negocio:
         config_negocio = ConfiguracionNegocio.objects.create()
@@ -1741,14 +1745,26 @@ def admin_settings_view(request):
 
 @login_required(login_url='login_custom')
 @user_passes_test(es_admin, login_url='login_custom')
+@require_POST
 def eliminar_excepcion_view(request, excepcion_id):
     if not suscripcion_activa():
-        messages.error(request, "Acción denegada. Suscripción vencida.")
+        messages.error(
+            request,
+            "Acción denegada. Suscripción vencida."
+        )
         return redirect('dashboard_admin')
 
-    excepcion = get_object_or_404(DiaEspecial, id=excepcion_id)
+    excepcion = get_object_or_404(
+        DiaEspecial,
+        id=excepcion_id
+    )
     excepcion.delete()
-    messages.info(request, "Excepción eliminada 🗑️")
+
+    messages.info(
+        request,
+        "Excepción eliminada 🗑️"
+    )
+
     return redirect('admin_settings')
 
 
@@ -1759,39 +1775,59 @@ def dashboard_delivery_view(request):
     _limpiar_pedidos_pendientes_vencidos()
 
     if not suscripcion_activa():
-        return render(request, 'pedidos/suspendido.html')
+        return render(
+            request,
+            'pedidos/suspendido.html'
+        )
 
     if request.method == 'POST':
-        pedido = get_object_or_404(Pedido, id=request.POST.get('pedido_id'))
+        pedido = get_object_or_404(
+            Pedido,
+            id=request.POST.get('pedido_id')
+        )
         accion = request.POST.get('accion')
 
         if accion == 'tomar':
             if pedido.estado == 'RUTA' and pedido.repartidor is None:
                 pedido.repartidor = request.user
                 pedido.save()
-                messages.success(request, f"Pedido #{pedido.id} tomado 🛵")
+                messages.success(
+                    request,
+                    f"Pedido #{pedido.id} tomado 🛵"
+                )
             else:
                 messages.warning(
-                    request, "Ese pedido ya fue tomado por otro repartidor.")
+                    request,
+                    "Ese pedido ya fue tomado por otro repartidor."
+                )
 
         elif accion == 'entregado':
             if pedido.repartidor == request.user:
                 pedido.estado = 'ENTREGADO'
                 pedido.save()
-                messages.success(request, f"Pedido #{pedido.id} entregado ✅")
+                messages.success(
+                    request,
+                    f"Pedido #{pedido.id} entregado ✅"
+                )
             else:
                 messages.error(
-                    request, "No puedes entregar un pedido que no está en tu mochila.")
+                    request,
+                    "No puedes entregar un pedido que no está en tu mochila."
+                )
 
         elif accion == 'soltar':
             if pedido.estado == 'RUTA' and pedido.repartidor == request.user:
                 pedido.repartidor = None
                 pedido.save()
                 messages.info(
-                    request, f"Pedido #{pedido.id} devuelto a disponibles 🔄")
+                    request,
+                    f"Pedido #{pedido.id} devuelto a disponibles 🔄"
+                )
             else:
                 messages.error(
-                    request, "No puedes quitar de tu mochila un pedido que no tienes asignado.")
+                    request,
+                    "No puedes quitar de tu mochila un pedido que no tienes asignado."
+                )
 
         elif accion == 'problema':
             if pedido.repartidor == request.user:
@@ -1799,10 +1835,14 @@ def dashboard_delivery_view(request):
                 pedido.repartidor = None
                 pedido.save()
                 messages.warning(
-                    request, f"Problema reportado en pedido #{pedido.id}")
+                    request,
+                    f"Problema reportado en pedido #{pedido.id}"
+                )
             else:
                 messages.error(
-                    request, "No puedes reportar un pedido que no está en tu mochila.")
+                    request,
+                    "No puedes reportar un pedido que no está en tu mochila."
+                )
 
         return redirect('dashboard_delivery')
 
@@ -1812,7 +1852,11 @@ def dashboard_delivery_view(request):
         'last_update': _iso_datetime(_ultimo_cambio_pedidos()),
     })
 
-    return render(request, 'pedidos/dashboard_delivery.html', context)
+    return render(
+        request,
+        'pedidos/dashboard_delivery.html',
+        context
+    )
 
 
 @never_cache

@@ -1654,9 +1654,16 @@
                 buttonsStyling: false
             }).then((result) => {
                 if (result.isConfirmed) {
+                    const csrfToken = document.querySelector(
+                        '[name=csrfmiddlewaretoken]'
+                    ).value;
+
                     fetch(`/eliminar-item/${key}/`, {
-                        method: 'GET',
-                        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                        method: 'POST',
+                        headers: {
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'X-CSRFToken': csrfToken
+                        }
                     })
                     .then(response => response.json())
                     .then(data => {

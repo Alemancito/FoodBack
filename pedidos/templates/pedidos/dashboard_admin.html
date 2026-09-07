@@ -151,12 +151,23 @@
                 </li>
                 <li><hr class="dropdown-divider my-2 opacity-10"></li>
                 <li>
-                    <a class="dropdown-item d-flex align-items-center gap-3 py-2 rounded-3 text-danger" href="{% url 'logout' %}">
-                        <div class="rounded-circle bg-danger-subtle d-flex align-items-center justify-content-center" style="width:32px; height:32px;">
-                            <i class="bi bi-box-arrow-right text-danger"></i>
-                        </div>
-                        <span class="fw-bold">Cerrar Sesión</span>
-                    </a>
+                    <form method="POST" action="{% url 'logout' %}">
+                        {% csrf_token %}
+
+                        <button
+                            type="submit"
+                            class="dropdown-item d-flex align-items-center gap-3 py-2 rounded-3 text-danger border-0 bg-transparent w-100"
+                        >
+                            <div class="rounded-circle bg-danger-subtle d-flex align-items-center justify-content-center"
+                                style="width:32px; height:32px;">
+                                <i class="bi bi-box-arrow-right text-danger"></i>
+                            </div>
+
+                            <span class="fw-bold">
+                                Cerrar Sesión
+                            </span>
+                        </button>
+                    </form>
                 </li>
             </ul>
         </div>

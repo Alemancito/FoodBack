@@ -2,13 +2,14 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from django.contrib.auth.models import Group, User
-from django.test import TestCase
+from django.test import Client, TestCase
 from django.urls import reverse
 
 from .models import (
     Categoria,
     Cliente,
     ConfiguracionNegocio,
+    DiaEspecial,
     Extra,
     OpcionProducto,
     Pedido,
@@ -146,6 +147,51 @@ class PublicBaselineTests(FoodBackTestBase):
 
         self.assertIn(clave_esperada, cart)
         self.assertEqual(cart[clave_esperada], 1)
+    
+    def test_producto_simple_menu_usa_post_y_no_get(self):
+        response = self.client.get(
+            reverse("menu")
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        add_url = reverse(
+            "add_to_cart",
+            args=[self.producto.id],
+        )
+
+        html = response.content.decode()
+
+        # Debe existir un formulario POST para el producto simple.
+        self.assertIn(
+            f'action="{add_url}"',
+            html,
+        )
+
+        self.assertIn(
+            'method="POST"',
+            html,
+        )
+
+        self.assertIn(
+            'name="csrfmiddlewaretoken"',
+            html,
+        )
+
+        # Nunca debe volver a agregarse mediante un enlace GET.
+        self.assertNotIn(
+            f'href="{add_url}"',
+            html,
+        )
+
+        # Tampoco mediante window.location.href.
+        self.assertNotIn(
+            f"window.location.href='{add_url}'",
+            html,
+        )
 
 
 class AuthenticationBaselineTests(FoodBackTestBase):
@@ -648,4 +694,330 @@ class CartIntegritySecurityTests(FoodBackTestBase):
                 cliente__telefono="76000001"
             ).count(),
             0,
+        )
+        
+class HttpMethodSecurityTests(FoodBackTestBase):
+    """
+    FB-SEC-003:
+    Las operaciones que cambian estado no deben ejecutarse
+    mediante peticiones GET.
+    """
+
+    def test_get_no_debe_vaciar_carrito(self):
+        session = self.client.session
+        clave = f"{self.producto.id}-0-0"
+
+        session["cart"] = {
+            clave: 1,
+        }
+        session.save()
+
+        response = self.client.get(
+            reverse("clean_cart")
+        )
+
+        self.assertEqual(
+            response.status_code,
+            405,
+        )
+
+        cart = self.client.session.get(
+            "cart",
+            {},
+        )
+
+        self.assertIn(
+            clave,
+            cart,
+        )
+
+    def test_get_no_debe_eliminar_item_carrito(self):
+        session = self.client.session
+        clave = f"{self.producto.id}-0-0"
+
+        session["cart"] = {
+            clave: 1,
+        }
+        session.save()
+
+        response = self.client.get(
+            reverse(
+                "eliminar_item",
+                args=[clave],
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            405,
+        )
+
+        cart = self.client.session.get(
+            "cart",
+            {},
+        )
+
+        self.assertIn(
+            clave,
+            cart,
+        )
+
+    def test_get_no_debe_eliminar_excepcion_admin(self):
+        excepcion = DiaEspecial.objects.create(
+            fecha=date.today() + timedelta(days=5),
+            abierto=False,
+            motivo="Prueba de seguridad",
+        )
+
+        self.client.force_login(
+            self.admin_user
+        )
+
+        response = self.client.get(
+            reverse(
+                "eliminar_excepcion",
+                args=[excepcion.id],
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            405,
+        )
+
+        self.assertTrue(
+            DiaEspecial.objects.filter(
+                id=excepcion.id
+            ).exists()
+        )
+
+    def test_get_no_debe_cerrar_sesion(self):
+        self.client.force_login(
+            self.admin_user
+        )
+
+        response = self.client.get(
+            reverse("logout")
+        )
+
+        self.assertEqual(
+            response.status_code,
+            405,
+        )
+
+        self.assertEqual(
+            self.client.session.get(
+                "_auth_user_id"
+            ),
+            str(self.admin_user.id),
+        )
+
+    def test_get_admin_settings_no_debe_borrar_datos(self):
+        """
+        Simplemente visualizar Configuración no debería
+        eliminar registros de la base de datos.
+        """
+
+        excepcion_pasada = (
+            DiaEspecial.objects.create(
+                fecha=date.today()
+                - timedelta(days=1),
+                abierto=False,
+                motivo="Histórico",
+            )
+        )
+
+        self.client.force_login(
+            self.admin_user
+        )
+
+        response = self.client.get(
+            reverse("admin_settings")
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.assertTrue(
+            DiaEspecial.objects.filter(
+                id=excepcion_pasada.id
+            ).exists()
+        )
+        
+    def test_get_no_debe_agregar_producto_al_carrito(self):
+        response = self.client.get(
+        reverse(
+            "add_to_cart",
+            args=[self.producto.id],
+        )
+    )
+
+        self.assertEqual(
+            response.status_code,
+            405,
+        )
+
+        cart = self.client.session.get(
+            "cart",
+            {},
+        )
+
+        self.assertEqual(
+            cart,
+            {},
+        )
+        
+    def test_post_si_debe_vaciar_carrito(self):
+        session = self.client.session
+        clave = f"{self.producto.id}-0-0"
+
+        session["cart"] = {
+            clave: 2,
+        }
+        session.save()
+
+        response = self.client.post(
+            reverse("clean_cart")
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        cart = self.client.session.get(
+            "cart",
+            {},
+        )
+
+        self.assertEqual(
+            cart,
+            {},
+        )
+
+    def test_post_si_debe_eliminar_item_carrito(self):
+        session = self.client.session
+        clave = f"{self.producto.id}-0-0"
+
+        session["cart"] = {
+            clave: 1,
+        }
+        session.save()
+
+        response = self.client.post(
+            reverse(
+                "eliminar_item",
+                args=[clave],
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        cart = self.client.session.get(
+            "cart",
+            {},
+        )
+
+        self.assertNotIn(
+            clave,
+            cart,
+        )
+
+    def test_post_si_debe_eliminar_excepcion_admin(self):
+        excepcion = DiaEspecial.objects.create(
+            fecha=date.today() + timedelta(days=5),
+            abierto=False,
+            motivo="Eliminar mediante POST",
+        )
+
+        self.client.force_login(
+            self.admin_user
+        )
+
+        response = self.client.post(
+            reverse(
+                "eliminar_excepcion",
+                args=[excepcion.id],
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        self.assertFalse(
+            DiaEspecial.objects.filter(
+                id=excepcion.id
+            ).exists()
+        )
+
+    def test_post_si_debe_cerrar_sesion(self):
+        self.client.force_login(
+            self.admin_user
+        )
+
+        response = self.client.post(
+            reverse("logout")
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        self.assertIsNone(
+            self.client.session.get(
+                "_auth_user_id"
+            )
+        )
+    
+    
+class CsrfSecurityTests(FoodBackTestBase):
+    """
+    FB-SEC-003A:
+    Las operaciones POST sensibles deben estar protegidas
+    también por CSRF.
+    """
+
+    def setUp(self):
+        self.csrf_client = Client(
+            enforce_csrf_checks=True
+        )
+
+    def test_vaciar_carrito_sin_csrf_es_rechazado(self):
+        session = self.csrf_client.session
+
+        session["cart"] = {
+            f"{self.producto.id}-0-0": 1
+        }
+
+        session.save()
+
+        response = self.csrf_client.post(
+            reverse("clean_cart")
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403,
+        )
+
+    def test_logout_sin_csrf_es_rechazado(self):
+        self.csrf_client.force_login(
+            self.admin_user
+        )
+
+        response = self.csrf_client.post(
+            reverse("logout")
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403,
         )

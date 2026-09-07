@@ -9,6 +9,8 @@ from .models import (
     Categoria,
     Cliente,
     ConfiguracionNegocio,
+    Extra,
+    OpcionProducto,
     Pedido,
     Producto,
 )
@@ -411,3 +413,239 @@ class PublicTrackingSecurityTests(FoodBackTestBase):
 
         self.assertEqual(response.status_code, 404)
     
+class CartIntegritySecurityTests(FoodBackTestBase):
+    """
+    FB-SEC-002:
+    El servidor no debe confiar en producto/opción/extras
+    enviados por el navegador.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+
+        # Segundo producto para intentar mezclar relaciones.
+        cls.producto_b = Producto.objects.create(
+            categoria=cls.categoria,
+            nombre="Pizza de prueba",
+            descripcion="Segundo producto para ataques de integridad.",
+            precio=Decimal("8.00"),
+            disponible=True,
+        )
+
+        # Variante válida del producto principal.
+        cls.opcion_valida = OpcionProducto.objects.create(
+            producto=cls.producto,
+            nombre="Doble carne",
+            precio_extra=Decimal("2.00"),
+            disponible=True,
+        )
+
+        # Variante que pertenece a OTRO producto.
+        cls.opcion_otro_producto = OpcionProducto.objects.create(
+            producto=cls.producto_b,
+            nombre="Borde relleno",
+            precio_extra=Decimal("3.00"),
+            disponible=True,
+        )
+
+        # Variante del producto correcto, pero deshabilitada.
+        cls.opcion_no_disponible = OpcionProducto.objects.create(
+            producto=cls.producto,
+            nombre="Variante desactivada",
+            precio_extra=Decimal("1.00"),
+            disponible=False,
+        )
+
+        # Extra válido del producto principal.
+        cls.extra_valido = Extra.objects.create(
+            nombre="Queso extra",
+            precio=Decimal("1.00"),
+            disponible=True,
+        )
+        cls.producto.extras.add(cls.extra_valido)
+
+        # Extra válido, pero solamente para producto B.
+        cls.extra_otro_producto = Extra.objects.create(
+            nombre="Extra exclusivo pizza",
+            precio=Decimal("2.00"),
+            disponible=True,
+        )
+        cls.producto_b.extras.add(cls.extra_otro_producto)
+
+        # Extra perteneciente al producto, pero deshabilitado.
+        cls.extra_no_disponible = Extra.objects.create(
+            nombre="Extra desactivado",
+            precio=Decimal("1.50"),
+            disponible=False,
+        )
+        cls.producto.extras.add(cls.extra_no_disponible)
+
+        # Producto deshabilitado.
+        cls.producto_no_disponible = Producto.objects.create(
+            categoria=cls.categoria,
+            nombre="Producto desactivado",
+            descripcion="No debe poder agregarse.",
+            precio=Decimal("6.00"),
+            disponible=False,
+        )
+
+    def assert_cart_vacio(self):
+        cart = self.client.session.get("cart", {})
+        self.assertEqual(cart, {})
+
+    def test_rechaza_opcion_de_otro_producto(self):
+        response = self.client.post(
+            reverse(
+                "add_to_cart",
+                args=[self.producto.id],
+            ),
+            {
+                "opcion_id": str(
+                    self.opcion_otro_producto.id
+                ),
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assert_cart_vacio()
+
+    def test_rechaza_extra_de_otro_producto(self):
+        response = self.client.post(
+            reverse(
+                "add_to_cart",
+                args=[self.producto.id],
+            ),
+            {
+                "extras": [
+                    str(self.extra_otro_producto.id)
+                ],
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assert_cart_vacio()
+
+    def test_rechaza_opcion_no_disponible(self):
+        response = self.client.post(
+            reverse(
+                "add_to_cart",
+                args=[self.producto.id],
+            ),
+            {
+                "opcion_id": str(
+                    self.opcion_no_disponible.id
+                ),
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assert_cart_vacio()
+
+    def test_rechaza_extra_no_disponible(self):
+        response = self.client.post(
+            reverse(
+                "add_to_cart",
+                args=[self.producto.id],
+            ),
+            {
+                "extras": [
+                    str(self.extra_no_disponible.id)
+                ],
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assert_cart_vacio()
+
+    def test_rechaza_producto_no_disponible(self):
+        response = self.client.post(
+            reverse(
+                "add_to_cart",
+                args=[self.producto_no_disponible.id],
+            )
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assert_cart_vacio()
+
+    def test_rechaza_identificador_de_opcion_malformado(self):
+        response = self.client.post(
+            reverse(
+                "add_to_cart",
+                args=[self.producto.id],
+            ),
+            {
+                "opcion_id": "ESTO-NO-ES-UN-ID",
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assert_cart_vacio()
+
+    def test_combinacion_legitima_si_se_acepta(self):
+        response = self.client.post(
+            reverse(
+                "add_to_cart",
+                args=[self.producto.id],
+            ),
+            {
+                "opcion_id": str(self.opcion_valida.id),
+                "extras": [
+                    str(self.extra_valido.id)
+                ],
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+
+        cart = self.client.session.get("cart", {})
+
+        clave = (
+            f"{self.producto.id}-"
+            f"{self.opcion_valida.id}-"
+            f"{self.extra_valido.id}"
+        )
+
+        self.assertIn(clave, cart)
+        self.assertEqual(cart[clave], 1)
+
+    def test_checkout_revalida_carrito_manipulado(self):
+        """
+        Aunque alguien lograra introducir una combinación inválida
+        directamente en la sesión/carrito, checkout debe volver
+        a comprobarla antes de crear el pedido.
+        """
+
+        session = self.client.session
+
+        session["cart"] = {
+            (
+                f"{self.producto.id}-"
+                f"{self.opcion_otro_producto.id}-0"
+            ): 1
+        }
+
+        session.save()
+
+        response = self.client.post(
+            reverse("checkout"),
+            {
+                "telefono": "76000001",
+                "nombre": "Ataque",
+                "apellido": "Prueba",
+                "direccion": "San Miguel",
+                "metodo_pago": "EFECTIVO",
+                "latitud": "13.4800",
+                "longitud": "-88.1800",
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+        self.assertEqual(
+            Pedido.objects.filter(
+                cliente__telefono="76000001"
+            ).count(),
+            0,
+        )

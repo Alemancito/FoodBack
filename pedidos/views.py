@@ -17,7 +17,7 @@ from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import csrf_exempt  # IMPORTANTE PARA EL WEBHOOK
 from django.contrib.auth.views import LoginView
 from django.contrib.auth import logout
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponseBadRequest
 from django.template.loader import render_to_string
 from django.db.models import Sum, Count, F, Q, Max, Prefetch
 from django.core.exceptions import PermissionDenied
@@ -148,6 +148,221 @@ def verificar_estado_negocio():
     return False, mensaje_base
 
 
+# --- SEGURIDAD E INTEGRIDAD DEL CARRITO ---
+
+
+class CarritoInvalido(ValueError):
+    """
+    Error interno controlado para cualquier dato de carrito
+    que no coincida con la configuración real de la base de datos.
+    """
+    pass
+
+
+def _entero_positivo(valor, nombre_campo):
+    """
+    Convierte IDs/cantidades recibidos desde cliente o sesión
+    a enteros positivos.
+
+    Nunca confiamos directamente en strings recibidos.
+    """
+    try:
+        numero = int(str(valor))
+    except (TypeError, ValueError):
+        raise CarritoInvalido(
+            f"{nombre_campo} contiene un identificador inválido."
+        )
+
+    if numero <= 0:
+        raise CarritoInvalido(
+            f"{nombre_campo} debe ser un entero positivo."
+        )
+
+    return numero
+
+
+def _validar_seleccion_producto(
+    producto,
+    opcion_id=None,
+    extras_ids=None,
+):
+    """
+    Verifica que:
+
+    - la opción exista;
+    - pertenezca realmente al producto;
+    - esté disponible;
+    - los extras existan;
+    - estén autorizados para ese producto;
+    - estén disponibles.
+
+    Devuelve objetos obtenidos exclusivamente desde la BD.
+    """
+
+    opcion = None
+
+    if opcion_id not in [None, "", "0", 0]:
+        opcion_id_limpio = _entero_positivo(
+            opcion_id,
+            "opcion_id",
+        )
+
+        opcion = (
+            OpcionProducto.objects
+            .filter(
+                id=opcion_id_limpio,
+                producto=producto,
+                disponible=True,
+            )
+            .first()
+        )
+
+        if not opcion:
+            raise CarritoInvalido(
+                "La opción seleccionada no es válida para este producto."
+            )
+
+    extras_ids = extras_ids or []
+    extras_ids_limpios = []
+
+    for extra_id in extras_ids:
+        extra_id_limpio = _entero_positivo(
+            extra_id,
+            "extra_id",
+        )
+
+        if extra_id_limpio not in extras_ids_limpios:
+            extras_ids_limpios.append(extra_id_limpio)
+
+    extras = []
+
+    if extras_ids_limpios:
+        extras = list(
+            producto.extras.filter(
+                id__in=extras_ids_limpios,
+                disponible=True,
+            ).order_by("id")
+        )
+
+        ids_encontrados = {
+            extra.id
+            for extra in extras
+        }
+
+        if ids_encontrados != set(extras_ids_limpios):
+            raise CarritoInvalido(
+                "Uno o más extras no son válidos para este producto."
+            )
+
+    return opcion, extras
+
+
+def _descomponer_clave_carrito(key):
+    """
+    Formato esperado:
+
+    producto-opcion-extras
+
+    Ejemplo:
+    5-8-2,4
+    """
+
+    partes = str(key).split("-", 2)
+
+    if len(partes) != 3:
+        raise CarritoInvalido(
+            "La estructura del carrito es inválida."
+        )
+
+    producto_id = _entero_positivo(
+        partes[0],
+        "producto_id",
+    )
+
+    opcion_id = partes[1]
+
+    extras_raw = partes[2]
+
+    if extras_raw in ["", "0"]:
+        extras_ids = []
+    else:
+        extras_ids = extras_raw.split(",")
+
+    return producto_id, opcion_id, extras_ids
+
+
+def _validar_carrito(cart):
+    """
+    Reconstruye TODO el carrito desde la base de datos.
+
+    No confía en precios, relaciones ni IDs almacenados
+    previamente en la sesión.
+    """
+
+    if not isinstance(cart, dict):
+        raise CarritoInvalido(
+            "La estructura del carrito no es válida."
+        )
+
+    items_validados = []
+
+    for key, cantidad_raw in cart.items():
+
+        cantidad = _entero_positivo(
+            cantidad_raw,
+            "cantidad",
+        )
+
+        (
+            producto_id,
+            opcion_id,
+            extras_ids,
+        ) = _descomponer_clave_carrito(key)
+
+        producto = (
+            Producto.objects
+            .filter(
+                id=producto_id,
+                disponible=True,
+            )
+            .first()
+        )
+
+        if not producto:
+            raise CarritoInvalido(
+                "El producto ya no está disponible."
+            )
+
+        opcion, extras = _validar_seleccion_producto(
+            producto=producto,
+            opcion_id=opcion_id,
+            extras_ids=extras_ids,
+        )
+
+        precio_item = producto.precio
+
+        if opcion:
+            precio_item += opcion.precio_extra
+
+        for extra in extras:
+            precio_item += extra.precio
+
+        subtotal = precio_item * cantidad
+
+        items_validados.append({
+            "key": key,
+            "producto": producto,
+            "cantidad": cantidad,
+            "opcion": opcion,
+            "nombre_opcion": opcion.nombre if opcion else "",
+            "lista_extras": extras,
+            "precio_item": precio_item,
+            "subtotal": subtotal,
+        })
+
+    return items_validados
+
+
 # --- VISTAS PÚBLICAS ---
 
 def menu_view(request):
@@ -188,22 +403,66 @@ def menu_view(request):
 
 def cart_add(request, producto_id):
     if not suscripcion_activa():
-        return render(request, 'pedidos/suspendido.html')
+        return render(
+            request,
+            'pedidos/suspendido.html'
+        )
 
-    cart = request.session.get('cart', {})
-    producto = get_object_or_404(Producto, id=producto_id)
-    opcion_id = request.POST.get('opcion_id')
-    extras_ids = request.POST.getlist('extras')
+    producto = get_object_or_404(
+        Producto,
+        id=producto_id,
+        disponible=True,
+    )
 
-    key_parts = [str(producto_id)]
-    key_parts.append(str(opcion_id) if opcion_id else "0")
-    if extras_ids:
-        extras_ids.sort()
-        key_parts.append(",".join(extras_ids))
-    else:
-        key_parts.append("0")
+    opcion_id = request.POST.get(
+        'opcion_id'
+    )
 
-    key = "-".join(key_parts)
+    extras_ids = request.POST.getlist(
+        'extras'
+    )
+
+    try:
+        opcion, extras = _validar_seleccion_producto(
+            producto=producto,
+            opcion_id=opcion_id,
+            extras_ids=extras_ids,
+        )
+
+    except CarritoInvalido:
+        return HttpResponseBadRequest(
+            "La selección enviada no es válida."
+        )
+
+    cart = request.session.get(
+        'cart',
+        {}
+    )
+
+    # Construimos la clave usando únicamente IDs
+    # que ya fueron validados contra la BD.
+    opcion_key = (
+        str(opcion.id)
+        if opcion
+        else "0"
+    )
+
+    extras_key = "0"
+
+    if extras:
+        extras_key = ",".join(
+            str(extra.id)
+            for extra in sorted(
+                extras,
+                key=lambda e: e.id
+            )
+        )
+
+    key = (
+        f"{producto.id}-"
+        f"{opcion_key}-"
+        f"{extras_key}"
+    )
 
     if key in cart:
         cart[key] += 1
@@ -214,19 +473,26 @@ def cart_add(request, producto_id):
     request.session.modified = True
 
     nombre_mostrar = producto.nombre
-    if opcion_id:
-        try:
-            opcion = OpcionProducto.objects.get(id=opcion_id)
-            nombre_mostrar += f" ({opcion.nombre})"
-        except:
-            pass
 
-    if extras_ids:
+    if opcion:
+        nombre_mostrar += (
+            f" ({opcion.nombre})"
+        )
+
+    if extras:
         nombre_mostrar += " + Extras"
 
-    messages.success(request, f"¡{nombre_mostrar} agregado!")
-    return redirect(request.META.get('HTTP_REFERER', 'menu'))
+    messages.success(
+        request,
+        f"¡{nombre_mostrar} agregado!"
+    )
 
+    return redirect(
+        request.META.get(
+            'HTTP_REFERER',
+            'menu'
+        )
+    )
 
 def cart_clear(request):
     request.session['cart'] = {}
@@ -292,142 +558,294 @@ def checkout_view(request):
     _limpiar_pedidos_pendientes_vencidos()
 
     if not suscripcion_activa():
-        return render(request, 'pedidos/suspendido.html')
+        return render(
+            request,
+            'pedidos/suspendido.html'
+        )
 
     abierto, mensaje = verificar_estado_negocio()
+
     if not abierto:
-        messages.error(request, f"⛔ El restaurante ha cerrado. {mensaje}")
+        messages.error(
+            request,
+            f"⛔ El restaurante ha cerrado. {mensaje}"
+        )
         return redirect('menu')
-    cart = request.session.get('cart', {})
+
+    cart = request.session.get(
+        'cart',
+        {}
+    )
+
+    # -------------------------------------------------
+    # DEFENSA EN PROFUNDIDAD
+    #
+    # Aunque cart_add ya haya validado el producto,
+    # checkout vuelve a validar TODO desde la BD.
+    # -------------------------------------------------
+
+    items_validados = []
+
+    if cart:
+        try:
+            items_validados = _validar_carrito(
+                cart
+            )
+
+        except CarritoInvalido:
+            if request.method == 'POST':
+                return HttpResponseBadRequest(
+                    "No pudimos validar el carrito."
+                )
+
+            # Si llegamos mediante GET con una sesión
+            # corrupta/manipulada, eliminamos el carrito.
+            request.session['cart'] = {}
+            request.session.modified = True
+
+            messages.error(
+                request,
+                "Tu carrito contenía una selección que "
+                "ya no es válida. Agrégala nuevamente."
+            )
+
+            return redirect('menu')
 
     if request.method == 'POST':
-        telefono = request.POST.get('telefono')
-        nombre = request.POST.get('nombre')
-        apellido = request.POST.get('apellido')
-        direccion = request.POST.get('direccion')
-        metodo_pago = request.POST.get('metodo_pago')
-        lat = request.POST.get('latitud')
-        lng = request.POST.get('longitud')
+
+        telefono = request.POST.get(
+            'telefono'
+        )
+
+        nombre = request.POST.get(
+            'nombre'
+        )
+
+        apellido = request.POST.get(
+            'apellido'
+        )
+
+        direccion = request.POST.get(
+            'direccion'
+        )
+
+        metodo_pago = request.POST.get(
+            'metodo_pago'
+        )
+
+        lat = request.POST.get(
+            'latitud'
+        )
+
+        lng = request.POST.get(
+            'longitud'
+        )
 
         if not cart:
-            messages.error(request, "El carrito está vacío.")
+            messages.error(
+                request,
+                "El carrito está vacío."
+            )
             return redirect('menu')
 
         if not telefono or len(telefono) < 8:
-            messages.error(request, "Revisa tu teléfono.")
+            messages.error(
+                request,
+                "Revisa tu teléfono."
+            )
             return redirect('checkout')
 
         try:
             with transaction.atomic():
-                cliente, created = Cliente.objects.get_or_create(
-                    telefono=telefono,
-                    defaults={'nombre': nombre, 'apellido': apellido,
-                              'direccion_ultima': direccion}
+
+                cliente, created = (
+                    Cliente.objects.get_or_create(
+                        telefono=telefono,
+                        defaults={
+                            'nombre': nombre,
+                            'apellido': apellido,
+                            'direccion_ultima': direccion,
+                        }
+                    )
                 )
+
                 if not created:
                     cliente.nombre = nombre
                     cliente.apellido = apellido
                     cliente.direccion_ultima = direccion
                     cliente.save()
 
-                estado_inicial = 'PENDIENTE' if metodo_pago == 'TARJETA' else 'RECIBIDO'
-
-                pedido = Pedido.objects.create(
-                    cliente=cliente, direccion_entrega=direccion, metodo_pago=metodo_pago,
-                    latitud=lat, longitud=lng, es_pedido_whatsapp=False,
-                    estado=estado_inicial
+                estado_inicial = (
+                    'PENDIENTE'
+                    if metodo_pago == 'TARJETA'
+                    else 'RECIBIDO'
                 )
 
-                for key, cantidad in cart.items():
-                    parts = key.split('-')
-                    prod_id = parts[0]
-                    opc_id = parts[1] if len(parts) > 1 else "0"
-                    extras_str = parts[2] if len(parts) > 2 else "0"
+                pedido = Pedido.objects.create(
+                    cliente=cliente,
+                    direccion_entrega=direccion,
+                    metodo_pago=metodo_pago,
+                    latitud=lat,
+                    longitud=lng,
+                    es_pedido_whatsapp=False,
+                    estado=estado_inicial,
+                )
 
-                    producto = get_object_or_404(Producto, id=prod_id)
-                    opcion = None
-                    if opc_id != "0":
-                        opcion = OpcionProducto.objects.filter(
-                            id=opc_id).first()
+                # -------------------------------------
+                # SOLO usamos objetos validados.
+                # No volvemos a confiar en IDs crudos.
+                # -------------------------------------
 
-                    detalle = DetallePedido.objects.create(
-                        pedido=pedido, producto=producto, cantidad=cantidad,
-                        precio_unitario=producto.precio, opcion=opcion
+                for item in items_validados:
+
+                    producto = item[
+                        'producto'
+                    ]
+
+                    opcion = item[
+                        'opcion'
+                    ]
+
+                    extras = item[
+                        'lista_extras'
+                    ]
+
+                    cantidad = item[
+                        'cantidad'
+                    ]
+
+                    detalle = (
+                        DetallePedido.objects.create(
+                            pedido=pedido,
+                            producto=producto,
+                            cantidad=cantidad,
+                            precio_unitario=producto.precio,
+                            opcion=opcion,
+                        )
                     )
 
-                    if extras_str != "0":
-                        ids_ext = extras_str.split(',')
-                        for eid in ids_ext:
-                            extra_obj = Extra.objects.filter(id=eid).first()
-                            if extra_obj:
-                                detalle.extras.add(extra_obj)
+                    for extra in extras:
+                        detalle.extras.add(
+                            extra
+                        )
+
                     detalle.save()
 
                 pedido.save()
 
-                request.session['ultimo_pedido_id'] = pedido.id
-                historial = request.session.get('historial_pedidos', [])
-                if pedido.id not in historial:
-                    historial.append(pedido.id)
-                request.session['historial_pedidos'] = historial
+                request.session[
+                    'ultimo_pedido_id'
+                ] = pedido.id
 
-                request.session['cart'] = {}
+                historial = request.session.get(
+                    'historial_pedidos',
+                    []
+                )
+
+                if pedido.id not in historial:
+                    historial.append(
+                        pedido.id
+                    )
+
+                request.session[
+                    'historial_pedidos'
+                ] = historial
+
+                request.session[
+                    'cart'
+                ] = {}
+
                 request.session.modified = True
 
                 if metodo_pago == 'TARJETA':
                     return redirect(
                         'pagar_wompi',
-                        tracking_token=pedido.tracking_token
+                        tracking_token=(
+                            pedido.tracking_token
+                        )
                     )
-                else:
-                    return redirect(
-                        'order_tracker',
-                        tracking_token=pedido.tracking_token
+
+                return redirect(
+                    'order_tracker',
+                    tracking_token=(
+                        pedido.tracking_token
                     )
+                )
 
         except Exception as e:
-            messages.error(request, f"Error procesando: {e}")
+            # El detalle técnico NO se envía al usuario.
+            # De momento queda únicamente en consola.
+            # Más adelante irá al sistema profesional
+            # de logging/error reporting.
+            print(
+                f"Error interno checkout: {e}"
+            )
+
+            messages.error(
+                request,
+                "No pudimos procesar tu pedido. "
+                "Intenta nuevamente."
+            )
+
             return redirect('checkout')
 
+    # -----------------------------------------
+    # Render del checkout usando únicamente
+    # datos que ya pasaron por el validador.
+    # -----------------------------------------
+
     productos_en_carrito = []
-    total_productos = 0
-    for key, cantidad in cart.items():
-        parts = key.split('-')
-        prod_id = parts[0]
-        opc_id = parts[1] if len(parts) > 1 else "0"
-        extras_str = parts[2] if len(parts) > 2 else "0"
+    total_productos = Decimal(
+        '0.00'
+    )
 
-        producto = get_object_or_404(Producto, id=prod_id)
-        precio_item = producto.precio
-        nombre_opcion = ""
-        opcion = None
-        if opc_id != "0":
-            opcion = OpcionProducto.objects.filter(id=opc_id).first()
-            if opcion:
-                precio_item += opcion.precio_extra
-                nombre_opcion = opcion.nombre
+    for item in items_validados:
 
-        lista_extras = []
-        if extras_str != "0":
-            ids_ext = extras_str.split(',')
-            extras_objs = Extra.objects.filter(id__in=ids_ext)
-            for ex in extras_objs:
-                precio_item += ex.precio
-                lista_extras.append(ex)
-
-        subtotal = precio_item * cantidad
-        total_productos += subtotal
         productos_en_carrito.append({
-            'producto': producto, 'cantidad': cantidad, 'subtotal': subtotal,
-            'opcion': opcion, 'nombre_opcion': nombre_opcion, 'lista_extras': lista_extras, 'key': key
+            'producto': item[
+                'producto'
+            ],
+            'cantidad': item[
+                'cantidad'
+            ],
+            'subtotal': item[
+                'subtotal'
+            ],
+            'opcion': item[
+                'opcion'
+            ],
+            'nombre_opcion': item[
+                'nombre_opcion'
+            ],
+            'lista_extras': item[
+                'lista_extras'
+            ],
+            'key': item[
+                'key'
+            ],
         })
 
+        total_productos += item[
+            'subtotal'
+        ]
+
     context = {
-        'items': productos_en_carrito, 'total_productos': total_productos,
-        'total_wompi': float(total_productos) * 1.05,
-        'GOOGLE_MAPS_API_KEY': config('GOOGLE_MAPS_API_KEY', default=''),
+        'items': productos_en_carrito,
+        'total_productos': total_productos,
+        'total_wompi': (
+            float(total_productos) * 1.05
+        ),
+        'GOOGLE_MAPS_API_KEY': config(
+            'GOOGLE_MAPS_API_KEY',
+            default=''
+        ),
     }
-    return render(request, 'pedidos/checkout.html', context)
+
+    return render(
+        request,
+        'pedidos/checkout.html',
+        context
+    )
 
 # --- VISTAS DE PAGO WOMPI (CLIENTES PAGANDO PEDIDOS) ---
 

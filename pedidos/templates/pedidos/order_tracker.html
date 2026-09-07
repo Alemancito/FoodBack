@@ -284,7 +284,7 @@
         L.marker([lat, lng], {icon: iconoPropio}).addTo(map);
 
         // --- 2. LÓGICA DE ACTUALIZACIÓN EN VIVO (CEREBRO) ---
-        const pedidoId = "{{ pedido.id }}";
+        const trackingToken = "{{ pedido.tracking_token }}";
         const steps = ['RECIBIDO', 'COCINA', 'RUTA', 'ENTREGADO'];
         const progressFill = document.getElementById('progressFill');
         
@@ -312,7 +312,7 @@
                 return;
             }
 
-            const url = `/api/pedido/${pedidoId}/status/?last_update=${encodeURIComponent(trackerLastUpdate)}`;
+            const url = `/api/pedido/${trackingToken}/status/?last_update=${encodeURIComponent(trackerLastUpdate)}`;
 
             fetch(url)
                 .then(response => response.json())

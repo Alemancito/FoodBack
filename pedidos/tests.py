@@ -313,3 +313,101 @@ class DeliveryBaselineTests(FoodBackTestBase):
             pedido.repartidor,
             self.delivery_2,
         )
+        
+class PublicTrackingSecurityTests(FoodBackTestBase):
+    """
+    FB-SEC-001:
+    Un ID interno secuencial nunca debe bastar para consultar
+    públicamente un pedido.
+    """
+
+    def test_id_numerico_no_debe_exponer_tracker_publico(self):
+        pedido = self.crear_pedido(
+            estado="RECIBIDO",
+            telefono="75000001",
+        )
+
+        response = self.client.get(
+            f"/pedido/{pedido.id}/rastrear/"
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_id_numerico_no_debe_exponer_api_estado(self):
+        pedido = self.crear_pedido(
+            estado="RECIBIDO",
+            telefono="75000002",
+        )
+
+        response = self.client.get(
+            f"/api/pedido/{pedido.id}/status/"
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_tracking_token_valido_muestra_tracker(self):
+        pedido = self.crear_pedido(
+            estado="RECIBIDO",
+            telefono="75000003",
+        )
+
+        response = self.client.get(
+            reverse(
+                "order_tracker",
+                args=[pedido.tracking_token],
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.context["pedido"].id,
+            pedido.id,
+        )
+
+    def test_tracking_token_valido_permite_consultar_estado(self):
+        pedido = self.crear_pedido(
+            estado="RECIBIDO",
+            telefono="75000004",
+        )
+
+        response = self.client.get(
+            reverse(
+                "api_order_status",
+                args=[pedido.tracking_token],
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        data = response.json()
+
+        self.assertEqual(data["status"], "ok")
+        self.assertEqual(
+            data["estado_codigo"],
+            pedido.estado,
+        )
+
+    def test_id_numerico_no_debe_abrir_pago(self):
+        pedido = self.crear_pedido(
+            estado="PENDIENTE",
+            telefono="75000005",
+        )
+
+        response = self.client.get(
+            f"/pagar/{pedido.id}/"
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_id_numerico_no_debe_abrir_exito(self):
+        pedido = self.crear_pedido(
+            estado="RECIBIDO",
+            telefono="75000006",
+        )
+
+        response = self.client.get(
+            f"/exito/{pedido.id}/"
+        )
+
+        self.assertEqual(response.status_code, 404)
+    

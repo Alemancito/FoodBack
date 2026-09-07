@@ -522,7 +522,8 @@
     </footer>
 
     {% if ultimo_pedido_activo %}
-    <a href="{% url 'order_tracker' ultimo_pedido_activo.id %}" class="tracker-floating-bar">
+    <a href="{% url 'order_tracker' ultimo_pedido_activo.tracking_token %}"
+   class="tracker-floating-bar">
         <div class="tracker-info">
             <div class="radar-pulse"></div>
             <div>

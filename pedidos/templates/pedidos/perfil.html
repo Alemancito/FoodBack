@@ -45,7 +45,7 @@
         {% if activos %}
         <div class="section-title text-success"><i class="bi bi-broadcast me-1"></i> En Curso</div>
         {% for p in activos %}
-        <a href="{% url 'order_tracker' p.id %}" class="order-card-profile" style="border-left: 4px solid #2ecc71;">
+        <a href="{% url 'order_tracker' p.tracking_token %}" class="order-card-profile" style="border-left: 4px solid #2ecc71;">
             <div class="d-flex justify-content-between align-items-center mb-2">
                 <span class="fw-bold">Pedido #{{ p.id }}</span>
                 <span class="status-badge st-active">{{ p.get_estado_display }}</span>

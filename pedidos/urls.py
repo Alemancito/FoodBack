@@ -9,12 +9,22 @@ urlpatterns = [
     # Carrito
     path('agregar/<int:producto_id>/', views.cart_add, name='add_to_cart'),
     path('limpiar/', views.cart_clear, name='clean_cart'),
-    path('eliminar-item/<str:producto_id>/', views.eliminar_item_carrito, name='eliminar_item'),
+    path('eliminar-item/<str:producto_id>/',
+         views.eliminar_item_carrito, name='eliminar_item'),
 
     # Checkout / pedidos
     path('checkout/', views.checkout_view, name='checkout'),
-    path('exito/<int:pedido_id>/', views.pedido_exito_view, name='pedido_exito'),
-    path('pedido/<int:pedido_id>/rastrear/', views.order_tracker_view, name='order_tracker'),
+    path(
+        'exito/<uuid:tracking_token>/',
+        views.pedido_exito_view,
+        name='pedido_exito'
+    ),
+
+    path(
+        'pedido/<uuid:tracking_token>/rastrear/',
+        views.order_tracker_view,
+        name='order_tracker'
+    ),
 
     # Autenticación
     path('login/', CustomLoginView.as_view(), name='login_custom'),
@@ -26,22 +36,34 @@ urlpatterns = [
 
     # APIs
     path('api/geo-ip/', obtener_ubicacion_ip, name='geo_ip'),
-    path('api/pedido/<int:pedido_id>/status/', views.api_order_status, name='api_order_status'),
-    path('api/dashboard/sync/', views.api_dashboard_admin_sync, name='api_dashboard_admin_sync'),
+    path(
+        'api/pedido/<uuid:tracking_token>/status/',
+        views.api_order_status,
+        name='api_order_status'
+    ),
+    path('api/dashboard/sync/', views.api_dashboard_admin_sync,
+         name='api_dashboard_admin_sync'),
     path('api/reparto/sync/', views.api_delivery_sync, name='api_delivery_sync'),
 
     # Wompi pedido
-    path('pagar/<int:pedido_id>/', views.pagar_wompi_view, name='pagar_wompi'),
+    path(
+        'pagar/<uuid:tracking_token>/',
+        views.pagar_wompi_view,
+        name='pagar_wompi'
+    ),
     path('wompi-respuesta/', views.wompi_respuesta_view, name='wompi_respuesta'),
     path('wompi-webhook/', views.wompi_webhook_view, name='wompi_webhook'),
 
     # Admin / configuración / métricas
     path('dashboard/settings/', views.admin_settings_view, name='admin_settings'),
-    path('dashboard/settings/eliminar/<int:excepcion_id>/', views.eliminar_excepcion_view, name='eliminar_excepcion'),
-    path('dashboard/metricas/', views.dashboard_metrics_view, name='dashboard_metrics'),
+    path('dashboard/settings/eliminar/<int:excepcion_id>/',
+         views.eliminar_excepcion_view, name='eliminar_excepcion'),
+    path('dashboard/metricas/', views.dashboard_metrics_view,
+         name='dashboard_metrics'),
     path('mi-perfil/', views.perfil_usuario_view, name='perfil_usuario'),
 
     # Suscripción SaaS
     path('pagar-suscripcion/', pagar_suscripcion_view, name='pagar_suscripcion'),
-    path('wompi-suscripcion-respuesta/', wompi_suscripcion_respuesta_view, name='wompi_suscripcion_respuesta'),
+    path('wompi-suscripcion-respuesta/', wompi_suscripcion_respuesta_view,
+         name='wompi_suscripcion_respuesta'),
 ]

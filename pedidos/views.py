@@ -3,8 +3,8 @@ import hmac
 import json
 import uuid
 import urllib.request
-import requests 
-import time # Necesario para generar referencias únicas
+import requests
+import time  # Necesario para generar referencias únicas
 from datetime import datetime, date, timedelta
 from decimal import Decimal, InvalidOperation
 from django.shortcuts import render, redirect, get_object_or_404
@@ -14,17 +14,18 @@ from django.contrib import messages
 from decouple import config
 from django.contrib.auth.decorators import login_required, user_passes_test
 from django.views.decorators.cache import never_cache
-from django.views.decorators.csrf import csrf_exempt # IMPORTANTE PARA EL WEBHOOK
+from django.views.decorators.csrf import csrf_exempt  # IMPORTANTE PARA EL WEBHOOK
 from django.contrib.auth.views import LoginView
 from django.contrib.auth import logout
-from django.http import JsonResponse 
-from django.template.loader import render_to_string 
+from django.http import JsonResponse
+from django.template.loader import render_to_string
 from django.db.models import Sum, Count, F, Q, Max, Prefetch
 from django.core.exceptions import PermissionDenied
 from django.utils.dateparse import parse_datetime
 from django.utils import timezone
 
 # --- LÓGICA DE LOGIN Y SEGURIDAD ---
+
 
 class CustomLoginView(LoginView):
     template_name = 'registration/login.html'
@@ -33,28 +34,34 @@ class CustomLoginView(LoginView):
     def get_success_url(self):
         user = self.request.user
         if user.groups.filter(name='Administradores').exists() or user.is_superuser:
-            return '/dashboard/' 
+            return '/dashboard/'
         elif user.groups.filter(name='Repartidores').exists():
-            return '/reparto/'   
+            return '/reparto/'
         else:
-            return '/' 
+            return '/'
+
 
 def logout_view(request):
     logout(request)
     return redirect('login_custom')
 
+
 def es_admin(user):
     return user.groups.filter(name='Administradores').exists() or user.is_superuser
+
 
 def es_repartidor(user):
     return user.groups.filter(name='Repartidores').exists()
 
 # --- VALIDACIÓN DE SUSCRIPCIÓN (EL GUARDIA DE SEGURIDAD) ---
+
+
 def suscripcion_activa():
     """Retorna True si está al día, False si venció."""
     config_negocio = ConfiguracionNegocio.objects.first()
-    if not config_negocio: return True 
-    
+    if not config_negocio:
+        return True
+
     hoy = date.today()
     vencimiento = config_negocio.fecha_vencimiento
 
@@ -87,11 +94,12 @@ def _limpiar_pedidos_pendientes_vencidos():
         pago_verificado=False,
     ).delete()
 
+
 def verificar_estado_negocio():
     ahora = datetime.now()
     fecha_hoy = ahora.date()
     hora_actual = ahora.time()
-    dia_semana = ahora.weekday() 
+    dia_semana = ahora.weekday()
 
     config = ConfiguracionNegocio.objects.first()
     if not config:
@@ -104,7 +112,7 @@ def verificar_estado_negocio():
     apertura_efectiva = config.hora_apertura
     cierre_efectivo = config.hora_cierre
     mensaje_base = config.mensaje_cierre
-    
+
     dias_globales = [
         config.lunes_abierto, config.martes_abierto, config.miercoles_abierto,
         config.jueves_abierto, config.viernes_abierto, config.sabado_abierto,
@@ -113,12 +121,14 @@ def verificar_estado_negocio():
     esta_habilitado = dias_globales[dia_semana]
 
     excepcion = DiaEspecial.objects.filter(fecha=fecha_hoy).first()
-    
+
     if excepcion:
         if excepcion.abierto:
             esta_habilitado = True
-            if excepcion.hora_apertura: apertura_efectiva = excepcion.hora_apertura
-            if excepcion.hora_cierre: cierre_efectivo = excepcion.hora_cierre
+            if excepcion.hora_apertura:
+                apertura_efectiva = excepcion.hora_apertura
+            if excepcion.hora_cierre:
+                cierre_efectivo = excepcion.hora_cierre
         else:
             motivo = excepcion.motivo or ""
             return False, f"{mensaje_base} ({motivo})"
@@ -134,7 +144,7 @@ def verificar_estado_negocio():
         ap_str = apertura_efectiva.strftime('%I:%M %p').lower()
         ci_str = cierre_efectivo.strftime('%I:%M %p').lower()
         return False, f"{mensaje_base} (Hoy: {ap_str} - {ci_str})"
-    
+
     return False, mensaje_base
 
 
@@ -149,7 +159,7 @@ def menu_view(request):
     categorias = Categoria.objects.all().order_by('orden')
     cart = request.session.get('cart', {})
     cantidad_total = sum(cart.values())
-    
+
     abierto, mensaje_estado = verificar_estado_negocio()
 
     ultimo_pedido_id = request.session.get('ultimo_pedido_id')
@@ -168,12 +178,13 @@ def menu_view(request):
                 del request.session['ultimo_pedido_id']
 
     return render(request, 'pedidos/menu.html', {
-        'categorias': categorias, 
+        'categorias': categorias,
         'cantidad_carrito': cantidad_total,
         'abierto': abierto,
         'mensaje_estado': mensaje_estado,
         'ultimo_pedido_activo': ultimo_pedido_activo
     })
+
 
 def cart_add(request, producto_id):
     if not suscripcion_activa():
@@ -182,8 +193,8 @@ def cart_add(request, producto_id):
     cart = request.session.get('cart', {})
     producto = get_object_or_404(Producto, id=producto_id)
     opcion_id = request.POST.get('opcion_id')
-    extras_ids = request.POST.getlist('extras') 
-    
+    extras_ids = request.POST.getlist('extras')
+
     key_parts = [str(producto_id)]
     key_parts.append(str(opcion_id) if opcion_id else "0")
     if extras_ids:
@@ -193,27 +204,29 @@ def cart_add(request, producto_id):
         key_parts.append("0")
 
     key = "-".join(key_parts)
-    
+
     if key in cart:
         cart[key] += 1
     else:
         cart[key] = 1
-    
+
     request.session['cart'] = cart
     request.session.modified = True
-    
+
     nombre_mostrar = producto.nombre
     if opcion_id:
         try:
             opcion = OpcionProducto.objects.get(id=opcion_id)
             nombre_mostrar += f" ({opcion.nombre})"
-        except: pass
-    
+        except:
+            pass
+
     if extras_ids:
         nombre_mostrar += " + Extras"
 
     messages.success(request, f"¡{nombre_mostrar} agregado!")
     return redirect(request.META.get('HTTP_REFERER', 'menu'))
+
 
 def cart_clear(request):
     request.session['cart'] = {}
@@ -221,57 +234,59 @@ def cart_clear(request):
     messages.info(request, "Tu carrito ha sido vaciado.")
     return redirect('menu')
 
+
 def eliminar_item_carrito(request, producto_id):
-    cart = request.session.get('cart', {}) 
+    cart = request.session.get('cart', {})
     key_to_delete = str(producto_id)
 
     if key_to_delete in cart:
         del cart[key_to_delete]
         request.session['cart'] = cart
         request.session.modified = True
-    
+
     if request.headers.get('x-requested-with') == 'XMLHttpRequest':
         productos_en_carrito = []
         total_productos = 0
-        
+
         for key, cantidad in cart.items():
             parts = key.split('-')
             prod_id = parts[0]
             opc_id = parts[1] if len(parts) > 1 else "0"
             extras_str = parts[2] if len(parts) > 2 else "0"
-            
+
             producto = get_object_or_404(Producto, id=prod_id)
             precio_item = producto.precio
-            
+
             opcion = None
             if opc_id != "0":
                 opcion = OpcionProducto.objects.filter(id=opc_id).first()
                 if opcion:
                     precio_item += opcion.precio_extra
-            
+
             if extras_str != "0":
                 ids_ext = extras_str.split(',')
                 extras_objs = Extra.objects.filter(id__in=ids_ext)
                 for ex in extras_objs:
                     precio_item += ex.precio
-            
+
             subtotal = precio_item * cantidad
             total_productos += subtotal
-            
+
             productos_en_carrito.append({
-                'producto': producto, 
-                'cantidad': cantidad, 
+                'producto': producto,
+                'cantidad': cantidad,
                 'subtotal': subtotal,
-                'opcion': opcion, 
+                'opcion': opcion,
                 'key': key
             })
-        
+
         html = render_to_string('pedidos/partials/cart_summary.html', {
             'items': productos_en_carrito, 'total_productos': total_productos
         })
         return JsonResponse({'status': 'ok', 'html': html, 'total': float(total_productos), 'vacio': len(cart) == 0})
 
     return redirect('checkout')
+
 
 def checkout_view(request):
     _limpiar_pedidos_pendientes_vencidos()
@@ -284,7 +299,7 @@ def checkout_view(request):
         messages.error(request, f"⛔ El restaurante ha cerrado. {mensaje}")
         return redirect('menu')
     cart = request.session.get('cart', {})
-    
+
     if request.method == 'POST':
         telefono = request.POST.get('telefono')
         nombre = request.POST.get('nombre')
@@ -295,8 +310,8 @@ def checkout_view(request):
         lng = request.POST.get('longitud')
 
         if not cart:
-             messages.error(request, "El carrito está vacío.")
-             return redirect('menu')
+            messages.error(request, "El carrito está vacío.")
+            return redirect('menu')
 
         if not telefono or len(telefono) < 8:
             messages.error(request, "Revisa tu teléfono.")
@@ -306,7 +321,8 @@ def checkout_view(request):
             with transaction.atomic():
                 cliente, created = Cliente.objects.get_or_create(
                     telefono=telefono,
-                    defaults={'nombre': nombre, 'apellido': apellido, 'direccion_ultima': direccion}
+                    defaults={'nombre': nombre, 'apellido': apellido,
+                              'direccion_ultima': direccion}
                 )
                 if not created:
                     cliente.nombre = nombre
@@ -331,10 +347,11 @@ def checkout_view(request):
                     producto = get_object_or_404(Producto, id=prod_id)
                     opcion = None
                     if opc_id != "0":
-                        opcion = OpcionProducto.objects.filter(id=opc_id).first()
-                    
+                        opcion = OpcionProducto.objects.filter(
+                            id=opc_id).first()
+
                     detalle = DetallePedido.objects.create(
-                        pedido=pedido, producto=producto, cantidad=cantidad, 
+                        pedido=pedido, producto=producto, cantidad=cantidad,
                         precio_unitario=producto.precio, opcion=opcion
                     )
 
@@ -345,9 +362,9 @@ def checkout_view(request):
                             if extra_obj:
                                 detalle.extras.add(extra_obj)
                     detalle.save()
-                
+
                 pedido.save()
-                
+
                 request.session['ultimo_pedido_id'] = pedido.id
                 historial = request.session.get('historial_pedidos', [])
                 if pedido.id not in historial:
@@ -356,12 +373,18 @@ def checkout_view(request):
 
                 request.session['cart'] = {}
                 request.session.modified = True
-                
+
                 if metodo_pago == 'TARJETA':
-                    return redirect('pagar_wompi', pedido_id=pedido.id)
+                    return redirect(
+                        'pagar_wompi',
+                        tracking_token=pedido.tracking_token
+                    )
                 else:
-                    return redirect('order_tracker', pedido_id=pedido.id)
-                
+                    return redirect(
+                        'order_tracker',
+                        tracking_token=pedido.tracking_token
+                    )
+
         except Exception as e:
             messages.error(request, f"Error procesando: {e}")
             return redirect('checkout')
@@ -373,7 +396,7 @@ def checkout_view(request):
         prod_id = parts[0]
         opc_id = parts[1] if len(parts) > 1 else "0"
         extras_str = parts[2] if len(parts) > 2 else "0"
-        
+
         producto = get_object_or_404(Producto, id=prod_id)
         precio_item = producto.precio
         nombre_opcion = ""
@@ -383,7 +406,7 @@ def checkout_view(request):
             if opcion:
                 precio_item += opcion.precio_extra
                 nombre_opcion = opcion.nombre
-        
+
         lista_extras = []
         if extras_str != "0":
             ids_ext = extras_str.split(',')
@@ -396,9 +419,9 @@ def checkout_view(request):
         total_productos += subtotal
         productos_en_carrito.append({
             'producto': producto, 'cantidad': cantidad, 'subtotal': subtotal,
-            'opcion': opcion, 'nombre_opcion': nombre_opcion, 'lista_extras': lista_extras, 'key': key 
+            'opcion': opcion, 'nombre_opcion': nombre_opcion, 'lista_extras': lista_extras, 'key': key
         })
-    
+
     context = {
         'items': productos_en_carrito, 'total_productos': total_productos,
         'total_wompi': float(total_productos) * 1.05,
@@ -449,7 +472,8 @@ def _wompi_app_id(tipo_pago=None, referencia=None):
 
     return config(
         'WOMPI_RESTAURANT_APP_ID',
-        default=config('WOMPI_PLATFORM_APP_ID', default=config('WOMPI_APP_ID', default=''))
+        default=config('WOMPI_PLATFORM_APP_ID',
+                       default=config('WOMPI_APP_ID', default=''))
     )
 
 
@@ -470,7 +494,8 @@ def _wompi_api_secret(tipo_pago=None, referencia=None):
 
     return config(
         'WOMPI_RESTAURANT_API_SECRET',
-        default=config('WOMPI_PLATFORM_API_SECRET', default=config('WOMPI_API_SECRET', default=''))
+        default=config('WOMPI_PLATFORM_API_SECRET',
+                       default=config('WOMPI_API_SECRET', default=''))
     )
 
 
@@ -496,8 +521,10 @@ def _wompi_posibles_secrets(referencia=None, tipo_pago=None):
 
 def _wompi_obtener_token(tipo_pago=None, referencia=None):
     client_id = _wompi_app_id(tipo_pago=tipo_pago, referencia=referencia)
-    client_secret = _wompi_api_secret(tipo_pago=tipo_pago, referencia=referencia)
-    auth_url = config('WOMPI_AUTH_URL', default='https://id.wompi.sv/connect/token')
+    client_secret = _wompi_api_secret(
+        tipo_pago=tipo_pago, referencia=referencia)
+    auth_url = config('WOMPI_AUTH_URL',
+                      default='https://id.wompi.sv/connect/token')
 
     if not client_id or not client_secret:
         raise Exception(
@@ -512,15 +539,18 @@ def _wompi_obtener_token(tipo_pago=None, referencia=None):
         'audience': 'wompi_api'
     }
 
-    response = requests.post(auth_url, data=payload, headers=_wompi_headers_seguridad(), timeout=25)
+    response = requests.post(auth_url, data=payload,
+                             headers=_wompi_headers_seguridad(), timeout=25)
     if response.status_code != 200:
-        raise Exception(f'Wompi Auth error {response.status_code}: {response.text[:300]}')
+        raise Exception(
+            f'Wompi Auth error {response.status_code}: {response.text[:300]}')
 
     token = response.json().get('access_token')
     if not token:
         raise Exception('Wompi no devolvió access_token.')
 
     return token
+
 
 def _wompi_crear_referencia(prefijo, objeto_id):
     return f"{prefijo}-{objeto_id}-{uuid.uuid4().hex[:12].upper()}"
@@ -531,8 +561,10 @@ def _base_url(request):
 
 
 def _wompi_crear_enlace_pago(request, *, referencia, monto, nombre_producto, redirect_url, webhook_url, tipo_pago='PEDIDO'):
-    access_token = _wompi_obtener_token(tipo_pago=tipo_pago, referencia=referencia)
-    api_url = config('WOMPI_API_URL', default='https://api.wompi.sv/EnlacePago')
+    access_token = _wompi_obtener_token(
+        tipo_pago=tipo_pago, referencia=referencia)
+    api_url = config(
+        'WOMPI_API_URL', default='https://api.wompi.sv/EnlacePago')
 
     headers = {
         'Authorization': f'Bearer {access_token}',
@@ -577,11 +609,14 @@ def _wompi_crear_enlace_pago(request, *, referencia, monto, nombre_producto, red
         }
     }
 
-    response = requests.post(api_url, json=payload, headers=headers, timeout=30)
+    response = requests.post(api_url, json=payload,
+                             headers=headers, timeout=30)
     if response.status_code != 200:
-        raise Exception(f'Wompi EnlacePago error {response.status_code}: {response.text[:500]}')
+        raise Exception(
+            f'Wompi EnlacePago error {response.status_code}: {response.text[:500]}')
 
     return response.json(), payload
+
 
 def _valor_bool_wompi(value):
     if isinstance(value, bool):
@@ -627,7 +662,8 @@ def _get_any(dic, *keys, default=None):
 
 
 def _calcular_hmac_sha256(texto_o_bytes, *, tipo_pago=None, referencia=None, secret=None):
-    secret = secret or _wompi_api_secret(tipo_pago=tipo_pago, referencia=referencia)
+    secret = secret or _wompi_api_secret(
+        tipo_pago=tipo_pago, referencia=referencia)
     if not secret:
         return ''
 
@@ -662,7 +698,8 @@ def _validar_hash_redirect_wompi(params, *, referencia=None, tipo_pago=None):
 
     Si no viene hash, NO confirmamos pago por URL; esperamos webhook.
     """
-    hash_recibido = params.get('hash') or params.get('wompi_hash') or params.get('Hash')
+    hash_recibido = params.get('hash') or params.get(
+        'wompi_hash') or params.get('Hash')
     if not hash_recibido:
         return False
 
@@ -696,7 +733,8 @@ def _validar_hash_redirect_wompi(params, *, referencia=None, tipo_pago=None):
         str(params.get('esReal', '') or params.get('EsReal', '')),
         str(params.get('formaPago', '') or params.get('FormaPago', '')),
         str(params.get('esAprobada', '') or params.get('EsAprobada', '')),
-        str(params.get('codigoAutorizacion', '') or params.get('CodigoAutorizacion', '')),
+        str(params.get('codigoAutorizacion', '')
+            or params.get('CodigoAutorizacion', '')),
         str(params.get('mensaje', '') or params.get('Mensaje', '')),
     ])
 
@@ -722,6 +760,7 @@ def _validar_hash_webhook_wompi(request, *, referencia=None, tipo_pago=None, raw
     body = raw_body if raw_body is not None else request.body
     return _hash_wompi_coincide(body, hash_recibido, referencia=referencia, tipo_pago=tipo_pago)
 
+
 def _monto_coincide(monto_esperado, monto_recibido):
     if monto_recibido in [None, '']:
         # Algunos webhooks pueden no traer monto en la misma raíz.
@@ -731,7 +770,8 @@ def _monto_coincide(monto_esperado, monto_recibido):
 
 def _renovar_suscripcion_30_dias(config_negocio=None):
     if not config_negocio:
-        config_negocio = ConfiguracionNegocio.objects.first() or ConfiguracionNegocio.objects.create()
+        config_negocio = ConfiguracionNegocio.objects.first(
+        ) or ConfiguracionNegocio.objects.create()
 
     hoy = date.today()
     base_fecha = config_negocio.fecha_vencimiento
@@ -752,12 +792,14 @@ def _procesar_pago_wompi_aprobado(referencia, *, id_transaccion=None, monto=None
         try:
             pedido_id = int(referencia.split('-')[1])
             pedido = Pedido.objects.select_for_update().get(id=pedido_id)
-            pago = PagoWompi.objects.filter(pedido=pedido).order_by('-fecha_creacion').first()
+            pago = PagoWompi.objects.filter(
+                pedido=pedido).order_by('-fecha_creacion').first()
         except Exception:
             pago = None
 
     if not pago and referencia and referencia.startswith('SUBS-'):
-        pago = PagoWompi.objects.filter(referencia=referencia).order_by('-fecha_creacion').first()
+        pago = PagoWompi.objects.filter(
+            referencia=referencia).order_by('-fecha_creacion').first()
 
     if not pago:
         return False, 'No existe registro local para esa referencia.'
@@ -802,25 +844,36 @@ def _procesar_pago_wompi_aprobado(referencia, *, id_transaccion=None, monto=None
     return True, 'Pago aprobado.'
 
 
-def pagar_wompi_view(request, pedido_id):
-    pedido = get_object_or_404(Pedido, id=pedido_id)
+def pagar_wompi_view(request, tracking_token):
+    pedido = get_object_or_404(
+        Pedido,
+        tracking_token=tracking_token
+    )
 
     if pedido.metodo_pago != 'TARJETA':
-        return redirect('order_tracker', pedido_id=pedido.id)
+        return redirect(
+            'order_tracker',
+            tracking_token=pedido.tracking_token
+        )
 
     if pedido.pago_verificado or pedido.estado != 'PENDIENTE':
-        return redirect('order_tracker', pedido_id=pedido.id)
+        return redirect(
+            'order_tracker',
+            tracking_token=pedido.tracking_token
+        )
 
     try:
         base = _base_url(request)
         webhook_url = f"{base}/wompi-webhook/"
 
-        pago = PagoWompi.objects.filter(pedido=pedido, estado__in=['CREADO', 'PENDIENTE']).order_by('-fecha_creacion').first()
+        pago = PagoWompi.objects.filter(pedido=pedido, estado__in=[
+                                        'CREADO', 'PENDIENTE']).order_by('-fecha_creacion').first()
 
         if pago and pago.url_enlace:
             return redirect(pago.url_enlace)
 
-        referencia = pedido.wompi_referencia or _wompi_crear_referencia('ORDEN', pedido.id)
+        referencia = pedido.wompi_referencia or _wompi_crear_referencia(
+            'ORDEN', pedido.id)
         pedido.wompi_referencia = referencia
         pedido.save()
 
@@ -867,7 +920,8 @@ def pagar_wompi_view(request, pedido_id):
         return redirect(url_enlace)
 
     except Exception as e:
-        messages.error(request, 'No pudimos conectar con la pasarela de pago. Intenta de nuevo o elige efectivo.')
+        messages.error(
+            request, 'No pudimos conectar con la pasarela de pago. Intenta de nuevo o elige efectivo.')
         print(f'Error Wompi pedido: {e}')
         return redirect('checkout')
 
@@ -880,19 +934,18 @@ def wompi_respuesta_view(request):
         messages.error(request, 'No se recibió la referencia del pago.')
         return redirect('menu')
 
-    pago = PagoWompi.objects.filter(referencia=referencia).select_related('pedido').first()
+    pago = (
+        PagoWompi.objects
+        .filter(referencia=referencia)
+        .select_related('pedido')
+        .first()
+    )
 
-    # Compatibilidad con URLs antiguas: ?pedido_ref=15
-    if not pago and str(referencia).isdigit():
-        pedido = get_object_or_404(Pedido, id=referencia)
-        pago = PagoWompi.objects.filter(pedido=pedido).order_by('-fecha_creacion').first()
-    elif pago:
-        pedido = pago.pedido
-    else:
-        pedido = None
+    pedido = pago.pedido if pago else None
 
     if not pago or not pedido:
-        messages.error(request, 'No encontramos el pedido relacionado al pago.')
+        messages.error(
+            request, 'No encontramos el pedido relacionado al pago.')
         return redirect('menu')
 
     pago.raw_redirect = dict(request.GET.items())
@@ -916,21 +969,35 @@ def wompi_respuesta_view(request):
             origen='REDIRECT'
         )
         if ok:
-            messages.success(request, 'Pago confirmado. Tu pedido fue recibido.')
+            messages.success(
+                request, 'Pago confirmado. Tu pedido fue recibido.')
         else:
             messages.warning(request, f'Pago en revisión: {msg}')
     elif pago.estado == 'APROBADO' or pedido.pago_verificado:
         messages.success(request, 'Pago confirmado. Tu pedido fue recibido.')
     else:
-        messages.info(request, 'Estamos verificando tu pago. Tu pedido se activará automáticamente al confirmarse.')
+        messages.info(
+            request, 'Estamos verificando tu pago. Tu pedido se activará automáticamente al confirmarse.')
 
-    return redirect('order_tracker', pedido_id=pedido.id)
+    return redirect(
+        'order_tracker',
+        tracking_token=pedido.tracking_token
+    )
 
 
-def pedido_exito_view(request, pedido_id):
-    return redirect('order_tracker', pedido_id=pedido_id)
+def pedido_exito_view(request, tracking_token):
+    pedido = get_object_or_404(
+        Pedido,
+        tracking_token=tracking_token
+    )
+
+    return redirect(
+        'order_tracker',
+        tracking_token=pedido.tracking_token
+    )
 
 # --- HELPERS PARA POLLING OPTIMIZADO ---
+
 
 def _iso_datetime(dt):
     if not dt:
@@ -1044,6 +1111,7 @@ def _contexto_delivery_pedidos(user):
 
 # --- DASHBOARDS PROTEGIDOS ---
 
+
 @never_cache
 @login_required(login_url='login_custom')
 @user_passes_test(es_admin, login_url='login_custom')
@@ -1093,6 +1161,7 @@ def dashboard_admin_view(request):
     })
 
     return render(request, 'pedidos/dashboard_admin.html', context)
+
 
 @never_cache
 @login_required(login_url='login_custom')
@@ -1152,13 +1221,15 @@ def api_dashboard_admin_sync(request):
         }
     })
 
+
 @never_cache
 @login_required(login_url='login_custom')
 @user_passes_test(es_admin, login_url='login_custom')
 def admin_settings_view(request):
     if not suscripcion_activa():
-        messages.error(request, "⛔ Acceso denegado a Configuración. Suscripción vencida.")
-        return redirect('dashboard_admin') 
+        messages.error(
+            request, "⛔ Acceso denegado a Configuración. Suscripción vencida.")
+        return redirect('dashboard_admin')
 
     DiaEspecial.objects.filter(fecha__lt=date.today()).delete()
     config_negocio = ConfiguracionNegocio.objects.first()
@@ -1172,24 +1243,27 @@ def admin_settings_view(request):
             config_negocio.hora_apertura = request.POST.get('hora_apertura')
             config_negocio.hora_cierre = request.POST.get('hora_cierre')
             config_negocio.mensaje_cierre = request.POST.get('mensaje_cierre')
-            
-            dias_map = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado', 'domingo']
+
+            dias_map = ['lunes', 'martes', 'miercoles',
+                        'jueves', 'viernes', 'sabado', 'domingo']
             for d in dias_map:
                 valor = request.POST.get(f'{d}_abierto') == 'on'
                 setattr(config_negocio, f'{d}_abierto', valor)
-            
+
             config_negocio.save()
-            messages.success(request, "Configuración global actualizada (Excepciones mantenidas) ⚙️")
+            messages.success(
+                request, "Configuración global actualizada (Excepciones mantenidas) ⚙️")
             return redirect('admin_settings')
 
         elif tipo_accion == 'dia_especifico':
-            fecha_str = request.POST.get('fecha_target') 
+            fecha_str = request.POST.get('fecha_target')
             if not fecha_str:
-                 messages.error(request, "Error: No se recibió la fecha.")
-                 return redirect('admin_settings')
+                messages.error(request, "Error: No se recibió la fecha.")
+                return redirect('admin_settings')
 
             fecha_dt = datetime.strptime(fecha_str, '%Y-%m-%d').date()
-            excepcion, created = DiaEspecial.objects.get_or_create(fecha=fecha_dt)
+            excepcion, created = DiaEspecial.objects.get_or_create(
+                fecha=fecha_dt)
             excepcion.abierto = request.POST.get('estado_dia') == 'on'
             h_ap = request.POST.get('hora_apertura_dia')
             h_ci = request.POST.get('hora_cierre_dia')
@@ -1197,16 +1271,18 @@ def admin_settings_view(request):
             excepcion.hora_cierre = h_ci if h_ci else None
             excepcion.motivo = request.POST.get('motivo')
             excepcion.save()
-            messages.success(request, f"Horario para {fecha_str} actualizado ✅")
+            messages.success(
+                request, f"Horario para {fecha_str} actualizado ✅")
             return redirect('admin_settings')
 
     agenda = []
     hoy = date.today()
-    nombres_dias = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
+    nombres_dias = ['Lunes', 'Martes', 'Miércoles',
+                    'Jueves', 'Viernes', 'Sábado', 'Domingo']
     defaults_globales = [
-        config_negocio.lunes_abierto, config_negocio.martes_abierto, 
-        config_negocio.miercoles_abierto, config_negocio.jueves_abierto, 
-        config_negocio.viernes_abierto, config_negocio.sabado_abierto, 
+        config_negocio.lunes_abierto, config_negocio.martes_abierto,
+        config_negocio.miercoles_abierto, config_negocio.jueves_abierto,
+        config_negocio.viernes_abierto, config_negocio.sabado_abierto,
         config_negocio.domingo_abierto
     ]
 
@@ -1219,12 +1295,14 @@ def admin_settings_view(request):
         motivo = ""
         es_excepcion = False
         excepcion = DiaEspecial.objects.filter(fecha=fecha_iter).first()
-        id_db = None 
+        id_db = None
         if excepcion:
             es_abierto = excepcion.abierto
             motivo = excepcion.motivo
-            if excepcion.hora_apertura: h_inicio = excepcion.hora_apertura
-            if excepcion.hora_cierre: h_fin = excepcion.hora_cierre
+            if excepcion.hora_apertura:
+                h_inicio = excepcion.hora_apertura
+            if excepcion.hora_cierre:
+                h_fin = excepcion.hora_cierre
             es_excepcion = True
             id_db = excepcion.id
 
@@ -1236,23 +1314,25 @@ def admin_settings_view(request):
             'hora_ini': h_inicio,
             'hora_fin': h_fin,
             'motivo': motivo,
-            'id_db': id_db, 
+            'id_db': id_db,
             'es_excepcion': es_excepcion
         })
 
     return render(request, 'pedidos/admin_settings.html', {'config': config_negocio, 'agenda': agenda})
 
+
 @login_required(login_url='login_custom')
 @user_passes_test(es_admin, login_url='login_custom')
 def eliminar_excepcion_view(request, excepcion_id):
-    if not suscripcion_activa(): 
+    if not suscripcion_activa():
         messages.error(request, "Acción denegada. Suscripción vencida.")
         return redirect('dashboard_admin')
-        
+
     excepcion = get_object_or_404(DiaEspecial, id=excepcion_id)
     excepcion.delete()
     messages.info(request, "Excepción eliminada 🗑️")
     return redirect('admin_settings')
+
 
 @never_cache
 @login_required(login_url='login_custom')
@@ -1273,7 +1353,8 @@ def dashboard_delivery_view(request):
                 pedido.save()
                 messages.success(request, f"Pedido #{pedido.id} tomado 🛵")
             else:
-                messages.warning(request, "Ese pedido ya fue tomado por otro repartidor.")
+                messages.warning(
+                    request, "Ese pedido ya fue tomado por otro repartidor.")
 
         elif accion == 'entregado':
             if pedido.repartidor == request.user:
@@ -1281,24 +1362,29 @@ def dashboard_delivery_view(request):
                 pedido.save()
                 messages.success(request, f"Pedido #{pedido.id} entregado ✅")
             else:
-                messages.error(request, "No puedes entregar un pedido que no está en tu mochila.")
+                messages.error(
+                    request, "No puedes entregar un pedido que no está en tu mochila.")
 
         elif accion == 'soltar':
             if pedido.estado == 'RUTA' and pedido.repartidor == request.user:
                 pedido.repartidor = None
                 pedido.save()
-                messages.info(request, f"Pedido #{pedido.id} devuelto a disponibles 🔄")
+                messages.info(
+                    request, f"Pedido #{pedido.id} devuelto a disponibles 🔄")
             else:
-                messages.error(request, "No puedes quitar de tu mochila un pedido que no tienes asignado.")
+                messages.error(
+                    request, "No puedes quitar de tu mochila un pedido que no tienes asignado.")
 
         elif accion == 'problema':
             if pedido.repartidor == request.user:
                 pedido.estado = 'PROBLEMA'
                 pedido.repartidor = None
                 pedido.save()
-                messages.warning(request, f"Problema reportado en pedido #{pedido.id}")
+                messages.warning(
+                    request, f"Problema reportado en pedido #{pedido.id}")
             else:
-                messages.error(request, "No puedes reportar un pedido que no está en tu mochila.")
+                messages.error(
+                    request, "No puedes reportar un pedido que no está en tu mochila.")
 
         return redirect('dashboard_delivery')
 
@@ -1358,34 +1444,52 @@ def api_delivery_sync(request):
 
 def obtener_ubicacion_ip(request):
     x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-    if x_forwarded_for: ip = x_forwarded_for.split(',')[0]
-    else: ip = request.META.get('REMOTE_ADDR')
-    if ip == '127.0.0.1': pass 
+    if x_forwarded_for:
+        ip = x_forwarded_for.split(',')[0]
+    else:
+        ip = request.META.get('REMOTE_ADDR')
+    if ip == '127.0.0.1':
+        pass
     try:
         with urllib.request.urlopen(f"http://ip-api.com/json/{ip}") as url:
             data = json.loads(url.read().decode())
             if data.get('status') == 'success' and data.get('countryCode') == 'SV':
                 return JsonResponse({'status': 'ok', 'lat': data['lat'], 'lng': data['lon'], 'city': data['city']})
-    except: pass
+    except:
+        pass
     return JsonResponse({'status': 'error', 'lat': 13.6929, 'lng': -89.2182})
 
-def order_tracker_view(request, pedido_id):
-    pedido = get_object_or_404(Pedido, id=pedido_id)
-    return render(request, 'pedidos/order_tracker.html', {'pedido': pedido})
 
-def api_order_status(request, pedido_id):
+def order_tracker_view(request, tracking_token):
+    pedido = get_object_or_404(
+        Pedido,
+        tracking_token=tracking_token
+    )
+
+    return render(
+        request,
+        'pedidos/order_tracker.html',
+        {'pedido': pedido}
+    )
+
+
+def api_order_status(request, tracking_token):
     try:
         pedido = Pedido.objects.only(
             'id',
             'estado',
             'actualizado_en'
-        ).get(id=pedido_id)
+        ).get(
+            tracking_token=tracking_token
+        )
 
         return JsonResponse({
             'status': 'ok',
             'estado_codigo': pedido.estado,
             'estado_texto': pedido.get_estado_display(),
-            'last_update': _iso_datetime(pedido.actualizado_en),
+            'last_update': _iso_datetime(
+                pedido.actualizado_en
+            ),
         })
 
     except Pedido.DoesNotExist:
@@ -1394,17 +1498,20 @@ def api_order_status(request, pedido_id):
             'msg': 'Pedido no encontrado'
         }, status=404)
 
-@never_cache 
+
+@never_cache
 @login_required(login_url='login_custom')
 @user_passes_test(es_admin, login_url='login_custom')
 def dashboard_metrics_view(request):
     if not suscripcion_activa():
-        messages.error(request, "⛔ Acceso denegado a Finanzas. Suscripción vencida.")
+        messages.error(
+            request, "⛔ Acceso denegado a Finanzas. Suscripción vencida.")
         return redirect('dashboard_admin')
 
     hoy = datetime.now().date()
-    pedidos_validos_hoy = Pedido.objects.filter(fecha_creacion__date=hoy).exclude(estado__in=['CANCELADO', 'PENDIENTE'])
-    
+    pedidos_validos_hoy = Pedido.objects.filter(
+        fecha_creacion__date=hoy).exclude(estado__in=['CANCELADO', 'PENDIENTE'])
+
     resumen = pedidos_validos_hoy.aggregate(
         total_general=Sum('total_final'),
         total_efectivo=Sum('total_final', filter=Q(metodo_pago='EFECTIVO')),
@@ -1414,17 +1521,20 @@ def dashboard_metrics_view(request):
     dinero_en_caja = resumen['total_efectivo'] or 0
     dinero_banco = resumen['total_wompi'] or 0
     cantidad_pedidos_hoy = pedidos_validos_hoy.count()
-    ticket_promedio = total_ventas_hoy / cantidad_pedidos_hoy if cantidad_pedidos_hoy > 0 else 0
+    ticket_promedio = total_ventas_hoy / \
+        cantidad_pedidos_hoy if cantidad_pedidos_hoy > 0 else 0
 
     fechas_grafica, montos_grafica = [], []
-    for i in range(6, -1, -1): 
+    for i in range(6, -1, -1):
         fecha = hoy - timedelta(days=i)
-        venta_dia = Pedido.objects.filter(fecha_creacion__date=fecha).exclude(estado__in=['CANCELADO', 'PENDIENTE']).aggregate(Sum('total_final'))['total_final__sum'] or 0
+        venta_dia = Pedido.objects.filter(fecha_creacion__date=fecha).exclude(estado__in=[
+            'CANCELADO', 'PENDIENTE']).aggregate(Sum('total_final'))['total_final__sum'] or 0
         nombres_dias = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
         fechas_grafica.append(f"{nombres_dias[fecha.weekday()]} {fecha.day}")
         montos_grafica.append(float(venta_dia))
 
-    top_productos = DetallePedido.objects.filter(pedido__estado__in=['RECIBIDO', 'COCINA', 'RUTA', 'ENTREGADO']).values('producto__nombre').annotate(total_vendido=Sum('cantidad'), dinero_generado=Sum('subtotal')).order_by('-total_vendido')[:5]
+    top_productos = DetallePedido.objects.filter(pedido__estado__in=['RECIBIDO', 'COCINA', 'RUTA', 'ENTREGADO']).values(
+        'producto__nombre').annotate(total_vendido=Sum('cantidad'), dinero_generado=Sum('subtotal')).order_by('-total_vendido')[:5]
 
     context = {
         'total_ventas_hoy': total_ventas_hoy, 'dinero_en_caja': dinero_en_caja, 'dinero_banco': dinero_banco,
@@ -1433,6 +1543,7 @@ def dashboard_metrics_view(request):
         'top_productos': top_productos,
     }
     return render(request, 'pedidos/dashboard_metrics.html', context)
+
 
 def perfil_usuario_view(request):
     if not suscripcion_activa():
@@ -1446,12 +1557,15 @@ def perfil_usuario_view(request):
 
 # --- PAGO DE SUSCRIPCIÓN (TU DINERO - EL CLIENTE TE PAGA A TI) ---
 
+
 @login_required(login_url='login_custom')
 @user_passes_test(es_admin, login_url='login_custom')
 def pagar_suscripcion_view(request):
     try:
-        precio_mensual = _decimal_monto(config('FOODBACK_SUBSCRIPTION_PRICE', default='50.00'))
-        config_negocio = ConfiguracionNegocio.objects.first() or ConfiguracionNegocio.objects.create()
+        precio_mensual = _decimal_monto(
+            config('FOODBACK_SUBSCRIPTION_PRICE', default='50.00'))
+        config_negocio = ConfiguracionNegocio.objects.first(
+        ) or ConfiguracionNegocio.objects.create()
         referencia = _wompi_crear_referencia('SUBS', config_negocio.id)
         base = _base_url(request)
         redirect_url = f"{base}/wompi-suscripcion-respuesta/?ref={referencia}"
@@ -1495,7 +1609,8 @@ def pagar_suscripcion_view(request):
 
     except Exception as e:
         print(f'Error Wompi suscripción: {e}')
-        messages.error(request, 'No pudimos conectar con la pasarela de pago. Intenta nuevamente.')
+        messages.error(
+            request, 'No pudimos conectar con la pasarela de pago. Intenta nuevamente.')
         return redirect('dashboard_admin')
 
 
@@ -1508,7 +1623,8 @@ def wompi_suscripcion_respuesta_view(request):
         messages.error(request, 'No se recibió la referencia del pago.')
         return redirect('dashboard_admin')
 
-    pago = PagoWompi.objects.filter(referencia=referencia, tipo='SUSCRIPCION').first()
+    pago = PagoWompi.objects.filter(
+        referencia=referencia, tipo='SUSCRIPCION').first()
     if not pago:
         messages.error(request, 'No encontramos el pago de suscripción.')
         return redirect('dashboard_admin')
@@ -1526,7 +1642,8 @@ def wompi_suscripcion_respuesta_view(request):
         )
         if ok:
             return render(request, 'pedidos/pago_exitoso_suscripcion.html')
-        messages.warning(request, f'Pago recibido, pero quedó en revisión: {msg}')
+        messages.warning(
+            request, f'Pago recibido, pero quedó en revisión: {msg}')
         return redirect('dashboard_admin')
 
     if pago.estado == 'APROBADO':
@@ -1563,9 +1680,12 @@ def wompi_webhook_view(request):
         ):
             return JsonResponse({'status': 'error', 'msg': 'Webhook no autorizado'}, status=403)
 
-        es_aprobada = _valor_bool_wompi(_get_any(transaccion, 'esAprobada', 'EsAprobada', 'approved', 'status'))
-        id_transaccion = _get_any(transaccion, 'idTransaccion', 'IdTransaccion', 'id', 'Id')
-        monto = _get_any(transaccion, 'monto', 'Monto') or _get_any(data, 'monto', 'Monto')
+        es_aprobada = _valor_bool_wompi(
+            _get_any(transaccion, 'esAprobada', 'EsAprobada', 'approved', 'status'))
+        id_transaccion = _get_any(
+            transaccion, 'idTransaccion', 'IdTransaccion', 'id', 'Id')
+        monto = _get_any(transaccion, 'monto', 'Monto') or _get_any(
+            data, 'monto', 'Monto')
 
         if not referencia:
             return JsonResponse({'status': 'ok', 'msg': 'Webhook recibido sin referencia'})
@@ -1596,4 +1716,3 @@ def wompi_webhook_view(request):
     except Exception as e:
         print(f'Error webhook Wompi: {e}')
         return JsonResponse({'status': 'error', 'msg': 'Error interno'}, status=500)
-

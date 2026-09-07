@@ -1,11 +1,14 @@
 import hashlib
+import hmac
 import json
+import uuid
 import urllib.request
 import requests 
 import time # Necesario para generar referencias únicas
 from datetime import datetime, date, timedelta
+from decimal import Decimal, InvalidOperation
 from django.shortcuts import render, redirect, get_object_or_404
-from .models import Categoria, Producto, Pedido, DetallePedido, Cliente, ConfiguracionNegocio, DiaEspecial, OpcionProducto, Extra
+from .models import Categoria, Producto, Pedido, DetallePedido, Cliente, ConfiguracionNegocio, DiaEspecial, OpcionProducto, Extra, PagoWompi
 from django.db import transaction
 from django.contrib import messages
 from decouple import config
@@ -16,8 +19,10 @@ from django.contrib.auth.views import LoginView
 from django.contrib.auth import logout
 from django.http import JsonResponse 
 from django.template.loader import render_to_string 
-from django.db.models import Sum, Count, F, Q
+from django.db.models import Sum, Count, F, Q, Max, Prefetch
 from django.core.exceptions import PermissionDenied
+from django.utils.dateparse import parse_datetime
+from django.utils import timezone
 
 # --- LÓGICA DE LOGIN Y SEGURIDAD ---
 
@@ -59,6 +64,28 @@ def suscripcion_activa():
     return True
 
 # --- CEREBRO DEL TIEMPO ---
+
+
+def _limpiar_pedidos_pendientes_vencidos():
+    """
+    Limpieza oportunista: elimina pedidos con tarjeta que quedaron a medias
+    si el cliente abandonó Wompi o cerró la página.
+
+    No usa cron externo. Se ejecuta cuando alguien entra a pantallas clave.
+    """
+    try:
+        minutos = int(config('PENDING_ORDER_EXPIRATION_MINUTES', default=45))
+    except Exception:
+        minutos = 45
+
+    limite = timezone.now() - timedelta(minutes=minutos)
+
+    Pedido.objects.filter(
+        estado='PENDIENTE',
+        metodo_pago='TARJETA',
+        fecha_creacion__lt=limite,
+        pago_verificado=False,
+    ).delete()
 
 def verificar_estado_negocio():
     ahora = datetime.now()
@@ -114,6 +141,8 @@ def verificar_estado_negocio():
 # --- VISTAS PÚBLICAS ---
 
 def menu_view(request):
+    _limpiar_pedidos_pendientes_vencidos()
+
     if not suscripcion_activa():
         return render(request, 'pedidos/suspendido.html')
 
@@ -245,6 +274,8 @@ def eliminar_item_carrito(request, producto_id):
     return redirect('checkout')
 
 def checkout_view(request):
+    _limpiar_pedidos_pendientes_vencidos()
+
     if not suscripcion_activa():
         return render(request, 'pedidos/suspendido.html')
 
@@ -377,129 +408,748 @@ def checkout_view(request):
 
 # --- VISTAS DE PAGO WOMPI (CLIENTES PAGANDO PEDIDOS) ---
 
-def pagar_wompi_view(request, pedido_id):
-    pedido = get_object_or_404(Pedido, id=pedido_id)
-    # AQUI DEBERÍAN IR LAS LLAVES DEL CLIENTE (FUTURO)
-    CLIENT_ID = config('WOMPI_APP_ID')
-    CLIENT_SECRET = config('WOMPI_API_SECRET')
-    AUTH_URL = config('WOMPI_AUTH_URL', default='https://id.wompi.sv/connect/token')
-    API_URL = config('WOMPI_API_URL', default='https://api.wompi.sv/EnlacePago')
 
-    headers_seguridad = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+def _decimal_monto(value, default='0.00'):
+    try:
+        return Decimal(str(value)).quantize(Decimal('0.01'))
+    except (InvalidOperation, TypeError, ValueError):
+        return Decimal(default)
+
+
+def _wompi_headers_seguridad():
+    return {
+        'User-Agent': 'FoodBack/1.0 (+https://foodbacksv.com)',
         'Accept': 'application/json'
     }
 
-    try:
-        auth_payload = {
-            'grant_type': 'client_credentials', 'client_id': CLIENT_ID,
-            'client_secret': CLIENT_SECRET, 'audience': 'wompi_api'
+
+def _wompi_tipo_desde_referencia(referencia):
+    ref = str(referencia or '').upper()
+    if ref.startswith('SUBS-'):
+        return 'SUSCRIPCION'
+    if ref.startswith('ORDEN-'):
+        return 'PEDIDO'
+    return None
+
+
+def _wompi_app_id(tipo_pago=None, referencia=None):
+    tipo = (tipo_pago or _wompi_tipo_desde_referencia(referencia) or '').upper()
+
+    if tipo == 'SUSCRIPCION':
+        return config(
+            'WOMPI_PLATFORM_APP_ID',
+            default=config('WOMPI_APP_ID', default='')
+        )
+
+    if tipo == 'PEDIDO':
+        return config(
+            'WOMPI_RESTAURANT_APP_ID',
+            default=config('WOMPI_APP_ID', default='')
+        )
+
+    return config(
+        'WOMPI_RESTAURANT_APP_ID',
+        default=config('WOMPI_PLATFORM_APP_ID', default=config('WOMPI_APP_ID', default=''))
+    )
+
+
+def _wompi_api_secret(tipo_pago=None, referencia=None):
+    tipo = (tipo_pago or _wompi_tipo_desde_referencia(referencia) or '').upper()
+
+    if tipo == 'SUSCRIPCION':
+        return config(
+            'WOMPI_PLATFORM_API_SECRET',
+            default=config('WOMPI_API_SECRET', default='')
+        )
+
+    if tipo == 'PEDIDO':
+        return config(
+            'WOMPI_RESTAURANT_API_SECRET',
+            default=config('WOMPI_API_SECRET', default='')
+        )
+
+    return config(
+        'WOMPI_RESTAURANT_API_SECRET',
+        default=config('WOMPI_PLATFORM_API_SECRET', default=config('WOMPI_API_SECRET', default=''))
+    )
+
+
+def _wompi_posibles_secrets(referencia=None, tipo_pago=None):
+    """
+    Si no sabemos de qué cuenta vino un webhook, probamos solo los secrets
+    configurados. Esto no aprueba nada por sí solo: también debe existir la
+    referencia local y la transacción debe venir aprobada.
+    """
+    secrets = []
+
+    preferido = _wompi_api_secret(tipo_pago=tipo_pago, referencia=referencia)
+    if preferido:
+        secrets.append(preferido)
+
+    for key in ['WOMPI_RESTAURANT_API_SECRET', 'WOMPI_PLATFORM_API_SECRET', 'WOMPI_API_SECRET']:
+        value = config(key, default='')
+        if value and value not in secrets:
+            secrets.append(value)
+
+    return secrets
+
+
+def _wompi_obtener_token(tipo_pago=None, referencia=None):
+    client_id = _wompi_app_id(tipo_pago=tipo_pago, referencia=referencia)
+    client_secret = _wompi_api_secret(tipo_pago=tipo_pago, referencia=referencia)
+    auth_url = config('WOMPI_AUTH_URL', default='https://id.wompi.sv/connect/token')
+
+    if not client_id or not client_secret:
+        raise Exception(
+            'Faltan credenciales Wompi. Revisa WOMPI_RESTAURANT_* para pedidos '
+            'y WOMPI_PLATFORM_* para suscripción.'
+        )
+
+    payload = {
+        'grant_type': 'client_credentials',
+        'client_id': client_id,
+        'client_secret': client_secret,
+        'audience': 'wompi_api'
+    }
+
+    response = requests.post(auth_url, data=payload, headers=_wompi_headers_seguridad(), timeout=25)
+    if response.status_code != 200:
+        raise Exception(f'Wompi Auth error {response.status_code}: {response.text[:300]}')
+
+    token = response.json().get('access_token')
+    if not token:
+        raise Exception('Wompi no devolvió access_token.')
+
+    return token
+
+def _wompi_crear_referencia(prefijo, objeto_id):
+    return f"{prefijo}-{objeto_id}-{uuid.uuid4().hex[:12].upper()}"
+
+
+def _base_url(request):
+    return request.build_absolute_uri('/')[:-1]
+
+
+def _wompi_crear_enlace_pago(request, *, referencia, monto, nombre_producto, redirect_url, webhook_url, tipo_pago='PEDIDO'):
+    access_token = _wompi_obtener_token(tipo_pago=tipo_pago, referencia=referencia)
+    api_url = config('WOMPI_API_URL', default='https://api.wompi.sv/EnlacePago')
+
+    headers = {
+        'Authorization': f'Bearer {access_token}',
+        'Content-Type': 'application/json',
+        **_wompi_headers_seguridad(),
+    }
+
+    # Correo de notificación separado:
+    # - pedidos: normalmente restaurante
+    # - suscripción: plataforma/FoodBack
+    if str(tipo_pago).upper() == 'SUSCRIPCION' or str(referencia).upper().startswith('SUBS-'):
+        email_notificacion = config(
+            'WOMPI_PLATFORM_NOTIFICATION_EMAIL',
+            default=config('WOMPI_NOTIFICATION_EMAIL', default='')
+        )
+    else:
+        email_notificacion = config(
+            'WOMPI_RESTAURANT_NOTIFICATION_EMAIL',
+            default=config('WOMPI_NOTIFICATION_EMAIL', default='')
+        )
+
+    payload = {
+        'identificadorEnlaceComercio': referencia,
+        'monto': float(_decimal_monto(monto)),
+        'nombreProducto': nombre_producto,
+        'formaPago': {
+            'permitirTarjetaCreditoDebido': True,
+            'permitirPagoConPuntoAgricola': True,
+        },
+        'configuracion': {
+            'urlRedirect': redirect_url,
+            'urlRetorno': redirect_url,
+            'urlWebhook': webhook_url,
+            'esMontoEditable': False,
+            'esCantidadEditable': False,
+            'emailsNotificacion': email_notificacion,
+            'notificarTransaccionCliente': True,
+        },
+        'limitesDeUso': {
+            'cantidadMaximaPagosExitosos': 1,
+            'cantidadMaximaPagosFallidos': 5,
         }
-        auth_response = requests.post(AUTH_URL, data=auth_payload, headers=headers_seguridad)
-        if auth_response.status_code != 200:
-            messages.error(request, "Error de comunicación con el Banco (Auth).")
-            return redirect('menu')
-            
-        access_token = auth_response.json().get('access_token')
-        headers_api = {
-            'Authorization': f'Bearer {access_token}',
-            'Content-Type': 'application/json',
-            'User-Agent': headers_seguridad['User-Agent']
-        }
-        base_url = request.build_absolute_uri('/')[:-1] 
-        redirect_url = f"{base_url}/wompi-respuesta/?pedido_ref={pedido.id}"
-        
-        payment_payload = {
-            "IdentificadorEnlaceComercio": f"ORDEN-{pedido.id}", # PREFIJO ORDEN IMPORTANTE
-            "Monto": float(pedido.total_final),
-            "NombreProducto": f"FoodBack Pedido #{pedido.id}",
-            "FormaPago": {
-                "PermitirTarjetaCreditoDebito": True, "PermitirTarjetaCreditoDebido": True, "PermitirPagoConPuntoAgricola": True
-            },
-            "Configuracion": {
-                "UrlRedirect": redirect_url, "EsMontoEditable": False, "EsCantidadEditable": False,
-                "EmailsNotificacion": "marlini.aleman2014@gmail.com" 
-            }
-        }
-        link_response = requests.post(API_URL, json=payment_payload, headers=headers_api)
-        if link_response.status_code == 200:
-            data = link_response.json()
-            return redirect(data.get('urlEnlace'))
+    }
+
+    response = requests.post(api_url, json=payload, headers=headers, timeout=30)
+    if response.status_code != 200:
+        raise Exception(f'Wompi EnlacePago error {response.status_code}: {response.text[:500]}')
+
+    return response.json(), payload
+
+def _valor_bool_wompi(value):
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    return str(value).strip().lower() in ['true', '1', 'si', 'sí', 'aprobada', 'approved']
+
+
+def _redirect_wompi_aprobado(params):
+    """
+    En Enlace de Pago Wompi puede regresar sin esAprobada.
+    Si el hash ya fue validado y existe idTransaccion, lo tomamos como
+    confirmación aprobada, salvo que Wompi envíe explícitamente esAprobada=false.
+    """
+    estado_explicito = (
+        params.get('esAprobada') or
+        params.get('EsAprobada') or
+        params.get('aprobada') or
+        params.get('approved')
+    )
+
+    if estado_explicito not in [None, '']:
+        return _valor_bool_wompi(estado_explicito)
+
+    id_transaccion = params.get('idTransaccion') or params.get('IdTransaccion')
+    return bool(str(id_transaccion or '').strip())
+
+
+def _extraer_transaccion_wompi(data):
+    if not isinstance(data, dict):
+        return {}
+    return data.get('transaccion') or data.get('transaction') or data.get('data') or data
+
+
+def _get_any(dic, *keys, default=None):
+    if not isinstance(dic, dict):
+        return default
+    for key in keys:
+        if key in dic and dic.get(key) not in [None, '']:
+            return dic.get(key)
+    return default
+
+
+def _calcular_hmac_sha256(texto_o_bytes, *, tipo_pago=None, referencia=None, secret=None):
+    secret = secret or _wompi_api_secret(tipo_pago=tipo_pago, referencia=referencia)
+    if not secret:
+        return ''
+
+    if isinstance(texto_o_bytes, bytes):
+        msg = texto_o_bytes
+    else:
+        msg = str(texto_o_bytes).encode('utf-8')
+
+    return hmac.new(secret.encode('utf-8'), msg, hashlib.sha256).hexdigest()
+
+
+def _hash_wompi_coincide(texto_o_bytes, hash_recibido, *, referencia=None, tipo_pago=None):
+    if not hash_recibido:
+        return False
+
+    recibido = str(hash_recibido).lower()
+
+    for secret in _wompi_posibles_secrets(referencia=referencia, tipo_pago=tipo_pago):
+        calculado = _calcular_hmac_sha256(texto_o_bytes, secret=secret)
+        if calculado and hmac.compare_digest(calculado.lower(), recibido):
+            return True
+
+    return False
+
+
+def _validar_hash_redirect_wompi(params, *, referencia=None, tipo_pago=None):
+    """
+    Valida la URL de retorno de Wompi.
+
+    Para Enlace de Pago, Wompi valida concatenando:
+    identificadorEnlaceComercio + idTransaccion + idEnlace + monto
+
+    Si no viene hash, NO confirmamos pago por URL; esperamos webhook.
+    """
+    hash_recibido = params.get('hash') or params.get('wompi_hash') or params.get('Hash')
+    if not hash_recibido:
+        return False
+
+    identificador = (
+        params.get('identificadorEnlaceComercio') or
+        params.get('IdentificadorEnlaceComercio') or
+        params.get('referencia') or
+        referencia or
+        ''
+    )
+
+    cadena_enlace_pago = ''.join([
+        str(identificador),
+        str(params.get('idTransaccion', '') or params.get('IdTransaccion', '')),
+        str(params.get('idEnlace', '') or params.get('IdEnlace', '')),
+        str(params.get('monto', '') or params.get('Monto', '')),
+    ])
+
+    if _hash_wompi_coincide(
+        cadena_enlace_pago,
+        hash_recibido,
+        referencia=referencia or identificador,
+        tipo_pago=tipo_pago
+    ):
+        return True
+
+    # Respaldo para otros flujos de transacción si Wompi envía el formato viejo.
+    cadena_transaccion = ''.join([
+        str(params.get('idTransaccion', '') or params.get('IdTransaccion', '')),
+        str(params.get('monto', '') or params.get('Monto', '')),
+        str(params.get('esReal', '') or params.get('EsReal', '')),
+        str(params.get('formaPago', '') or params.get('FormaPago', '')),
+        str(params.get('esAprobada', '') or params.get('EsAprobada', '')),
+        str(params.get('codigoAutorizacion', '') or params.get('CodigoAutorizacion', '')),
+        str(params.get('mensaje', '') or params.get('Mensaje', '')),
+    ])
+
+    return _hash_wompi_coincide(
+        cadena_transaccion,
+        hash_recibido,
+        referencia=referencia or identificador,
+        tipo_pago=tipo_pago
+    )
+
+
+def _validar_hash_webhook_wompi(request, *, referencia=None, tipo_pago=None, raw_body=None):
+    hash_recibido = (
+        request.headers.get('wompi_hash') or
+        request.headers.get('Wompi-Hash') or
+        request.headers.get('Wompi_Hash') or
+        request.META.get('HTTP_WOMPI_HASH')
+    )
+
+    if not hash_recibido:
+        return False
+
+    body = raw_body if raw_body is not None else request.body
+    return _hash_wompi_coincide(body, hash_recibido, referencia=referencia, tipo_pago=tipo_pago)
+
+def _monto_coincide(monto_esperado, monto_recibido):
+    if monto_recibido in [None, '']:
+        # Algunos webhooks pueden no traer monto en la misma raíz.
+        return True
+    return _decimal_monto(monto_esperado) == _decimal_monto(monto_recibido)
+
+
+def _renovar_suscripcion_30_dias(config_negocio=None):
+    if not config_negocio:
+        config_negocio = ConfiguracionNegocio.objects.first() or ConfiguracionNegocio.objects.create()
+
+    hoy = date.today()
+    base_fecha = config_negocio.fecha_vencimiento
+    if not base_fecha or base_fecha < hoy:
+        base_fecha = hoy
+
+    config_negocio.fecha_vencimiento = base_fecha + timedelta(days=30)
+    config_negocio.save()
+    return config_negocio
+
+
+@transaction.atomic
+def _procesar_pago_wompi_aprobado(referencia, *, id_transaccion=None, monto=None, raw_payload=None, origen='WEBHOOK'):
+    pago = PagoWompi.objects.select_for_update().filter(referencia=referencia).first()
+
+    # Respaldo por si Wompi devuelve ORDEN-15 sin token en algún evento viejo.
+    if not pago and referencia and referencia.startswith('ORDEN-'):
+        try:
+            pedido_id = int(referencia.split('-')[1])
+            pedido = Pedido.objects.select_for_update().get(id=pedido_id)
+            pago = PagoWompi.objects.filter(pedido=pedido).order_by('-fecha_creacion').first()
+        except Exception:
+            pago = None
+
+    if not pago and referencia and referencia.startswith('SUBS-'):
+        pago = PagoWompi.objects.filter(referencia=referencia).order_by('-fecha_creacion').first()
+
+    if not pago:
+        return False, 'No existe registro local para esa referencia.'
+
+    if not _monto_coincide(pago.monto, monto):
+        pago.estado = 'ERROR'
+        pago.ultimo_error = f'Monto no coincide. Esperado {pago.monto}, recibido {monto}'
+        if raw_payload is not None:
+            pago.raw_webhook = raw_payload
+        pago.save()
+        return False, pago.ultimo_error
+
+    if pago.estado == 'APROBADO':
+        return True, 'Pago ya estaba aprobado.'
+
+    pago.estado = 'APROBADO'
+    pago.es_aprobada = True
+    if id_transaccion:
+        pago.id_transaccion = id_transaccion
+    if raw_payload is not None:
+        if origen == 'REDIRECT':
+            pago.raw_redirect = raw_payload
         else:
-            messages.error(request, "El banco rechazó la solicitud de enlace.")
-            return redirect('menu')
+            pago.raw_webhook = raw_payload
+    pago.fecha_aprobacion = timezone.now()
+    pago.ultimo_error = ''
+    pago.save()
+
+    if pago.tipo == 'PEDIDO' and pago.pedido:
+        pedido = pago.pedido
+        pedido.estado = 'RECIBIDO'
+        pedido.pago_verificado = True
+        pedido.wompi_id_transaccion = id_transaccion or pedido.wompi_id_transaccion
+        pedido.fecha_pago_verificado = timezone.now()
+        pedido.save()
+        return True, f'Pedido #{pedido.id} confirmado.'
+
+    if pago.tipo == 'SUSCRIPCION':
+        _renovar_suscripcion_30_dias(pago.configuracion_negocio)
+        return True, 'Suscripción renovada.'
+
+    return True, 'Pago aprobado.'
+
+
+def pagar_wompi_view(request, pedido_id):
+    pedido = get_object_or_404(Pedido, id=pedido_id)
+
+    if pedido.metodo_pago != 'TARJETA':
+        return redirect('order_tracker', pedido_id=pedido.id)
+
+    if pedido.pago_verificado or pedido.estado != 'PENDIENTE':
+        return redirect('order_tracker', pedido_id=pedido.id)
+
+    try:
+        base = _base_url(request)
+        webhook_url = f"{base}/wompi-webhook/"
+
+        pago = PagoWompi.objects.filter(pedido=pedido, estado__in=['CREADO', 'PENDIENTE']).order_by('-fecha_creacion').first()
+
+        if pago and pago.url_enlace:
+            return redirect(pago.url_enlace)
+
+        referencia = pedido.wompi_referencia or _wompi_crear_referencia('ORDEN', pedido.id)
+        pedido.wompi_referencia = referencia
+        pedido.save()
+
+        pago = PagoWompi.objects.create(
+            tipo='PEDIDO',
+            pedido=pedido,
+            referencia=referencia,
+            monto=pedido.total_final,
+            estado='PENDIENTE',
+        )
+
+        redirect_url = f"{base}/wompi-respuesta/?ref={referencia}"
+
+        data, raw_payload = _wompi_crear_enlace_pago(
+            request,
+            tipo_pago='PEDIDO',
+            referencia=referencia,
+            monto=pedido.total_final,
+            nombre_producto=f"Pedido #{pedido.id}",
+            redirect_url=redirect_url,
+            webhook_url=webhook_url,
+        )
+
+        url_enlace = data.get('urlEnlace') or data.get('UrlEnlace')
+        id_enlace = data.get('idEnlace') or data.get('IdEnlace')
+
+        if not url_enlace:
+            pago.estado = 'ERROR'
+            pago.ultimo_error = 'Wompi no devolvió urlEnlace.'
+            pago.raw_creacion = {'request': raw_payload, 'response': data}
+            pago.save()
+            messages.error(request, 'No se pudo generar el enlace de pago.')
+            return redirect('checkout')
+
+        pago.url_enlace = url_enlace
+        pago.id_enlace = str(id_enlace or '')
+        pago.raw_creacion = {'request': raw_payload, 'response': data}
+        pago.save()
+
+        pedido.wompi_id_enlace = str(id_enlace or '')
+        pedido.wompi_url_enlace = url_enlace
+        pedido.save()
+
+        return redirect(url_enlace)
+
     except Exception as e:
-        messages.error(request, "Error interno de conexión.")
-        return redirect('menu')
+        messages.error(request, 'No pudimos conectar con la pasarela de pago. Intenta de nuevo o elige efectivo.')
+        print(f'Error Wompi pedido: {e}')
+        return redirect('checkout')
+
 
 def wompi_respuesta_view(request):
-    pedido_ref = request.GET.get('pedido_ref')
-    id_transaccion = request.GET.get('idTransaccion') 
-    if not pedido_ref:
-        messages.error(request, "Referencia de pedido perdida.")
+    referencia = request.GET.get('ref') or request.GET.get('pedido_ref')
+    id_transaccion = request.GET.get('idTransaccion', '').strip()
+
+    if not referencia:
+        messages.error(request, 'No se recibió la referencia del pago.')
         return redirect('menu')
-    pedido = get_object_or_404(Pedido, id=pedido_ref)
-    
+
+    pago = PagoWompi.objects.filter(referencia=referencia).select_related('pedido').first()
+
+    # Compatibilidad con URLs antiguas: ?pedido_ref=15
+    if not pago and str(referencia).isdigit():
+        pedido = get_object_or_404(Pedido, id=referencia)
+        pago = PagoWompi.objects.filter(pedido=pedido).order_by('-fecha_creacion').first()
+    elif pago:
+        pedido = pago.pedido
+    else:
+        pedido = None
+
+    if not pago or not pedido:
+        messages.error(request, 'No encontramos el pedido relacionado al pago.')
+        return redirect('menu')
+
+    pago.raw_redirect = dict(request.GET.items())
+    pago.save()
+
     request.session['ultimo_pedido_id'] = pedido.id
     historial = request.session.get('historial_pedidos', [])
-    if pedido.id not in historial: historial.append(pedido.id)
+    if pedido.id not in historial:
+        historial.append(pedido.id)
     request.session['historial_pedidos'] = historial
+    request.session.modified = True
 
-    if id_transaccion:
-        if pedido.estado == 'PENDIENTE':
-            pedido.estado = 'RECIBIDO'
-            pedido.save()
-        messages.success(request, f"¡Pago Confirmado! Ref: {id_transaccion[:8]}")
-        return redirect('order_tracker', pedido_id=pedido.id)
+    # Si Wompi envía hash en el redirect, podemos confirmar inmediatamente.
+    # Si no viene hash, NO confiamos en la URL: dejamos que el webhook confirme.
+    if _validar_hash_redirect_wompi(request.GET, referencia=pago.referencia, tipo_pago=pago.tipo) and _redirect_wompi_aprobado(request.GET):
+        ok, msg = _procesar_pago_wompi_aprobado(
+            pago.referencia,
+            id_transaccion=id_transaccion,
+            monto=request.GET.get('monto'),
+            raw_payload=dict(request.GET.items()),
+            origen='REDIRECT'
+        )
+        if ok:
+            messages.success(request, 'Pago confirmado. Tu pedido fue recibido.')
+        else:
+            messages.warning(request, f'Pago en revisión: {msg}')
+    elif pago.estado == 'APROBADO' or pedido.pago_verificado:
+        messages.success(request, 'Pago confirmado. Tu pedido fue recibido.')
     else:
-        messages.error(request, "No se recibió ID de transacción.")
-        return redirect('menu')
+        messages.info(request, 'Estamos verificando tu pago. Tu pedido se activará automáticamente al confirmarse.')
+
+    return redirect('order_tracker', pedido_id=pedido.id)
+
 
 def pedido_exito_view(request, pedido_id):
     return redirect('order_tracker', pedido_id=pedido_id)
+
+# --- HELPERS PARA POLLING OPTIMIZADO ---
+
+def _iso_datetime(dt):
+    if not dt:
+        return "none"
+    return dt.isoformat()
+
+
+def _parse_last_update(value):
+    if not value or value == "none":
+        return None
+
+    dt = parse_datetime(value)
+
+    if not dt:
+        return None
+
+    if timezone.is_naive(dt):
+        dt = timezone.make_aware(dt)
+
+    return dt
+
+
+def _ultimo_cambio_pedidos():
+    """
+    Devuelve la última fecha en que cambió cualquier pedido.
+    Esto evita renderizar HTML completo si nada cambió.
+    """
+    return Pedido.objects.aggregate(ultimo=Max('actualizado_en'))['ultimo']
+
+
+def _query_detalles_optimizada():
+    return DetallePedido.objects.select_related(
+        'producto',
+        'opcion'
+    ).prefetch_related(
+        'extras'
+    )
+
+
+def _query_pedidos_admin():
+    return Pedido.objects.exclude(
+        estado__in=['ENTREGADO', 'CANCELADO']
+    ).select_related(
+        'cliente',
+        'repartidor'
+    ).prefetch_related(
+        Prefetch('detalles', queryset=_query_detalles_optimizada())
+    ).order_by('-id')
+
+
+def _contexto_admin_pedidos():
+    pedidos = list(_query_pedidos_admin())
+
+    pedidos_nuevos = [
+        p for p in pedidos
+        if p.estado == 'RECIBIDO' or not p.estado
+    ]
+
+    pedidos_cocina = [
+        p for p in pedidos
+        if p.estado == 'COCINA'
+    ]
+
+    pedidos_ruta = [
+        p for p in pedidos
+        if p.estado == 'RUTA'
+    ]
+
+    pedidos_problema = [
+        p for p in pedidos
+        if p.estado == 'PROBLEMA'
+    ]
+
+    return {
+        'pedidos': pedidos,
+        'pedidos_nuevos': pedidos_nuevos,
+        'pedidos_cocina': pedidos_cocina,
+        'pedidos_ruta': pedidos_ruta,
+        'pedidos_problema': pedidos_problema,
+    }
+
+
+def _query_pedidos_delivery_base():
+    return Pedido.objects.select_related(
+        'cliente',
+        'repartidor'
+    ).prefetch_related(
+        Prefetch('detalles', queryset=_query_detalles_optimizada())
+    )
+
+
+def _contexto_delivery_pedidos(user):
+    disponibles = list(
+        _query_pedidos_delivery_base().filter(
+            estado='RUTA',
+            repartidor=None
+        ).order_by('id')
+    )
+
+    mis_pedidos = list(
+        _query_pedidos_delivery_base().filter(
+            estado='RUTA',
+            repartidor=user
+        ).order_by('id')
+    )
+
+    return {
+        'disponibles': disponibles,
+        'mis_pedidos': mis_pedidos,
+    }
 
 # --- DASHBOARDS PROTEGIDOS ---
 
 @never_cache
 @login_required(login_url='login_custom')
-@user_passes_test(es_admin, login_url='login_custom') 
+@user_passes_test(es_admin, login_url='login_custom')
 def dashboard_admin_view(request):
+    _limpiar_pedidos_pendientes_vencidos()
+
     config_negocio = ConfiguracionNegocio.objects.first()
     dias_restantes = 30
     bloqueado = False
-    
+
     if config_negocio and config_negocio.fecha_vencimiento:
         dias_restantes = (config_negocio.fecha_vencimiento - date.today()).days
+
         if dias_restantes < 0:
             bloqueado = True
 
     if bloqueado and request.method == 'POST':
         messages.error(request, "⛔ Acción denegada. Suscripción vencida.")
-    
+
     elif request.method == 'POST':
         pedido = get_object_or_404(Pedido, id=request.POST.get('pedido_id'))
         accion = request.POST.get('accion')
-        
-        if accion == 'cocina': 
+
+        if accion == 'cocina':
             pedido.estado = 'COCINA'
             messages.success(request, f"Orden #{pedido.id} enviada a Cocina 🔥")
-        elif accion == 'ruta': 
+
+        elif accion == 'ruta':
             pedido.estado = 'RUTA'
             messages.success(request, f"Orden #{pedido.id} lista para Ruta 🛵")
-        elif accion == 'reintentar': 
+
+        elif accion == 'reintentar':
             pedido.estado = 'RUTA'
             messages.info(request, f"Reintentando Orden #{pedido.id} 🔄")
-        elif accion == 'cancelar': 
+
+        elif accion == 'cancelar':
             pedido.estado = 'CANCELADO'
             messages.error(request, f"Orden #{pedido.id} cancelada ❌")
-            
+
         pedido.save()
         return redirect('dashboard_admin')
-        
-    pedidos = Pedido.objects.exclude(estado__in=['ENTREGADO', 'CANCELADO']).order_by('-id')
-    return render(request, 'pedidos/dashboard_admin.html', {
-        'pedidos': pedidos,
-        'dias_restantes': dias_restantes 
+
+    context = _contexto_admin_pedidos()
+    context.update({
+        'dias_restantes': dias_restantes,
+        'last_update': _iso_datetime(_ultimo_cambio_pedidos()),
+    })
+
+    return render(request, 'pedidos/dashboard_admin.html', context)
+
+@never_cache
+@login_required(login_url='login_custom')
+@user_passes_test(es_admin, login_url='login_custom')
+def api_dashboard_admin_sync(request):
+    ultimo_servidor = _ultimo_cambio_pedidos()
+    ultimo_cliente_raw = request.GET.get('last_update', 'none')
+    ultimo_cliente = _parse_last_update(ultimo_cliente_raw)
+
+    if ultimo_servidor is None and ultimo_cliente_raw == "none":
+        return JsonResponse({
+            'changed': False,
+            'last_update': "none",
+        })
+
+    if ultimo_servidor and ultimo_cliente and ultimo_servidor <= ultimo_cliente:
+        return JsonResponse({
+            'changed': False,
+            'last_update': _iso_datetime(ultimo_servidor),
+        })
+
+    context = _contexto_admin_pedidos()
+
+    html_nuevos = render_to_string(
+        'pedidos/partials/admin_nuevos.html',
+        context,
+        request=request
+    )
+
+    html_cocina = render_to_string(
+        'pedidos/partials/admin_cocina.html',
+        context,
+        request=request
+    )
+
+    html_ruta = render_to_string(
+        'pedidos/partials/admin_ruta.html',
+        context,
+        request=request
+    )
+
+    html_problema = render_to_string(
+        'pedidos/partials/admin_problema.html',
+        context,
+        request=request
+    )
+
+    return JsonResponse({
+        'changed': True,
+        'last_update': _iso_datetime(ultimo_servidor),
+        'nuevos_count': len(context['pedidos_nuevos']),
+        'html': {
+            'pills-nuevos': html_nuevos,
+            'pills-cocina': html_cocina,
+            'pills-ruta': html_ruta,
+            'pills-problema': html_problema,
+        }
     })
 
 @never_cache
@@ -604,26 +1254,107 @@ def eliminar_excepcion_view(request, excepcion_id):
     messages.info(request, "Excepción eliminada 🗑️")
     return redirect('admin_settings')
 
+@never_cache
 @login_required(login_url='login_custom')
 @user_passes_test(es_repartidor, login_url='login_custom')
 def dashboard_delivery_view(request):
-    disponibles = Pedido.objects.filter(estado='RUTA', repartidor=None).order_by('id')
-    mis_pedidos = Pedido.objects.filter(estado='RUTA', repartidor=request.user).order_by('id')
+    _limpiar_pedidos_pendientes_vencidos()
+
+    if not suscripcion_activa():
+        return render(request, 'pedidos/suspendido.html')
+
     if request.method == 'POST':
         pedido = get_object_or_404(Pedido, id=request.POST.get('pedido_id'))
         accion = request.POST.get('accion')
+
         if accion == 'tomar':
-            pedido.repartidor = request.user
-            pedido.save()
+            if pedido.estado == 'RUTA' and pedido.repartidor is None:
+                pedido.repartidor = request.user
+                pedido.save()
+                messages.success(request, f"Pedido #{pedido.id} tomado 🛵")
+            else:
+                messages.warning(request, "Ese pedido ya fue tomado por otro repartidor.")
+
         elif accion == 'entregado':
-            pedido.estado = 'ENTREGADO'
-            pedido.save()
+            if pedido.repartidor == request.user:
+                pedido.estado = 'ENTREGADO'
+                pedido.save()
+                messages.success(request, f"Pedido #{pedido.id} entregado ✅")
+            else:
+                messages.error(request, "No puedes entregar un pedido que no está en tu mochila.")
+
+        elif accion == 'soltar':
+            if pedido.estado == 'RUTA' and pedido.repartidor == request.user:
+                pedido.repartidor = None
+                pedido.save()
+                messages.info(request, f"Pedido #{pedido.id} devuelto a disponibles 🔄")
+            else:
+                messages.error(request, "No puedes quitar de tu mochila un pedido que no tienes asignado.")
+
         elif accion == 'problema':
-            pedido.estado = 'PROBLEMA'
-            pedido.repartidor = None
-            pedido.save()
+            if pedido.repartidor == request.user:
+                pedido.estado = 'PROBLEMA'
+                pedido.repartidor = None
+                pedido.save()
+                messages.warning(request, f"Problema reportado en pedido #{pedido.id}")
+            else:
+                messages.error(request, "No puedes reportar un pedido que no está en tu mochila.")
+
         return redirect('dashboard_delivery')
-    return render(request, 'pedidos/dashboard_delivery.html', {'disponibles': disponibles, 'mis_pedidos': mis_pedidos, 'GOOGLE_MAPS_API_KEY': config('GOOGLE_MAPS_API_KEY', default='')})
+
+    context = _contexto_delivery_pedidos(request.user)
+    context.update({
+        'GOOGLE_MAPS_API_KEY': config('GOOGLE_MAPS_API_KEY', default=''),
+        'last_update': _iso_datetime(_ultimo_cambio_pedidos()),
+    })
+
+    return render(request, 'pedidos/dashboard_delivery.html', context)
+
+
+@never_cache
+@login_required(login_url='login_custom')
+@user_passes_test(es_repartidor, login_url='login_custom')
+def api_delivery_sync(request):
+    ultimo_servidor = _ultimo_cambio_pedidos()
+    ultimo_cliente_raw = request.GET.get('last_update', 'none')
+    ultimo_cliente = _parse_last_update(ultimo_cliente_raw)
+
+    if ultimo_servidor is None and ultimo_cliente_raw == "none":
+        return JsonResponse({
+            'changed': False,
+            'last_update': "none",
+        })
+
+    if ultimo_servidor and ultimo_cliente and ultimo_servidor <= ultimo_cliente:
+        return JsonResponse({
+            'changed': False,
+            'last_update': _iso_datetime(ultimo_servidor),
+        })
+
+    context = _contexto_delivery_pedidos(request.user)
+
+    html_mochila = render_to_string(
+        'pedidos/partials/delivery_mochila.html',
+        context,
+        request=request
+    )
+
+    html_pool = render_to_string(
+        'pedidos/partials/delivery_pool.html',
+        context,
+        request=request
+    )
+
+    return JsonResponse({
+        'changed': True,
+        'last_update': _iso_datetime(ultimo_servidor),
+        'pool_count': len(context['disponibles']),
+        'html': {
+            'zona-mochila': html_mochila,
+            'zona-pool': html_pool,
+        }
+    })
+
 
 def obtener_ubicacion_ip(request):
     x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
@@ -644,10 +1375,24 @@ def order_tracker_view(request, pedido_id):
 
 def api_order_status(request, pedido_id):
     try:
-        pedido = Pedido.objects.get(id=pedido_id)
-        return JsonResponse({'status': 'ok', 'estado_codigo': pedido.estado, 'estado_texto': pedido.get_estado_display()})
+        pedido = Pedido.objects.only(
+            'id',
+            'estado',
+            'actualizado_en'
+        ).get(id=pedido_id)
+
+        return JsonResponse({
+            'status': 'ok',
+            'estado_codigo': pedido.estado,
+            'estado_texto': pedido.get_estado_display(),
+            'last_update': _iso_datetime(pedido.actualizado_en),
+        })
+
     except Pedido.DoesNotExist:
-        return JsonResponse({'status': 'error', 'msg': 'Pedido no encontrado'}, status=404)
+        return JsonResponse({
+            'status': 'error',
+            'msg': 'Pedido no encontrado'
+        }, status=404)
 
 @never_cache 
 @login_required(login_url='login_custom')
@@ -690,6 +1435,9 @@ def dashboard_metrics_view(request):
     return render(request, 'pedidos/dashboard_metrics.html', context)
 
 def perfil_usuario_view(request):
+    if not suscripcion_activa():
+        return render(request, 'pedidos/suspendido.html')
+
     ids_historial = request.session.get('historial_pedidos', [])
     mis_pedidos = Pedido.objects.filter(id__in=ids_historial).order_by('-id')
     activos = mis_pedidos.exclude(estado__in=['ENTREGADO', 'CANCELADO'])
@@ -698,204 +1446,154 @@ def perfil_usuario_view(request):
 
 # --- PAGO DE SUSCRIPCIÓN (TU DINERO - EL CLIENTE TE PAGA A TI) ---
 
-# --- PAGO DE SUSCRIPCIÓN (TU DINERO) ---
-
-# --- PAGO DE SUSCRIPCIÓN (TU DINERO) - CORREGIDO ---
-
 @login_required(login_url='login_custom')
 @user_passes_test(es_admin, login_url='login_custom')
 def pagar_suscripcion_view(request):
-    # 1. Configuración
-    PRECIO_MENSUAL = 50.00 
-    config_negocio = ConfiguracionNegocio.objects.first()
-    
-    import time
-    ref_suscripcion = f"SUBS-{config_negocio.id}-{int(time.time())}"
-
-    # USAMOS TUS LLAVES DEL .ENV
-    CLIENT_ID = config('WOMPI_APP_ID')
-    CLIENT_SECRET = config('WOMPI_API_SECRET')
-    AUTH_URL = config('WOMPI_AUTH_URL', default='https://id.wompi.sv/connect/token')
-    API_URL = config('WOMPI_API_URL', default='https://api.wompi.sv/EnlacePago')
-
-    headers_seguridad = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Accept': 'application/json'
-    }
-
     try:
-        # A. Autenticación
-        auth_payload = {
-            'grant_type': 'client_credentials',
-            'client_id': CLIENT_ID,
-            'client_secret': CLIENT_SECRET,
-            'audience': 'wompi_api'
-        }
-        
-        # print("1. Autenticando...")
-        auth_response = requests.post(AUTH_URL, data=auth_payload, headers=headers_seguridad)
-        
-        if auth_response.status_code != 200:
-            messages.error(request, "Error de credenciales con el Banco.")
-            return redirect('dashboard_admin')
-            
-        access_token = auth_response.json().get('access_token')
-        
-        # B. Crear Enlace
-        headers_api = {
-            'Authorization': f'Bearer {access_token}',
-            'Content-Type': 'application/json'
-        }
-        
-        base_url = request.build_absolute_uri('/')[:-1]
-        redirect_url = f"{base_url}/wompi-suscripcion-respuesta/"
-        
-        payment_payload = {
-            "IdentificadorEnlaceComercio": ref_suscripcion,
-            "Monto": PRECIO_MENSUAL,
-            "NombreProducto": "Suscripción Mensual FoodBack Pro",
-            # --- AQUÍ ESTABA EL DETALLE: IGUALAMOS AL DE PEDIDOS ---
-            "FormaPago": {
-                "PermitirTarjetaCreditoDebito": True,
-                "PermitirTarjetaCreditoDebido": True, # Agregado para forzar tarjeta
-                "PermitirPagoConPuntoAgricola": True
-            },
-            # -------------------------------------------------------
-            "Configuracion": {
-                "UrlRedirect": redirect_url,
-                "EsMontoEditable": False,
-                "EsCantidadEditable": False,
-                "EmailsNotificacion": "tu_email@gmail.com" 
-            }
-        }
+        precio_mensual = _decimal_monto(config('FOODBACK_SUBSCRIPTION_PRICE', default='50.00'))
+        config_negocio = ConfiguracionNegocio.objects.first() or ConfiguracionNegocio.objects.create()
+        referencia = _wompi_crear_referencia('SUBS', config_negocio.id)
+        base = _base_url(request)
+        redirect_url = f"{base}/wompi-suscripcion-respuesta/?ref={referencia}"
+        webhook_url = f"{base}/wompi-webhook/"
 
-        # print("2. Solicitando Link...")
-        link_response = requests.post(API_URL, json=payment_payload, headers=headers_api)
-        
-        if link_response.status_code == 200:
-            data = link_response.json()
-            return redirect(data.get('urlEnlace'))
-        else:
-            # print(link_response.text)
-            messages.error(request, "El banco rechazó la solicitud.")
+        pago = PagoWompi.objects.create(
+            tipo='SUSCRIPCION',
+            configuracion_negocio=config_negocio,
+            referencia=referencia,
+            monto=precio_mensual,
+            estado='PENDIENTE',
+        )
+
+        data, raw_payload = _wompi_crear_enlace_pago(
+            request,
+            tipo_pago='SUSCRIPCION',
+            referencia=referencia,
+            monto=precio_mensual,
+            nombre_producto='Suscripción mensual FoodBack',
+            redirect_url=redirect_url,
+            webhook_url=webhook_url,
+        )
+
+        url_enlace = data.get('urlEnlace') or data.get('UrlEnlace')
+        id_enlace = data.get('idEnlace') or data.get('IdEnlace')
+
+        if not url_enlace:
+            pago.estado = 'ERROR'
+            pago.ultimo_error = 'Wompi no devolvió urlEnlace para suscripción.'
+            pago.raw_creacion = {'request': raw_payload, 'response': data}
+            pago.save()
+            messages.error(request, 'No se pudo generar el enlace de pago.')
             return redirect('dashboard_admin')
+
+        pago.url_enlace = url_enlace
+        pago.id_enlace = str(id_enlace or '')
+        pago.raw_creacion = {'request': raw_payload, 'response': data}
+        pago.save()
+
+        return redirect(url_enlace)
 
     except Exception as e:
-        # print(f"Error: {e}")
-        messages.error(request, "Error interno.")
+        print(f'Error Wompi suscripción: {e}')
+        messages.error(request, 'No pudimos conectar con la pasarela de pago. Intenta nuevamente.')
         return redirect('dashboard_admin')
-    
-# --- FUNCIÓN NUCLEAR (API + HASH EXTENDIDO) ---
 
-# --- VISTA CORREGIDA CON SOPORTE SANDBOX ---
-
-# --- VISTA CORREGIDA Y DIAGNÓSTICO DE ERROR 404 ---
-# --- VISTA "MODO CONFIANZA" (PARA DESBLOQUEARTE) ---
 
 @login_required(login_url='login_custom')
 def wompi_suscripcion_respuesta_view(request):
-    print("\n🚀 --- MODO CONFIANZA ACTIVADO ---")
-    
-    # 1. Capturamos los datos básicos
+    referencia = request.GET.get('ref') or request.GET.get('referencia')
     id_transaccion = request.GET.get('idTransaccion', '').strip()
-    id_enlace = request.GET.get('idEnlace', '')
-    monto = request.GET.get('monto', '')
-    
-    print(f"📥 Datos recibidos de Wompi:")
-    print(f"   - ID Transacción: {id_transaccion}")
-    print(f"   - ID Enlace:      {id_enlace}")
-    print(f"   - Monto:          {monto}")
 
-    # 2. VALIDACIÓN SIMPLIFICADA
-    # Si trae un ID de transacción, asumimos que Wompi hizo su trabajo.
-    # (En Producción real, volveremos a activar la seguridad del Hash, 
-    #  pero por ahora necesitamos que esto funcione).
-    
-    if id_transaccion:
-        print("✅ ID de transacción detectado. Procediendo a activar.")
-        
-        # --- ACTIVAR SUSCRIPCIÓN ---
-        config_negocio = ConfiguracionNegocio.objects.first()
-        if not config_negocio:
-            config_negocio = ConfiguracionNegocio.objects.create()
-
-        hoy = date.today()
-        
-        # Lógica inteligente de fechas
-        if not config_negocio.fecha_vencimiento or config_negocio.fecha_vencimiento < hoy:
-            # Si estaba vencido o nulo, cuenta 30 días desde HOY
-            config_negocio.fecha_vencimiento = hoy + timedelta(days=30)
-        else:
-            # Si estaba vigente, le suma 30 días a lo que ya tenía
-            config_negocio.fecha_vencimiento += timedelta(days=30)
-        
-        config_negocio.save()
-        
-        print(f"🎉 ¡EXITO! Suscripción renovada hasta: {config_negocio.fecha_vencimiento}")
-        return render(request, 'pedidos/pago_exitoso_suscripcion.html')
-        
-    else:
-        print("❌ Error: Wompi no envió ID de transacción.")
-        messages.error(request, "Error: No se recibió confirmación del pago.")
+    if not referencia:
+        messages.error(request, 'No se recibió la referencia del pago.')
         return redirect('dashboard_admin')
 
-def activar_suscripcion(request):
-    """Función auxiliar para no repetir código"""
-    config_negocio = ConfiguracionNegocio.objects.first()
-    hoy = date.today()
-    if config_negocio.fecha_vencimiento < hoy:
-        config_negocio.fecha_vencimiento = hoy + timedelta(days=30)
-    else:
-        config_negocio.fecha_vencimiento += timedelta(days=30)
-    config_negocio.save()
-    return render(request, 'pedidos/pago_exitoso_suscripcion.html')
-@csrf_exempt 
+    pago = PagoWompi.objects.filter(referencia=referencia, tipo='SUSCRIPCION').first()
+    if not pago:
+        messages.error(request, 'No encontramos el pago de suscripción.')
+        return redirect('dashboard_admin')
+
+    pago.raw_redirect = dict(request.GET.items())
+    pago.save()
+
+    if _validar_hash_redirect_wompi(request.GET, referencia=pago.referencia, tipo_pago=pago.tipo) and _redirect_wompi_aprobado(request.GET):
+        ok, msg = _procesar_pago_wompi_aprobado(
+            pago.referencia,
+            id_transaccion=id_transaccion,
+            monto=request.GET.get('monto'),
+            raw_payload=dict(request.GET.items()),
+            origen='REDIRECT'
+        )
+        if ok:
+            return render(request, 'pedidos/pago_exitoso_suscripcion.html')
+        messages.warning(request, f'Pago recibido, pero quedó en revisión: {msg}')
+        return redirect('dashboard_admin')
+
+    if pago.estado == 'APROBADO':
+        return render(request, 'pedidos/pago_exitoso_suscripcion.html')
+
+    return render(request, 'pedidos/pago_verificando_suscripcion.html', {'pago': pago})
+
+
+@csrf_exempt
 @never_cache
 def wompi_webhook_view(request):
-    if request.method == 'POST':
-        try:
-            data = json.loads(request.body)
-            transaccion = data.get('transaccion', {})
-            id_enlace = transaccion.get('identificadorEnlaceComercio') or data.get('identificadorEnlaceComercio')
-            es_aprobada = transaccion.get('esAprobada', False) or data.get('esAprobada', False)
+    if request.method != 'POST':
+        return JsonResponse({'status': 'error', 'msg': 'Método no permitido'}, status=405)
 
-            print(f"📩 WEBHOOK RECIBIDO. Ref: {id_enlace} | Aprobada: {es_aprobada}")
+    raw_body = request.body
 
-            if es_aprobada and id_enlace:
-                
-                # CASO A: ES PAGO DE SUSCRIPCIÓN (TU DINERO) -> SUBS-
-                if id_enlace.startswith('SUBS-'):
-                    config_negocio = ConfiguracionNegocio.objects.first()
-                    hoy = date.today()
-                    
-                    base_fecha = config_negocio.fecha_vencimiento
-                    if not base_fecha or base_fecha < hoy:
-                        base_fecha = hoy
-                    
-                    nueva_fecha = base_fecha + timedelta(days=30)
-                    config_negocio.fecha_vencimiento = nueva_fecha
-                    config_negocio.save()
-                    print(f"💰 SUSCRIPCIÓN RENOVADA hasta {nueva_fecha}")
-                    return JsonResponse({'status': 'ok', 'msg': 'Suscripcion procesada'})
+    try:
+        data = json.loads(raw_body.decode('utf-8'))
+        transaccion = _extraer_transaccion_wompi(data)
 
-                # CASO B: ES PAGO DE COMIDA (DINERO DEL CLIENTE) -> ORDEN-
-                elif id_enlace.startswith('ORDEN-'):
-                    try:
-                        pedido_id = int(id_enlace.split('-')[1])
-                        pedido = Pedido.objects.get(id=pedido_id)
-                        
-                        if pedido.estado == 'PENDIENTE':
-                            pedido.estado = 'RECIBIDO'
-                            pedido.save()
-                            print(f"🍔 PEDIDO #{pedido.id} PAGADO Y CONFIRMADO")
-                        return JsonResponse({'status': 'ok', 'msg': 'Pedido procesado'})
-                    except Exception as ex:
-                        print(f"Error procesando orden webhook: {ex}")
+        referencia = _get_any(
+            transaccion,
+            'identificadorEnlaceComercio', 'IdentificadorEnlaceComercio',
+            'referencia', 'Referencia'
+        ) or _get_any(data, 'identificadorEnlaceComercio', 'IdentificadorEnlaceComercio')
 
-            return JsonResponse({'status': 'ok', 'msg': 'Recibido'})
+        tipo_pago = _wompi_tipo_desde_referencia(referencia)
 
-        except Exception as e:
-            print(f"⚠️ Error Webhook: {e}")
-            return JsonResponse({'status': 'error'}, status=500)
-            
-    return JsonResponse({'status': 'error'}, status=405)
+        if not _validar_hash_webhook_wompi(
+            request,
+            referencia=referencia,
+            tipo_pago=tipo_pago,
+            raw_body=raw_body
+        ):
+            return JsonResponse({'status': 'error', 'msg': 'Webhook no autorizado'}, status=403)
+
+        es_aprobada = _valor_bool_wompi(_get_any(transaccion, 'esAprobada', 'EsAprobada', 'approved', 'status'))
+        id_transaccion = _get_any(transaccion, 'idTransaccion', 'IdTransaccion', 'id', 'Id')
+        monto = _get_any(transaccion, 'monto', 'Monto') or _get_any(data, 'monto', 'Monto')
+
+        if not referencia:
+            return JsonResponse({'status': 'ok', 'msg': 'Webhook recibido sin referencia'})
+
+        pago = PagoWompi.objects.filter(referencia=referencia).first()
+        if pago:
+            pago.raw_webhook = data
+            pago.save()
+
+        if es_aprobada:
+            ok, msg = _procesar_pago_wompi_aprobado(
+                referencia,
+                id_transaccion=id_transaccion,
+                monto=monto,
+                raw_payload=data,
+                origen='WEBHOOK'
+            )
+            return JsonResponse({'status': 'ok' if ok else 'warning', 'msg': msg})
+
+        if pago and pago.estado != 'APROBADO':
+            pago.estado = 'RECHAZADO'
+            pago.es_aprobada = False
+            pago.ultimo_error = 'Webhook recibido, pero la transacción no venía aprobada.'
+            pago.save()
+
+        return JsonResponse({'status': 'ok', 'msg': 'Webhook recibido'})
+
+    except Exception as e:
+        print(f'Error webhook Wompi: {e}')
+        return JsonResponse({'status': 'error', 'msg': 'Error interno'}, status=500)
+

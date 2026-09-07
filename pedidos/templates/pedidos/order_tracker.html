@@ -293,15 +293,47 @@
         const statusDesc = document.getElementById('statusDesc');
         const statusIcon = document.getElementById('statusIcon');
 
+        let trackerLastUpdate = "none";
+        let trackerTimer = null;
+        let trackerDelay = 8000;
+        let trackerStopped = false;
+
+        function scheduleTrackerPoll(delay = trackerDelay) {
+            clearTimeout(trackerTimer);
+
+            if (!trackerStopped) {
+                trackerTimer = setTimeout(updateTracker, delay);
+            }
+        }
+
         function updateTracker() {
-            fetch(`/api/pedido/${pedidoId}/status/`)
+            if (document.hidden) {
+                scheduleTrackerPoll(20000);
+                return;
+            }
+
+            const url = `/api/pedido/${pedidoId}/status/?last_update=${encodeURIComponent(trackerLastUpdate)}`;
+
+            fetch(url)
                 .then(response => response.json())
                 .then(data => {
-                    if(data.status === 'ok') {
+                    if (data.status === 'ok') {
+                        trackerLastUpdate = data.last_update || trackerLastUpdate;
                         renderStatus(data.estado_codigo);
+
+                        if (data.estado_codigo === 'ENTREGADO' || data.estado_codigo === 'CANCELADO') {
+                            trackerStopped = true;
+                            clearTimeout(trackerTimer);
+                            return;
+                        }
                     }
+
+                    scheduleTrackerPoll();
                 })
-                .catch(err => console.error("Error polling:", err));
+                .catch(err => {
+                    console.error("Error polling:", err);
+                    scheduleTrackerPoll(15000);
+                });
         }
 
         function renderStatus(estado) {
@@ -346,10 +378,13 @@
                 }
             });
         }
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden && !trackerStopped) {
+                scheduleTrackerPoll(1000);
+            }
+        });
 
-        // Ejecutar al inicio y cada 5 segundos
         updateTracker();
-        setInterval(updateTracker, 5000);
 
     </script>
 </body>

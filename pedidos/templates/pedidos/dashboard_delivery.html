@@ -49,8 +49,11 @@
         .btn-map:hover { background: #3a3a3a; color: white; }
 
         .actions-row { display: flex; gap: 10px; margin-top: 15px; }
+        .secondary-actions { margin-top: 10px; }
         .btn-success-custom { flex-grow: 2; background: #27ae60; color: white; border: none; padding: 15px; border-radius: 12px; font-weight: 700; }
-        .btn-error-custom { flex-grow: 1; background: #c0392b; color: white; border: none; padding: 15px; border-radius: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+        .btn-release-custom { flex-grow: 2; background: #2f2f2f; color: #f5f5f5; border: 1px solid #4a4a4a; padding: 13px; border-radius: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 6px; }
+        .btn-release-custom:hover, .btn-release-custom:active { background: #3a3a3a; color: white; border-color: #666; }
+        .btn-error-custom { flex-grow: 1; background: #c0392b; color: white; border: none; padding: 13px; border-radius: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
 
         .pool-card { background: #1E1E1E; border-radius: 16px; padding: 15px; margin-bottom: 12px; border: 1px solid #333; }
         .pool-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
@@ -78,170 +81,119 @@
     <div class="section-header text-warning"><i class="bi bi-bag-check-fill me-2"></i> Pedidos en curso</div>
     
     <div id="zona-mochila">
-        {% if mis_pedidos %}
-            {% for p in mis_pedidos %}
-            <div class="backpack-card">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <div class="order-id">#{{ p.id }}</div>
-                        <div class="customer-name">{{ p.cliente.nombre }}</div>
-                    </div>
-                    <div class="text-end">
-                        <div class="fs-3 fw-bold text-white">${{ p.total_final }}</div>
-                        {% if p.metodo_pago == 'TARJETA' %}
-                            <div class="small fw-bold" style="color:#00E5FF"><i class="bi bi-credit-card"></i> TARJETA</div>
-                        {% else %}
-                             <div class="small fw-bold text-sec">EFECTIVO</div>
-                        {% endif %}
-                    </div>
-                </div>
-
-                <div class="address-box">
-                    <i class="bi bi-geo-alt-fill text-danger fs-5"></i>
-                    <div style="line-height: 1.3;">
-                        {% if p.direccion_entrega %}{{ p.direccion_entrega }}{% else %}Ubicación GPS Exacta{% endif %}
-                    </div>
-                </div>
-
-                {% if p.metodo_pago == 'EFECTIVO' %}
-                    <div class="money-alert"><i class="bi bi-cash me-1"></i> COBRAR AL CLIENTE</div>
-                {% elif p.metodo_pago == 'TARJETA' %}
-                    <div class="card-alert"><i class="bi bi-check-circle-fill me-1"></i> PAGADO CON TARJETA</div>
-                {% endif %}
-
-                <div onclick="toggleDetails('details-{{ p.id }}', this)" class="product-toggle">
-                    <span>📦 Ver {{ p.detalles.count }} productos</span>
-                    <i class="bi bi-chevron-down"></i>
-                </div>
-                <div id="details-{{ p.id }}" class="product-list">
-                    {% for item in p.detalles.all %}
-                        <div class="prod-row">
-                            <div>
-                                <span class="qty-tag">{{ item.cantidad }}</span>
-                                {{ item.producto.nombre }}
-                                {% if item.opcion %}
-                                    <span style="color:var(--color-accent); font-weight:bold; font-size:0.8rem;">({{ item.opcion.nombre }})</span>
-                                {% endif %}
-                                
-                                {% for extra in item.extras.all %}
-                                    <div style="font-size: 0.8rem; color: #888; margin-left: 30px;">
-                                        + {{ extra.nombre }}
-                                    </div>
-                                {% endfor %}
-                            </div>
-                        </div>
-                    {% endfor %}
-                </div>
-
-                <div class="d-flex justify-content-between mb-3">
-                    {% if p.latitud %}
-                        <a href="https://waze.com/ul?ll={{ p.latitud }},{{ p.longitud }}&navigate=yes" target="_blank" class="btn-map"><i class="bi bi-car-front-fill me-1"></i> Waze</a>
-                        <a href="https://www.google.com/maps/search/?api=1&query={{ p.latitud }},{{ p.longitud }}" target="_blank" class="btn-map"><i class="bi bi-google me-1"></i> Maps</a>
-                    {% else %}
-                        <button class="btn-map w-100 opacity-50" disabled>Sin GPS</button>
-                    {% endif %}
-                </div>
-
-                <div class="actions-row">
-                    <form method="POST" style="flex-grow: 2;" onsubmit="pausePolling()"> {% csrf_token %}
-                        <input type="hidden" name="pedido_id" value="{{ p.id }}">
-                        <input type="hidden" name="accion" value="entregado">
-                        <button class="btn-success-custom w-100">ENTREGADO <i class="bi bi-check-lg"></i></button>
-                    </form>
-                    <form method="POST" style="flex-grow: 1;" onsubmit="pausePolling()"> {% csrf_token %}
-                        <input type="hidden" name="pedido_id" value="{{ p.id }}">
-                        <input type="hidden" name="accion" value="problema">
-                        <button class="btn-error-custom w-100"><i class="bi bi-exclamation-triangle-fill"></i></button>
-                    </form>
-                </div>
-            </div>
-            {% endfor %}
-        {% else %}
-            <div class="text-center py-5 text-sec opacity-50">
-                <i class="bi bi-box2 fs-1"></i>
-                <p class="mt-2">Mochila vacía</p>
-            </div>
-        {% endif %}
-    </div> 
+        {% include 'pedidos/partials/delivery_mochila.html' %}
+    </div>
 
     <div class="my-4 border-bottom border-secondary opacity-25"></div>
 
     <div class="section-header text-info"><i class="bi bi-shop me-2"></i> Listos para recoger</div>
     
     <div id="zona-pool">
-        {% for p in disponibles %}
-        <div class="pool-card">
-            <div class="pool-header">
-                <div>
-                    <div class="text-white fw-bold">#{{ p.id }} <span class="text-sec fw-normal mx-1">|</span> {{ p.cliente.nombre }}</div>
-                    <div class="text-sec small mt-1 text-truncate" style="max-width: 200px;">
-                        <i class="bi bi-pin-map-fill text-accent"></i> 
-                        {% if p.direccion_entrega %}{{ p.direccion_entrega }}{% else %}Ver Mapa{% endif %}
-                    </div>
-                </div>
-                <form method="POST" onsubmit="pausePolling()"> {% csrf_token %}
-                    <input type="hidden" name="pedido_id" value="{{ p.id }}">
-                    <input type="hidden" name="accion" value="tomar">
-                    <button class="btn-take">TOMAR</button>
-                </form>
-            </div>
-            
-            <div onclick="toggleDetails('pool-details-{{ p.id }}', this)" class="text-sec small mb-2" style="cursor: pointer;">
-                <i class="bi bi-eye"></i> Ver {{ p.detalles.count }} items <i class="bi bi-chevron-down ms-1"></i>
-            </div>
-            <div id="pool-details-{{ p.id }}" class="product-list">
-                {% for item in p.detalles.all %}
-                    <div class="prod-row">
-                        <div>
-                            <span class="qty-tag">{{ item.cantidad }}</span> 
-                            {{ item.producto.nombre }}
-                            
-                            {% for extra in item.extras.all %}
-                                <div style="font-size: 0.8rem; color: #888; margin-left: 30px;">
-                                    + {{ extra.nombre }}
-                                </div>
-                            {% endfor %}
-                        </div>
-                    </div>
-                {% endfor %}
-            </div>
-        </div>
-        {% empty %}
-            <div class="text-center text-sec small py-3">No hay pedidos pendientes.</div>
-        {% endfor %}
+        {% include 'pedidos/partials/delivery_pool.html' %}
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script>
         // 1. SONIDOS
-        const audioAlerta = new Audio('https://assets.mixkit.co/active_storage/sfx/996/996-preview.mp3'); 
+        const audioAlerta = new Audio('https://assets.mixkit.co/active_storage/sfx/996/996-preview.mp3');
 
-        // Hack para audio: Primer clic desbloquea
         document.addEventListener('click', function() {
             audioAlerta.load();
         }, { once: true });
 
-        // 2. FUNCIÓN SALIR
         function confirmarSalida() {
             Swal.fire({
-                title: '¿Cerrar sesión?', text: "¿Ya terminaste tu turno por hoy?", icon: 'warning', showCancelButton: true,
-                confirmButtonText: 'Sí, salir', cancelButtonText: 'Cancelar', background: '#1E1E1E', color: '#ffffff', iconColor: '#ef4444',
-                reverseButtons: true, confirmButtonColor: '#ef4444', cancelButtonColor: '#333333'
+                title: '¿Cerrar sesión?',
+                text: "¿Ya terminaste tu turno por hoy?",
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonText: 'Sí, salir',
+                cancelButtonText: 'Cancelar',
+                background: '#1E1E1E',
+                color: '#ffffff',
+                iconColor: '#ef4444',
+                reverseButtons: true,
+                confirmButtonColor: '#ef4444',
+                cancelButtonColor: '#333333'
             }).then((result) => {
-                if (result.isConfirmed) { document.getElementById('logoutForm').submit(); }
+                if (result.isConfirmed) {
+                    document.getElementById('logoutForm').submit();
+                }
             });
+        }
+
+        function confirmarEntrega(form, pedidoId) {
+            Swal.fire({
+                title: '¿Pedido entregado?',
+                html: `Confirma que el pedido <b>#${pedidoId}</b> ya fue entregado al cliente.`,
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonText: 'Sí, ya lo entregué',
+                cancelButtonText: 'Cancelar',
+                background: '#1E1E1E',
+                color: '#ffffff',
+                iconColor: '#27ae60',
+                confirmButtonColor: '#27ae60',
+                cancelButtonColor: '#333333',
+                reverseButtons: true,
+                focusCancel: true
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    pausePolling();
+                    form.submit();
+                }
+            });
+
+            return false;
+        }
+
+        function confirmarSoltar(form, pedidoId) {
+            Swal.fire({
+                title: '¿Quitar de tu mochila?',
+                html: `El pedido <b>#${pedidoId}</b> volverá a la lista de disponibles para que otro repartidor pueda tomarlo.`,
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonText: 'Sí, quitarlo',
+                cancelButtonText: 'Cancelar',
+                background: '#1E1E1E',
+                color: '#ffffff',
+                iconColor: '#f59e0b',
+                confirmButtonColor: '#D35400',
+                cancelButtonColor: '#333333',
+                reverseButtons: true,
+                focusCancel: true
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    pausePolling();
+                    form.submit();
+                }
+            });
+
+            return false;
         }
 
         function toggleDetails(id, btn) {
             const el = document.getElementById(id);
             const icon = btn.querySelector('.bi-chevron-down') || btn.querySelector('.bi-chevron-up');
+
+            if (!el) return;
+
             if (el.style.display === 'block') {
                 el.style.display = 'none';
-                if(icon) { icon.classList.remove('bi-chevron-up'); icon.classList.add('bi-chevron-down'); }
+
+                if (icon) {
+                    icon.classList.remove('bi-chevron-up');
+                    icon.classList.add('bi-chevron-down');
+                }
+
             } else {
                 el.style.display = 'block';
-                if(icon) { icon.classList.remove('bi-chevron-down'); icon.classList.add('bi-chevron-up'); }
+
+                if (icon) {
+                    icon.classList.remove('bi-chevron-down');
+                    icon.classList.add('bi-chevron-up');
+                }
             }
         }
 
@@ -251,83 +203,169 @@
         }
 
         const Toast = Swal.mixin({
-            toast: true, position: 'top', showConfirmButton: false, timer: 3000, background: '#333', color: '#fff'
+            toast: true,
+            position: 'top',
+            showConfirmButton: false,
+            timer: 3000,
+            background: '#333',
+            color: '#fff'
         });
+
         {% if messages %}
             {% for message in messages %}
-                Toast.fire({ icon: 'success', title: "{{ message }}" });
+                Toast.fire({
+                    icon: 'success',
+                    title: "{{ message }}"
+                });
             {% endfor %}
         {% endif %}
 
-        // 3. POLLING CORREGIDO (CUENTA EN MEMORIA, NO EN DOM)
-        
-        // Inicializamos la cuenta usando los datos del servidor que ya renderizó Django
+        // 2. POLLING OPTIMIZADO
+        let deliveryLastUpdate = "{{ last_update|default:'none' }}";
         let pedidosEnMemoria = {{ disponibles|length }};
 
         let isPaused = false;
-        function pausePolling() { isPaused = true; }
-        document.addEventListener('mousedown', () => { isPaused = true; });
-        document.addEventListener('mouseup', () => { setTimeout(() => isPaused = false, 1000); });
+        let pollingDelay = 5000;
+        const MIN_DELAY = 5000;
+        const MAX_DELAY = 20000;
+        let pollingTimer = null;
 
-        setInterval(() => {
-            if (isPaused) return;
+        function pausePolling() {
+            isPaused = true;
+        }
 
-            // 1. GUARDAR ESTADO ANTES DE ACTUALIZAR
+        document.addEventListener('mousedown', () => {
+            isPaused = true;
+        });
+
+        document.addEventListener('mouseup', () => {
+            setTimeout(() => {
+                isPaused = false;
+            }, 1000);
+        });
+
+        function scheduleNextDeliveryPoll(delay = pollingDelay) {
+            clearTimeout(pollingTimer);
+            pollingTimer = setTimeout(syncDeliveryDashboard, delay);
+        }
+
+        function guardarListasAbiertas() {
             let listasAbiertas = [];
+
             document.querySelectorAll('.product-list').forEach(el => {
-                if(el.style.display === 'block') { listasAbiertas.push(el.id); }
+                if (el.style.display === 'block') {
+                    listasAbiertas.push(el.id);
+                }
             });
 
-            fetch(window.location.href)
-            .then(response => response.text())
-            .then(html => {
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(html, 'text/html');
+            return listasAbiertas;
+        }
 
-                // --- LOGICA CORREGIDA ---
-                // Contamos cuántos pedidos vienen en el HTML nuevo (lo que dice el servidor)
-                const nuevosPool = doc.querySelectorAll('#zona-pool .pool-card').length;
+        function restaurarListasAbiertas(listasAbiertas) {
+            listasAbiertas.forEach(id => {
+                const el = document.getElementById(id);
 
-                // Comparamos servidor (futuro) vs memoria (pasado)
-                // Ya no usamos el DOM actual del usuario, que puede estar bugeado.
+                if (el) {
+                    el.style.display = 'block';
+
+                    const btn = document.querySelector(`[onclick*="${id}"]`);
+
+                    if (btn) {
+                        const icon = btn.querySelector('.bi-chevron-down');
+
+                        if (icon) {
+                            icon.classList.remove('bi-chevron-down');
+                            icon.classList.add('bi-chevron-up');
+                        }
+                    }
+                }
+            });
+        }
+
+        function syncDeliveryDashboard() {
+            if (isPaused) {
+                scheduleNextDeliveryPoll(MIN_DELAY);
+                return;
+            }
+
+            if (document.hidden) {
+                scheduleNextDeliveryPoll(30000);
+                return;
+            }
+
+            const listasAbiertas = guardarListasAbiertas();
+
+            const url = new URL("{% url 'api_delivery_sync' %}", window.location.origin);
+            url.searchParams.set('last_update', deliveryLastUpdate || 'none');
+
+            fetch(url, {
+                method: 'GET',
+                credentials: 'same-origin',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (!data.changed) {
+                    pollingDelay = Math.min(pollingDelay + 3000, MAX_DELAY);
+                    scheduleNextDeliveryPoll();
+                    return;
+                }
+
+                deliveryLastUpdate = data.last_update || deliveryLastUpdate;
+                pollingDelay = MIN_DELAY;
+
+                const nuevosPool = data.pool_count || 0;
+
                 if (nuevosPool > pedidosEnMemoria) {
-                    sonarAlerta(); 
-                    if (navigator.vibrate) navigator.vibrate([200, 100, 200]); 
-                    
+                    sonarAlerta();
+
+                    if (navigator.vibrate) {
+                        navigator.vibrate([200, 100, 200]);
+                    }
+
                     Swal.fire({
-                        title: '¡Nuevo Pedido!', text: 'Revisa la lista de disponibles', icon: 'info',
-                        timer: 3000, showConfirmButton: false, background: '#1E1E1E', color: '#fff'
+                        title: '¡Nuevo Pedido!',
+                        text: 'Revisa la lista de disponibles',
+                        icon: 'info',
+                        timer: 3000,
+                        showConfirmButton: false,
+                        background: '#1E1E1E',
+                        color: '#fff'
                     });
                 }
 
-                // Actualizamos la memoria
                 pedidosEnMemoria = nuevosPool;
-                // -------------------------
 
-                const zonas = ['zona-mochila', 'zona-pool'];
-                zonas.forEach(id => {
-                    const actual = document.getElementById(id);
-                    const nuevo = doc.getElementById(id);
-                    if(actual && nuevo && actual.innerHTML !== nuevo.innerHTML) {
-                        actual.innerHTML = nuevo.innerHTML;
-                    }
-                });
+                if (data.html) {
+                    Object.keys(data.html).forEach(id => {
+                        const actual = document.getElementById(id);
 
-                // 2. RESTAURAR ESTADO DESPUÉS DE ACTUALIZAR
-                listasAbiertas.forEach(id => {
-                    const el = document.getElementById(id);
-                    if(el) {
-                        el.style.display = 'block';
-                        const btn = document.querySelector(`[onclick*="${id}"]`);
-                        if(btn) {
-                            const icon = btn.querySelector('.bi-chevron-down');
-                            if(icon) { icon.classList.remove('bi-chevron-down'); icon.classList.add('bi-chevron-up'); }
+                        if (actual && actual.innerHTML !== data.html[id]) {
+                            actual.innerHTML = data.html[id];
                         }
-                    }
-                });
+                    });
+                }
+
+                restaurarListasAbiertas(listasAbiertas);
+                scheduleNextDeliveryPoll();
             })
-            .catch(e => console.log("Conexión inestable..."));
-        }, 5000); 
+            .catch(e => {
+                console.log("Conexión inestable...");
+                pollingDelay = Math.min(pollingDelay + 5000, 30000);
+                scheduleNextDeliveryPoll();
+            });
+        }
+
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) {
+                pollingDelay = MIN_DELAY;
+                scheduleNextDeliveryPoll(1000);
+            }
+        });
+
+        scheduleNextDeliveryPoll(3000);
     </script>
 
 </body>

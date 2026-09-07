@@ -4,6 +4,7 @@ from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
 from django.contrib.auth.models import User
 from datetime import date, timedelta # IMPORTANTE: Agregar esto
+from django.utils import timezone
 
 # --- NUEVO MODELO DE EXTRAS (Papas, Queso, Jalapeños...) ---
 class Extra(models.Model):
@@ -101,35 +102,131 @@ class Pedido(models.Model):
         ('PROBLEMA', '⚠️ Problema / No Recibido'),
         ('CANCELADO', '❌ Cancelado'),
     ]
-    METODOS_PAGO = [('EFECTIVO', 'Efectivo'), ('TARJETA', 'Tarjeta (Wompi)')]
+
+    METODOS_PAGO = [
+        ('EFECTIVO', 'Efectivo'),
+        ('TARJETA', 'Tarjeta (Wompi)'),
+    ]
 
     cliente = models.ForeignKey(Cliente, on_delete=models.PROTECT, related_name='pedidos')
+
     fecha_creacion = models.DateTimeField(auto_now_add=True)
+
+    # NUEVO:
+    # Este campo se actualiza automáticamente cada vez que el pedido cambia.
+    # Nos sirve para saber si el polling debe actualizar la pantalla o no.
+    actualizado_en = models.DateTimeField(auto_now=True)
+
     direccion_entrega = models.TextField(blank=True)
     latitud = models.CharField(max_length=50, blank=True, null=True)
     longitud = models.CharField(max_length=50, blank=True, null=True)
+
     metodo_pago = models.CharField(max_length=20, choices=METODOS_PAGO, default='EFECTIVO')
-    
+
     # Campo clave para el rastreador
     estado = models.CharField(max_length=20, choices=ESTADOS, default='PENDIENTE')
-    
+
     repartidor = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
-    
+
     total_productos = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     comision_plataforma = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     total_final = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    es_pedido_whatsapp = models.BooleanField(default=False, verbose_name="¿Es pedido manual/WhatsApp?")
+
+    es_pedido_whatsapp = models.BooleanField(
+        default=False,
+        verbose_name="¿Es pedido manual/WhatsApp?"
+    )
+
+    # --- DATOS DE PAGO WOMPI ---
+    # La URL de regreso NO debe ser la prueba de pago.
+    # Estos campos nos ayudan a enlazar el pedido con una referencia segura
+    # generada por el servidor y confirmada por webhook/hash válido.
+    wompi_referencia = models.CharField(max_length=150, unique=True, null=True, blank=True, db_index=True)
+    wompi_id_enlace = models.CharField(max_length=100, null=True, blank=True)
+    wompi_url_enlace = models.URLField(max_length=700, null=True, blank=True)
+    wompi_id_transaccion = models.CharField(max_length=150, null=True, blank=True, db_index=True)
+    pago_verificado = models.BooleanField(default=False)
+    fecha_pago_verificado = models.DateTimeField(null=True, blank=True)
 
     def save(self, *args, **kwargs):
         if self.metodo_pago == 'TARJETA':
             self.comision_plataforma = float(self.total_productos) * 0.05
         else:
             self.comision_plataforma = 0
-            
+
         self.total_final = float(self.total_productos) + float(self.comision_plataforma)
         super().save(*args, **kwargs)
 
-    def __str__(self): return f"Pedido #{self.id} - {self.cliente.nombre}"
+    def __str__(self):
+        return f"Pedido #{self.id} - {self.cliente.nombre}"
+
+
+class PagoWompi(models.Model):
+    TIPO_CHOICES = [
+        ('PEDIDO', 'Pedido de cliente'),
+        ('SUSCRIPCION', 'Suscripción SaaS'),
+    ]
+
+    ESTADO_CHOICES = [
+        ('CREADO', 'Enlace creado'),
+        ('PENDIENTE', 'Pendiente de confirmación'),
+        ('APROBADO', 'Pago aprobado'),
+        ('RECHAZADO', 'Pago rechazado'),
+        ('CANCELADO', 'Pago cancelado'),
+        ('ERROR', 'Error de validación'),
+    ]
+
+    tipo = models.CharField(max_length=20, choices=TIPO_CHOICES)
+    pedido = models.ForeignKey(
+        Pedido,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='pagos_wompi'
+    )
+    configuracion_negocio = models.ForeignKey(
+        ConfiguracionNegocio,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='pagos_suscripcion'
+    )
+
+    referencia = models.CharField(max_length=150, unique=True, db_index=True)
+    id_enlace = models.CharField(max_length=100, null=True, blank=True, db_index=True)
+    url_enlace = models.URLField(max_length=700, null=True, blank=True)
+    id_transaccion = models.CharField(max_length=150, null=True, blank=True, db_index=True)
+
+    monto = models.DecimalField(max_digits=10, decimal_places=2)
+    estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default='CREADO')
+    es_aprobada = models.BooleanField(default=False)
+
+    raw_creacion = models.JSONField(default=dict, blank=True)
+    raw_redirect = models.JSONField(default=dict, blank=True)
+    raw_webhook = models.JSONField(default=dict, blank=True)
+    ultimo_error = models.TextField(blank=True, null=True)
+
+    fecha_creacion = models.DateTimeField(auto_now_add=True)
+    fecha_actualizacion = models.DateTimeField(auto_now=True)
+    fecha_aprobacion = models.DateTimeField(null=True, blank=True)
+
+    def marcar_aprobado(self, id_transaccion=None, raw_payload=None):
+        self.estado = 'APROBADO'
+        self.es_aprobada = True
+        if id_transaccion:
+            self.id_transaccion = id_transaccion
+        if raw_payload is not None:
+            self.raw_webhook = raw_payload
+        self.fecha_aprobacion = timezone.now()
+        self.save()
+
+    def __str__(self):
+        return f"{self.tipo} | {self.referencia} | {self.estado}"
+
+    class Meta:
+        verbose_name = "Pago Wompi"
+        verbose_name_plural = "Pagos Wompi"
+        ordering = ['-fecha_creacion']
 
 class DetallePedido(models.Model):
     pedido = models.ForeignKey(Pedido, related_name='detalles', on_delete=models.CASCADE)

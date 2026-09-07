@@ -1,0 +1,60 @@
+{% for p in disponibles %}
+<div class="pool-card">
+    <div class="pool-header">
+        <div>
+            <div class="text-white fw-bold">
+                #{{ p.id }}
+                <span class="text-sec fw-normal mx-1">|</span>
+                {{ p.cliente.nombre }}
+            </div>
+
+            <div class="text-sec small mt-1 text-truncate" style="max-width: 200px;">
+                <i class="bi bi-pin-map-fill text-accent"></i>
+                {% if p.direccion_entrega %}
+                    {{ p.direccion_entrega }}
+                {% else %}
+                    Ver Mapa
+                {% endif %}
+            </div>
+        </div>
+
+        <form method="POST" onsubmit="pausePolling()">
+            {% csrf_token %}
+            <input type="hidden" name="pedido_id" value="{{ p.id }}">
+            <input type="hidden" name="accion" value="tomar">
+            <button class="btn-take">TOMAR</button>
+        </form>
+    </div>
+
+    <div onclick="toggleDetails('pool-details-{{ p.id }}', this)" class="text-sec small mb-2" style="cursor: pointer;">
+        <i class="bi bi-eye"></i>
+        Ver {{ p.detalles.count }} items
+        <i class="bi bi-chevron-down ms-1"></i>
+    </div>
+
+    <div id="pool-details-{{ p.id }}" class="product-list">
+        {% for item in p.detalles.all %}
+        <div class="prod-row">
+            <div>
+                <span class="qty-tag">{{ item.cantidad }}</span>
+                {{ item.producto.nombre }}
+
+                {% if item.opcion %}
+                <span style="color:var(--color-accent); font-weight:bold; font-size:0.8rem;">
+                    ({{ item.opcion.nombre }})
+                </span>
+                {% endif %}
+
+                {% for extra in item.extras.all %}
+                <div style="font-size: 0.8rem; color: #888; margin-left: 30px;">
+                    + {{ extra.nombre }}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% empty %}
+    <div class="text-center text-sec small py-3">No hay pedidos pendientes.</div>
+{% endfor %}

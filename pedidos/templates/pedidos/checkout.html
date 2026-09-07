@@ -11,56 +11,504 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/intl-tel-input/17.0.8/css/intlTelInput.css"/>
     
     <style>
-        :root { --color-accent: #D35400; --color-dark: #1A1A1A; --color-gray: #888888; --color-bg: #FAFAFA; --card-radius: 20px; }
-        body { background-color: var(--color-bg); font-family: 'Poppins', sans-serif; color: var(--color-dark); padding-bottom: 100px; }
+        :root {
+            --color-accent: #D35400;
+            --color-dark: #1A1A1A;
+            --color-gray: #888888;
+            --color-bg: #FAFAFA;
+            --card-radius: 20px;
+        }
+
+        body {
+            background-color: var(--color-bg);
+            font-family: 'Poppins', sans-serif;
+            color: var(--color-dark);
+            padding-bottom: 130px;
+        }
         
-        .checkout-header { background: white; padding: 15px 20px; display: flex; align-items: center; gap: 15px; position: sticky; top: 0; z-index: 1000; box-shadow: 0 2px 10px rgba(0,0,0,0.03); }
-        .btn-back { color: var(--color-dark); font-size: 1.2rem; text-decoration: none; }
-        .form-section-title { font-size: 0.9rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin: 30px 0 15px 0; opacity: 0.6; }
+        .checkout-header {
+            background: white;
+            padding: 15px 20px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.03);
+        }
+
+        .btn-back {
+            color: var(--color-dark);
+            font-size: 1.2rem;
+            text-decoration: none;
+        }
+
+        .form-section-title {
+            font-size: 0.9rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin: 30px 0 15px 0;
+            opacity: 0.6;
+        }
         
-        .order-summary { background: white; border-radius: var(--card-radius); padding: 20px; margin-top: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.03); }
-        .item-row { display: flex; align-items: flex-start; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px dashed #eee; }
-        .item-row:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
-        .item-img { width: 60px; height: 60px; border-radius: 12px; object-fit: cover; background-color: #eee; flex-shrink: 0; }
+        .order-summary {
+            background: white;
+            border-radius: var(--card-radius);
+            padding: 20px;
+            margin-top: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.03);
+        }
+
+        .item-row {
+            display: flex;
+            align-items: flex-start;
+            margin-bottom: 20px;
+            padding-bottom: 20px;
+            border-bottom: 1px dashed #eee;
+        }
+
+        .item-row:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 0;
+        }
+
+        .item-img {
+            width: 60px;
+            height: 60px;
+            border-radius: 12px;
+            object-fit: cover;
+            background-color: #eee;
+            flex-shrink: 0;
+        }
         
-        .form-floating > .form-control { border-radius: 12px; border: 1px solid #eee; background-color: #fcfcfc; }
-        .form-floating > .form-control:focus { border-color: var(--color-dark); box-shadow: none; }
-        .iti { width: 100%; }
-        input#phone_visual { border-radius: 16px; border: 1px solid #e5e7eb; background-color: #fff; padding-top: 10px; padding-bottom: 10px; height: 58px; }
+        .form-floating > .form-control {
+            border-radius: 12px;
+            border: 1px solid #eee;
+            background-color: #fcfcfc;
+        }
+
+        .form-floating > .form-control:focus {
+            border-color: var(--color-dark);
+            box-shadow: none;
+        }
+
+        .iti {
+            width: 100%;
+        }
+
+        input#phone_visual {
+            border-radius: 16px;
+            border: 1px solid #e5e7eb;
+            background-color: #fff;
+            padding-top: 10px;
+            padding-bottom: 10px;
+            height: 58px;
+        }
         
-        /* Mapa Estilo Uber */
-        #map-container { position: relative; width: 100%; height: 250px; border-radius: var(--card-radius); overflow: hidden; border: 1px solid #eee; margin-bottom: 10px; }
-        #map { width: 100%; height: 100%; background-color: #e9ecef; }
-        .center-pin { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -100%); z-index: 10; pointer-events: none; display: none; }
-        .center-pin i { font-size: 45px; color: var(--color-accent); text-shadow: 0 4px 8px rgba(0,0,0,0.2); }
+        /* --- UBICACIÓN / MAPA --- */
+        .location-search {
+            border-radius: 16px;
+            border: 1px solid #e5e7eb;
+            background-color: #fff;
+            height: 56px;
+            padding: 0 16px 0 44px;
+            font-weight: 600;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.03);
+        }
+
+        .location-search:focus {
+            border-color: var(--color-accent);
+            box-shadow: 0 0 0 3px rgba(211, 84, 0, 0.12);
+        }
+
+        .location-search-icon {
+            position: absolute;
+            left: 16px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--color-accent);
+            z-index: 5;
+        }
+
+        .place-autocomplete-wrapper {
+            width: 100%;
+            min-height: 56px;
+            border-radius: 16px;
+            border: 1px solid #e5e7eb;
+            background: #fff;
+            overflow: visible;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.03);
+        }
+
+        .place-autocomplete-wrapper:focus-within {
+            border-color: var(--color-accent);
+            box-shadow: 0 0 0 3px rgba(211, 84, 0, 0.12);
+        }
+
+        .place-autocomplete-wrapper gmp-place-autocomplete,
+        .place-autocomplete-wrapper > * {
+            width: 100%;
+            min-height: 56px;
+            display: block;
+            color-scheme: light;
+        }
+
+        .place-search-loading {
+            min-height: 56px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 0 16px;
+            font-weight: 600;
+            color: #6b7280;
+        }
+
+        #map-container {
+            position: relative;
+            width: 100%;
+            height: 280px;
+            border-radius: var(--card-radius);
+            overflow: hidden;
+            border: 1px solid #eee;
+            margin-bottom: 10px;
+            background-color: #e9ecef;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+            background-color: #e9ecef;
+        }
+
+        .map-placeholder-content {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 24px;
+            color: #6b7280;
+            background: linear-gradient(135deg, #f3f4f6, #e5e7eb);
+        }
+
+        .map-placeholder-content i {
+            font-size: 2.4rem;
+            color: var(--color-accent);
+            margin-bottom: 10px;
+        }
+
+        .map-placeholder-content b {
+            color: #111827;
+        }
+
+        .map-placeholder-content span {
+            font-size: 0.9rem;
+            max-width: 360px;
+        }
+
+        .center-pin {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -100%);
+            z-index: 10;
+            pointer-events: none;
+            display: none;
+        }
+
+        .center-pin i {
+            font-size: 48px;
+            color: var(--color-accent);
+            text-shadow: 0 4px 8px rgba(0,0,0,0.25);
+        }
+
+        .location-status {
+            display: flex;
+            gap: 10px;
+            align-items: flex-start;
+            padding: 12px 14px;
+            border-radius: 16px;
+            font-size: 0.82rem;
+            line-height: 1.35;
+            margin-bottom: 12px;
+            border: 1px solid transparent;
+        }
+
+        .location-status i {
+            font-size: 1.1rem;
+            margin-top: 1px;
+            flex-shrink: 0;
+        }
+
+        .location-status.pending {
+            background: #fff7ed;
+            color: #9a3412;
+            border-color: #fed7aa;
+        }
+
+        .location-status.ok {
+            background: #ecfdf5;
+            color: #047857;
+            border-color: #a7f3d0;
+        }
+
+        .location-status.warning {
+            background: #fff7ed;
+            color: #c2410c;
+            border-color: #fdba74;
+        }
+
+        .location-status.error {
+            background: #fef2f2;
+            color: #b91c1c;
+            border-color: #fecaca;
+        }
+
+        .location-actions {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 10px;
+        }
+
+        .btn-location-main,
+        .btn-location-confirm {
+            width: 100%;
+            border-radius: 999px;
+            padding: 14px 16px;
+            font-weight: 700;
+            border: none;
+            transition: all 0.2s ease;
+        }
+
+        .btn-location-main {
+            background: #fff;
+            color: var(--color-dark);
+            border: 1px solid #e5e7eb;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.04);
+        }
+
+        .btn-location-confirm {
+            background: var(--color-dark);
+            color: #fff;
+            box-shadow: 0 10px 24px rgba(0,0,0,0.16);
+        }
+
+        .btn-location-confirm:disabled {
+            background: #d1d5db;
+            box-shadow: none;
+            cursor: not-allowed;
+        }
+
+        .btn-location-main:active,
+        .btn-location-confirm:active {
+            transform: scale(0.98);
+        }
+
+        @media (min-width: 768px) {
+            .location-actions {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
 
         /* Tarjetas de Pago */
-        .payment-option { display: none; }
-        .payment-card { border: 1px solid #eee; border-radius: 15px; padding: 15px; cursor: pointer; transition: all 0.2s; background: white; display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-        .payment-option:checked + .payment-card { border-color: var(--color-accent); background-color: #fff5f0; box-shadow: 0 4px 12px rgba(211, 84, 0, 0.15); }
-        .payment-option:checked + .payment-card .bi-check-circle-fill { color: var(--color-accent); display: block; }
-        .check-icon { display: none; }
+        .payment-option {
+            display: none;
+        }
 
-        .total-bar { position: fixed; bottom: 0; left: 0; width: 100%; background: white; padding: 20px; border-top-left-radius: 25px; border-top-right-radius: 25px; box-shadow: 0 -5px 20px rgba(0,0,0,0.05); z-index: 1050; }
-        .btn-confirm { background-color: var(--color-dark); color: white; width: 100%; padding: 15px; border-radius: 15px; font-weight: 600; border: none; font-size: 1.1rem; transition: background 0.3s; }
-        .btn-confirm:disabled { background-color: #ccc; cursor: not-allowed; opacity: 0.5; }
+        .payment-card {
+            border: 1px solid #eee;
+            border-radius: 15px;
+            padding: 15px;
+            cursor: pointer;
+            transition: all 0.2s;
+            background: white;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+
+        .payment-option:checked + .payment-card {
+            border-color: var(--color-accent);
+            background-color: #fff5f0;
+            box-shadow: 0 4px 12px rgba(211, 84, 0, 0.15);
+        }
+
+        .payment-option:checked + .payment-card .bi-check-circle-fill {
+            color: var(--color-accent);
+            display: block;
+        }
+
+        .check-icon {
+            display: none;
+        }
+
+        .total-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background: white;
+            padding: 16px 20px 20px;
+            border-top-left-radius: 25px;
+            border-top-right-radius: 25px;
+            box-shadow: 0 -5px 20px rgba(0,0,0,0.05);
+            z-index: 1050;
+        }
+
+        .btn-confirm {
+            background-color: var(--color-dark);
+            color: white;
+            width: 100%;
+            padding: 15px;
+            border-radius: 15px;
+            font-weight: 600;
+            border: none;
+            font-size: 1.1rem;
+            transition: background 0.3s;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .btn-confirm:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
         
-        .btn-trash-premium { width: 30px; height: 30px; border-radius: 8px; background-color: transparent; color: #b0b0b0; display: flex; align-items: center; justify-content: center; border: 1px solid transparent; transition: all 0.2s ease; cursor: pointer; }
+        .btn-trash-premium {
+            width: 30px;
+            height: 30px;
+            border-radius: 8px;
+            background-color: transparent;
+            color: #b0b0b0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid transparent;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
         
         /* SweetAlert Premium */
-        .swal-premium-popup { border-radius: 24px !important; padding: 25px !important; font-family: 'Poppins', sans-serif !important; }
-        .swal-premium-title { font-size: 1.5rem !important; font-weight: 700 !important; color: #111827 !important; }
-        .swal-premium-confirm { border-radius: 12px !important; font-weight: 600 !important; padding: 12px 24px !important; background-color: #EF4444 !important; color: white !important; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3) !important; }
-        .swal-premium-cancel { border-radius: 12px !important; font-weight: 600 !important; padding: 12px 24px !important; background-color: #f3f4f6 !important; color: #374151 !important; margin-right: 15px !important; }
-        .swal2-actions { gap: 10px !important; margin-top: 20px !important; }
+        .swal-premium-popup {
+            border-radius: 24px !important;
+            padding: 25px !important;
+            font-family: 'Poppins', sans-serif !important;
+        }
+
+        .swal-premium-title {
+            font-size: 1.5rem !important;
+            font-weight: 700 !important;
+            color: #111827 !important;
+        }
+
+        .swal-premium-confirm {
+            border-radius: 12px !important;
+            font-weight: 600 !important;
+            padding: 12px 24px !important;
+            background-color: #EF4444 !important;
+            color: white !important;
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3) !important;
+        }
+
+        .swal-premium-cancel {
+            border-radius: 12px !important;
+            font-weight: 600 !important;
+            padding: 12px 24px !important;
+            background-color: #f3f4f6 !important;
+            color: #374151 !important;
+            margin-right: 15px !important;
+        }
+
+        .swal2-actions {
+            gap: 10px !important;
+            margin-top: 20px !important;
+        }
 
         /* Estilos Guía de Pasos */
-        .guide-step { background: white; border: 1px solid #f0f0f0; border-left: 4px solid var(--color-accent); border-radius: 12px; padding: 12px 15px; margin-bottom: 10px; display: flex; align-items: flex-start; gap: 12px; box-shadow: 0 2px 5px rgba(0,0,0,0.02); }
-        .step-number { background: var(--color-accent); color: white; min-width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; margin-top: 2px; }
-        .step-text { font-size: 0.9rem; color: #444; line-height: 1.4; }
-        .step-text b { color: #000; }
+        .guide-step {
+            background: white;
+            border: 1px solid #f0f0f0;
+            border-left: 4px solid var(--color-accent);
+            border-radius: 12px;
+            padding: 12px 15px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.02);
+        }
 
-        /* NUEVO: Mensaje de bloqueo de ubicación (Parpadeante) */
+        .step-number {
+            background: var(--color-accent);
+            color: white;
+            min-width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+            font-weight: 700;
+            margin-top: 2px;
+        }
+
+        .step-text {
+            font-size: 0.9rem;
+            color: #444;
+            line-height: 1.4;
+        }
+
+        .step-text b {
+            color: #000;
+        }
+
+
+        /* --- VALIDACIÓN VISUAL DE CAMPOS OBLIGATORIOS --- */
+        .invalid-field,
+        .form-control.invalid-field,
+        input#phone_visual.invalid-field,
+        textarea.invalid-field {
+            border-color: #ef4444 !important;
+            box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.16) !important;
+            background-color: #fff7f7 !important;
+        }
+
+        .form-floating > .form-control.invalid-field:focus {
+            border-color: #ef4444 !important;
+            box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.20) !important;
+        }
+
+        .field-error-text {
+            display: none;
+            color: #dc2626;
+            font-size: 0.76rem;
+            font-weight: 700;
+            margin: -3px 0 8px 4px;
+        }
+
+        .field-error-text.active {
+            display: block;
+        }
+
+        #map-container.location-invalid {
+            border-color: #ef4444 !important;
+            box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.16) !important;
+        }
+
+        .location-status.location-invalid {
+            background: #fef2f2 !important;
+            color: #b91c1c !important;
+            border-color: #fecaca !important;
+        }
+
         .location-hint {
             color: #e74c3c;
             font-size: 0.8rem;
@@ -70,7 +518,17 @@
             margin-bottom: 10px;
             animation: pulse 2s infinite;
         }
-        @keyframes pulse { 0% { opacity: 0.6; } 50% { opacity: 1; } 100% { opacity: 0.6; } }
+
+        .location-hint.ok {
+            color: #047857;
+            animation: none;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 0.6; }
+            50% { opacity: 1; }
+            100% { opacity: 0.6; }
+        }
     </style>
 </head>
 <body>
@@ -140,13 +598,26 @@
                 {% csrf_token %}
                 <div class="form-section-title">Contacto</div>
                 <div class="row g-2">
-                    <div class="col-6"><div class="form-floating mb-2"><input type="text" class="form-control" id="nombre" name="nombre" placeholder="Nombre" required><label>Nombre</label></div></div>
-                    <div class="col-6"><div class="form-floating mb-2"><input type="text" class="form-control" id="apellido" name="apellido" placeholder="Apellido" required><label>Apellido</label></div></div>
+                    <div class="col-6">
+                        <div class="form-floating mb-2">
+                            <input type="text" class="form-control" id="nombre" name="nombre" placeholder="Nombre" required>
+                            <label>Nombre</label>
+                        </div>
+                        <div class="field-error-text" id="error-nombre">Ingresa tu nombre.</div>
+                    </div>
+                    <div class="col-6">
+                        <div class="form-floating mb-2">
+                            <input type="text" class="form-control" id="apellido" name="apellido" placeholder="Apellido" required>
+                            <label>Apellido</label>
+                        </div>
+                        <div class="field-error-text" id="error-apellido">Ingresa tu apellido.</div>
+                    </div>
                     <div class="col-12">
                         <div class="mb-2 position-relative">
                             <input type="tel" id="phone_visual" class="form-control" placeholder="WhatsApp">
                             <input type="hidden" id="telefono_real" name="telefono">
                             <div id="phone-feedback" class="form-text text-danger d-none small ms-2"><i class="bi bi-exclamation-circle me-1"></i> Número inválido</div>
+                            <div class="field-error-text" id="error-telefono">Ingresa un número de WhatsApp válido.</div>
                         </div>
                     </div>
                 </div>
@@ -157,15 +628,53 @@
                         <textarea class="form-control" placeholder="Ej: Casa color menta, frente al parque, portón negro..." id="direccion" name="direccion" style="height: 90px; resize: none;" required></textarea>
                         <label>Referencias (Punto de referencia)</label>
                     </div>
+                    <div class="field-error-text" id="error-direccion">Ingresa una referencia para encontrar tu dirección.</div>
+
+                    <div class="place-autocomplete-wrapper mb-2" id="place-autocomplete-container" role="button" tabindex="0" onclick="iniciarBuscadorUbicacion()" onkeydown="if(event.key === 'Enter' || event.key === ' '){ event.preventDefault(); iniciarBuscadorUbicacion(); }">
+                        <div class="place-search-loading" id="place-search-loading">
+                            <i class="bi bi-search" style="color: var(--color-accent);"></i>
+                            <span>Toca aquí para buscar tu colonia, residencial o punto cercano</span>
+                        </div>
+                    </div>
+
+                    <div id="location-status" class="location-status pending">
+                        <i class="bi bi-pin-map-fill"></i>
+                        <div id="location-status-text">
+                            Confirma dónde quieres recibir tu pedido. Puedes usar tu ubicación actual o buscar tu dirección.
+                        </div>
+                    </div>
                     
-                    <div id="map-container"><div id="map"></div><div id="uber-pin" class="center-pin"><i class="bi bi-geo-alt-fill"></i></div></div>
-                    <button type="button" class="btn btn-white border w-100 rounded-pill py-3 fw-semibold shadow-sm" onclick="detectarUbicacionInteligente(true)"><i class="bi bi-geo-alt-fill me-1 text-danger"></i> Usar mi ubicación actual</button>
+                    <div id="map-container">
+                        <div id="map">
+                            <div class="map-placeholder-content" id="map-placeholder-content">
+                                <i class="bi bi-map"></i>
+                                <b>Selecciona tu ubicación</b>
+                                <span>Usa tu ubicación actual o busca tu dirección para marcar el punto exacto de entrega.</span>
+                            </div>
+                        </div>
+                        <div id="uber-pin" class="center-pin"><i class="bi bi-geo-alt-fill"></i></div>
+                    </div>
+
+                    <div class="location-actions">
+                        <button type="button" class="btn-location-main" onclick="detectarUbicacionInteligente(true)">
+                            <i class="bi bi-crosshair me-1 text-danger"></i> Usar mi ubicación actual
+                        </button>
+
+                        <button type="button" class="btn-location-confirm" id="btn-confirm-pin" onclick="confirmarPinManual()" disabled>
+                            <i class="bi bi-check-circle me-1"></i> Confirmar ubicación del pin
+                        </button>
+                    </div>
+
                     <div class="text-center mt-2">
                         <a href="#" class="text-muted small fw-600" data-bs-toggle="modal" data-bs-target="#helpGPSModal">
-                            <i class="bi bi-question-circle me-1"></i> ¿Problemas con el GPS? Mira la ayuda
+                            <i class="bi bi-question-circle me-1"></i> ¿Problemas con la ubicación? Mira la ayuda
                         </a>
                     </div>
-                    <input type="hidden" name="latitud" id="lat"><input type="hidden" name="longitud" id="lng">
+
+                    <input type="hidden" name="latitud" id="lat">
+                    <input type="hidden" name="longitud" id="lng">
+                    <input type="hidden" name="ubicacion_modo" id="ubicacion_modo">
+                    <input type="hidden" name="ubicacion_precision" id="ubicacion_precision">
                 </div>
 
                 <div class="form-section-title">Método de Pago</div>
@@ -179,6 +688,7 @@
                         <i class="bi bi-check-circle-fill fs-4 check-icon"></i>
                     </div>
                 </label>
+
                 <label class="w-100">
                     <input type="radio" name="metodo_pago" value="TARJETA" class="payment-option" onchange="actualizarTotal()">
                     <div class="payment-card">
@@ -196,7 +706,7 @@
                     </small>
                     
                     <small id="location-hint" class="location-hint">
-                        <i class="bi bi-pin-map-fill"></i> Presiona "Usar mi ubicación actual" para confirmar
+                        <i class="bi bi-pin-map-fill"></i> Confirma la ubicación antes de realizar el pedido
                     </small>
 
                     <button type="submit" class="btn-confirm" id="btn-finalizar" disabled>
@@ -212,31 +722,43 @@
         <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
             <div class="modal-content">
                 <div class="modal-header border-0 pb-0">
-                    <h5 class="fw-bold m-0">Activar Ubicación</h5>
+                    <h5 class="fw-bold m-0">Activar o confirmar ubicación</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
+
                 <div class="modal-body pt-3 bg-light">
                     <ul class="nav nav-pills nav-fill mb-3 bg-white p-1 rounded-pill border">
-                        <li class="nav-item"><button class="nav-link active rounded-pill" data-bs-toggle="pill" data-bs-target="#tab-iphone">iPhone / iOS</button></li>
+                        <li class="nav-item"><button class="nav-link active rounded-pill" data-bs-toggle="pill" data-bs-target="#tab-iphone">iPhone</button></li>
                         <li class="nav-item"><button class="nav-link rounded-pill" data-bs-toggle="pill" data-bs-target="#tab-android">Android</button></li>
+                        <li class="nav-item"><button class="nav-link rounded-pill" data-bs-toggle="pill" data-bs-target="#tab-pc">PC</button></li>
                     </ul>
                     
                     <div class="tab-content">
                         <div class="tab-pane fade show active" id="tab-iphone">
                             <div class="guide-step"><div class="step-number">1</div><div class="step-text">Ve a la app de <b>Configuración</b> ⚙️ de tu iPhone.</div></div>
-                            <div class="guide-step"><div class="step-number">2</div><div class="step-text">En la lupa 🔍 escribe <b>Localización</b> y selecciona la opción.</div></div>
-                            <div class="guide-step"><div class="step-number">3</div><div class="step-text">Baja y busca <b>Sitios web de Safari</b> (o Chrome, Edge o el navegador que utilices) y seleccionala.</div></div>
-                            <div class="guide-step"><div class="step-number">4</div><div class="step-text">Elige la opción <b>"Al usar la app"</b> o <b>"Preguntar la próxima vez"</b>.</div></div>
-                            <div class="guide-step"><div class="step-number">5</div><div class="step-text">Asegúrate de que el switch <b>Ubicación Precisa</b> esté encendido ✅.</div></div>
-                            <div class="alert alert-warning small border-0 text-dark mt-3 mb-2"><i class="bi bi-info-circle-fill me-1"></i> Vuelve aquí y presiona el botón negro para aplicar los cambios.</div>
+                            <div class="guide-step"><div class="step-number">2</div><div class="step-text">Busca <b>Localización</b> y entra a esa opción.</div></div>
+                            <div class="guide-step"><div class="step-number">3</div><div class="step-text">Busca <b>Sitios web de Safari</b>, Chrome o el navegador que uses.</div></div>
+                            <div class="guide-step"><div class="step-number">4</div><div class="step-text">Elige <b>Al usar la app</b> o <b>Preguntar la próxima vez</b>.</div></div>
+                            <div class="guide-step"><div class="step-number">5</div><div class="step-text">Activa <b>Ubicación precisa</b>. Luego vuelve y presiona <b>Usar mi ubicación actual</b>.</div></div>
+                            <div class="alert alert-warning small border-0 text-dark mt-3 mb-2"><i class="bi bi-info-circle-fill me-1"></i> Si la ubicación no cae exacta, mueve el mapa y presiona <b>Confirmar ubicación del pin</b>.</div>
                             <button class="btn btn-dark w-100 rounded-pill py-3 fw-bold shadow-sm" onclick="location.reload()"><i class="bi bi-arrow-clockwise me-1"></i> Reintentar / Recargar</button>
                         </div>
+
                         <div class="tab-pane fade" id="tab-android">
-                            <div class="guide-step"><div class="step-number">1</div><div class="step-text">Desliza la barra superior (donde activas el wifi) y activa el <b>GPS o Ubicación (varia dependiendo el modelo de dispositivo)</b> 📍.</div></div>
-                            <div class="guide-step"><div class="step-number">2</div><div class="step-text">Asegurate de no estar usando un <b>VPN o FireWall</b> 🔒 sino sabes lo que es, es muy probable que no lo tengas instalado.</div></div>
-                            <div class="guide-step"><div class="step-number">3</div><div class="step-text">Al regresar a esta pagina posiblemente veas una ventana que diga si deseas permitir la ubicacion para el sitio, debes dar click en <b>Aceptar</b> ✅</div></div>
-                            <div class="alert alert-warning small border-0 text-dark mt-3 mb-2"><i class="bi bi-info-circle-fill me-1"></i> Vuelve aquí y presiona el botón negro para aplicar los cambios.</div>
+                            <div class="guide-step"><div class="step-number">1</div><div class="step-text">Activa el <b>GPS o Ubicación</b> desde la barra superior del teléfono.</div></div>
+                            <div class="guide-step"><div class="step-number">2</div><div class="step-text">Cuando el navegador pregunte, toca <b>Permitir</b>.</div></div>
+                            <div class="guide-step"><div class="step-number">3</div><div class="step-text">Si el pin no cae exacto, puedes mover el mapa con el dedo hasta tu casa.</div></div>
+                            <div class="guide-step"><div class="step-number">4</div><div class="step-text">Presiona <b>Confirmar ubicación del pin</b> para guardar esa ubicación.</div></div>
+                            <div class="alert alert-warning small border-0 text-dark mt-3 mb-2"><i class="bi bi-info-circle-fill me-1"></i> Evita VPN o firewall si la ubicación sale muy lejos.</div>
                             <button class="btn btn-dark w-100 rounded-pill py-3 fw-bold shadow-sm mt-3" onclick="location.reload()"><i class="bi bi-arrow-clockwise me-1"></i> Reintentar / Recargar</button>
+                        </div>
+
+                        <div class="tab-pane fade" id="tab-pc">
+                            <div class="guide-step"><div class="step-number">1</div><div class="step-text">En PC la ubicación puede salir aproximada porque muchas computadoras no tienen GPS real.</div></div>
+                            <div class="guide-step"><div class="step-number">2</div><div class="step-text">Usa el buscador: escribe tu <b>colonia, residencial, negocio o punto cercano</b>.</div></div>
+                            <div class="guide-step"><div class="step-number">3</div><div class="step-text">Mueve el mapa hasta que el pin naranja quede exactamente en tu casa o punto de entrega.</div></div>
+                            <div class="guide-step"><div class="step-number">4</div><div class="step-text">Presiona <b>Confirmar ubicación del pin</b> y luego realiza el pedido.</div></div>
+                            <div class="alert alert-info small border-0 text-dark mt-3 mb-2"><i class="bi bi-laptop me-1"></i> Esto es normal en computadoras. Revisa siempre el pin antes de confirmar tu pedido.</div>
                         </div>
                     </div>
                 </div>
@@ -256,68 +778,775 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/intl-tel-input/17.0.8/js/intlTelInput.min.js"></script>
-    <script src="https://maps.googleapis.com/maps/api/js?key={{ GOOGLE_MAPS_API_KEY }}&libraries=places&callback=initMap" async defer></script>
+    <script>
+        window.foodbackGoogleMapsFailed = false;
+        window.gm_authFailure = function() {
+            window.foodbackGoogleMapsFailed = true;
+            const statusBox = document.getElementById('location-status');
+            const statusText = document.getElementById('location-status-text');
+            const loadingBox = document.getElementById('place-search-loading');
 
+            if (statusBox && statusText) {
+                statusBox.className = 'location-status error';
+                statusText.innerHTML = '<b>No pudimos abrir el mapa en este momento.</b> Intenta recargar la página o confirma tu ubicación con el restaurante.';
+            }
+
+            if (loadingBox) {
+                loadingBox.innerHTML = '<i class="bi bi-exclamation-triangle-fill text-danger"></i><span>No se pudo cargar el buscador de ubicación.</span>';
+            }
+
+            try {
+                if (typeof googleMapsReject === 'function') {
+                    googleMapsReject(new Error('Map auth failure'));
+                }
+                googleMapsLoadingPromise = null;
+            } catch (e) {}
+        };
+    </script>
     <script>
         let map;
         let precioBaseGlobal = parseFloat("{{ total_productos|default:0 }}");
         let iti;
-        const DEFAULT_SV = { lat: 13.6929, lng: -89.2182 };
-        let gpsSuccess = false; // Flag de seguridad
+
+        // ============================================================
+        // CONFIGURACIÓN DE SUCURSAL / RADIO DE ENTREGA
+        // ============================================================
+        // Puedes dejar estos valores aquí por cada restaurante desplegado,
+        // o más adelante pasarlos desde Django con variables de contexto.
+        // IMPORTANTE: ajusta lat/lng al punto real del restaurante.
+        const SUCURSAL = {
+            nombre: "{{ SUCURSAL_NOMBRE|default:'Sucursal Nueva Guadalupe'|escapejs }}",
+            // Coordenadas aproximadas del centro de Nueva Guadalupe.
+            // CAMBIAR por las coordenadas exactas del restaurante/sucursal.
+            lat: parseFloat("{{ SUCURSAL_LAT|default:'13.53168' }}"),
+            lng: parseFloat("{{ SUCURSAL_LNG|default:'-88.350521' }}"),
+            radioKm: parseFloat("{{ RADIO_ENTREGA_KM|default:'4.0' }}"),
+            whatsapp: "{{ WHATSAPP_RESTAURANTE|default:'50360704219'|escapejs }}"
+        };
+
+        const DEFAULT_SV = { lat: SUCURSAL.lat || 13.6929, lng: SUCURSAL.lng || -89.2182 };
+
+        // Antes estaba en 120m. Eso era demasiado estricto: una ubicación de 141m
+        // puede caer exactamente donde está el cliente, pero el navegador reporta
+        // un margen de confianza más amplio.
+        const PRECISION_CONFIABLE_METROS = 200;
+        const PRECISION_ACEPTABLE_METROS = 800;
+        const PRECISION_MUY_IMPRECISA_METROS = 1000;
+
+        let gpsSuccess = false;
+        let mapReady = false;
+        let googleMapsLoadingPromise = null;
+        let googleMapsReject = null;
+        let autocompleteConfigured = false;
+        let pinPuedeConfirmarse = false;
+        let ultimaPrecision = null;
+        let modoUbicacion = '';
+        let ultimaDistanciaKm = null;
+        let modalDistanciaAbierto = false;
+
+        function esComputadora() {
+            return !/Android|iPhone|iPad|iPod|Mobi|Mobile/i.test(navigator.userAgent || '');
+        }
+
+        window.foodbackGoogleMapsLoaded = function() {
+            initMap();
+        };
+
+        function mostrarEstadoCargandoMapa(mensaje='Abriendo mapa...') {
+            const loadingBox = document.getElementById('place-search-loading');
+            if (loadingBox) {
+                loadingBox.innerHTML = `<span class="spinner-border spinner-border-sm" role="status"></span><span>${mensaje}</span>`;
+            }
+
+            actualizarEstadoUbicacion(
+                'pending',
+                `<b>${mensaje}</b> Un momento, por favor.`
+            );
+        }
+
+        function marcarErrorGoogleMaps(mensaje) {
+            actualizarEstadoUbicacion('error', mensaje);
+            const loadingBox = document.getElementById('place-search-loading');
+            if (loadingBox) {
+                loadingBox.innerHTML = '<i class="bi bi-exclamation-triangle-fill text-danger"></i><span>No pudimos abrir el mapa.</span>';
+            }
+        }
+
+
+        function restaurarPromptBuscador() {
+            const loadingBox = document.getElementById('place-search-loading');
+            const buscadorGoogle = document.getElementById('location-search-google');
+
+            if (loadingBox && !buscadorGoogle) {
+                loadingBox.innerHTML = '<i class="bi bi-search" style="color: var(--color-accent);"></i><span>Buscar otra dirección o punto cercano</span>';
+            }
+        }
+
+        function cargarGoogleMapsSiNecesario() {
+            if (mapReady && window.google && google.maps) {
+                return Promise.resolve(true);
+            }
+
+            if (googleMapsLoadingPromise) {
+                return googleMapsLoadingPromise;
+            }
+
+            mostrarEstadoCargandoMapa('Abriendo mapa');
+
+            googleMapsLoadingPromise = new Promise((resolve, reject) => {
+                googleMapsReject = reject;
+                window.foodbackGoogleMapsLoaded = function() {
+                    try {
+                        initMap();
+                        googleMapsReject = null;
+                        resolve(true);
+                    } catch (error) {
+                        console.error('Error iniciando mapa:', error);
+                        marcarErrorGoogleMaps('<b>No pudimos abrir el mapa.</b> Intenta recargar la página o prueba nuevamente.');
+                        reject(error);
+                    }
+                };
+
+                const existingScript = document.getElementById('google-maps-js');
+                if (existingScript) return;
+
+                const script = document.createElement('script');
+                script.id = 'google-maps-js';
+                script.src = "https://maps.googleapis.com/maps/api/js?key={{ GOOGLE_MAPS_API_KEY }}&v=beta&loading=async&callback=foodbackGoogleMapsLoaded";
+                script.async = true;
+                script.defer = true;
+                script.onerror = function(error) {
+                    console.error('No se pudo cargar el mapa:', error);
+                    marcarErrorGoogleMaps('<b>No pudimos abrir el mapa.</b> Revisa tu conexión e intenta nuevamente.');
+                    reject(error);
+                };
+                document.head.appendChild(script);
+            });
+
+            return googleMapsLoadingPromise;
+        }
+
+        async function iniciarBuscadorUbicacion() {
+            try {
+                await cargarGoogleMapsSiNecesario();
+                await configurarAutocomplete();
+                enfocarBuscadorGoogle();
+            } catch (error) {
+                console.error('Error abriendo buscador:', error);
+            }
+        }
+
+        function enfocarBuscadorGoogle() {
+            const autocompleteEl = document.getElementById('location-search-google');
+            if (!autocompleteEl) return;
+
+            try { autocompleteEl.focus(); } catch (e) {}
+            try {
+                const shadowInput = autocompleteEl.shadowRoot ? autocompleteEl.shadowRoot.querySelector('input') : null;
+                if (shadowInput) shadowInput.focus();
+            } catch (e) {}
+        }
 
         function initMap() {
             const mapElement = document.getElementById("map");
             if (!mapElement) return;
-            
-            // Mapa iniciado pero el botón SIGUE bloqueado
-            map = new google.maps.Map(mapElement, { zoom: 15, center: DEFAULT_SV, disableDefaultUI: true, zoomControl: true, gestureHandling: 'greedy' });
-            document.getElementById('uber-pin').style.display = 'block';
-            
-            // Actualiza inputs hidden pero NO habilita botón
-            map.addListener("idle", () => { 
-                updatePosition(map.getCenter()); 
+            if (mapReady && map) return;
+
+            map = new google.maps.Map(mapElement, {
+                zoom: 15,
+                center: DEFAULT_SV,
+                disableDefaultUI: true,
+                zoomControl: true,
+                gestureHandling: 'greedy',
+                mapTypeControl: false,
+                streetViewControl: false,
+                fullscreenControl: false
             });
-            
-            detectarUbicacionInteligente(false);
+
+            mapReady = true;
+            document.getElementById('uber-pin').style.display = 'block';
+            updatePosition(map.getCenter());
+            restaurarPromptBuscador();
+            actualizarEstadoUbicacion(
+                'pending',
+                `<b>Confirma tu punto de entrega.</b> Revisa que el pin naranja esté en el lugar correcto antes de hacer tu pedido.`
+            );
+
+            map.addListener("idle", () => {
+                updatePosition(map.getCenter());
+            });
+
+            map.addListener("dragstart", () => {
+                marcarPinComoAjustado('Moviste el mapa. Ahora confirma que el pin naranja está en el punto correcto.');
+            });
+
+            map.addListener("zoom_changed", () => {
+                if (!gpsSuccess && mapReady) {
+                    habilitarConfirmacionManual();
+                }
+            });
+
+            // No pedimos ubicación automáticamente al entrar a checkout.
+            // Esto evita prompts innecesarios y también evita cargar el mapa
+            // hasta que el cliente realmente lo necesita.
+        }
+
+        function obtenerLatLng(latLng) {
+            if (!latLng) return null;
+
+            const lat = typeof latLng.lat === 'function' ? latLng.lat() : latLng.lat;
+            const lng = typeof latLng.lng === 'function' ? latLng.lng() : latLng.lng;
+
+            if (typeof lat !== 'number' || typeof lng !== 'number') return null;
+            if (Number.isNaN(lat) || Number.isNaN(lng)) return null;
+
+            return { lat, lng };
         }
 
         function updatePosition(latLng) {
-            document.getElementById("lat").value = latLng.lat();
-            document.getElementById("lng").value = latLng.lng();
+            const punto = obtenerLatLng(latLng);
+            if (!punto) return;
+
+            document.getElementById("lat").value = punto.lat;
+            document.getElementById("lng").value = punto.lng;
+
+            const distancia = calcularDistanciaRestauranteKm(punto);
+            ultimaDistanciaKm = distancia;
+
+            const distanciaInput = document.getElementById('distancia_restaurante_km');
+            if (distanciaInput) distanciaInput.value = distancia.toFixed(2);
         }
 
-        function desbloquearBoton() {
+        function calcularDistanciaRestauranteKm(punto) {
+            const R = 6371;
+            const lat1 = gradosARadianes(SUCURSAL.lat);
+            const lat2 = gradosARadianes(punto.lat);
+            const deltaLat = gradosARadianes(punto.lat - SUCURSAL.lat);
+            const deltaLng = gradosARadianes(punto.lng - SUCURSAL.lng);
+
+            const a =
+                Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+                Math.cos(lat1) * Math.cos(lat2) *
+                Math.sin(deltaLng / 2) * Math.sin(deltaLng / 2);
+
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            return R * c;
+        }
+
+        function gradosARadianes(grados) {
+            return grados * (Math.PI / 180);
+        }
+
+        function formatearDistancia(km) {
+            if (km < 1) return `${Math.round(km * 1000)} m`;
+            return `${km.toFixed(1)} km`;
+        }
+
+        function actualizarEstadoUbicacion(tipo, html) {
+            const box = document.getElementById('location-status');
+            const text = document.getElementById('location-status-text');
+            if (!box || !text) return;
+
+            box.className = 'location-status ' + tipo;
+            text.innerHTML = html;
+        }
+
+        function actualizarHint(texto, ok=false) {
+            const hint = document.getElementById('location-hint');
+            if (!hint) return;
+
+            hint.innerHTML = texto;
+            if (ok) {
+                hint.classList.add('ok');
+            } else {
+                hint.classList.remove('ok');
+            }
+        }
+
+        function habilitarConfirmacionManual() {
+            pinPuedeConfirmarse = true;
+            const btnConfirmPin = document.getElementById('btn-confirm-pin');
+            if (btnConfirmPin) {
+                btnConfirmPin.disabled = false;
+            }
+        }
+
+        function bloquearBotonPedido() {
+            gpsSuccess = false;
+            const btnFinalizar = document.getElementById('btn-finalizar');
+            if (btnFinalizar) btnFinalizar.disabled = true;
+        }
+
+        function validarRadioEntrega(punto, mostrarModal=false) {
+            if (!punto) return false;
+
+            const distanciaKm = calcularDistanciaRestauranteKm(punto);
+            ultimaDistanciaKm = distanciaKm;
+
+            const distanciaInput = document.getElementById('distancia_restaurante_km');
+            if (distanciaInput) distanciaInput.value = distanciaKm.toFixed(2);
+
+            if (distanciaKm <= SUCURSAL.radioKm) {
+                return true;
+            }
+
+            bloquearBotonPedido();
+            habilitarConfirmacionManual();
+
+            actualizarEstadoUbicacion(
+                'error',
+                `<b>Ubicación fuera de cobertura.</b><br>El punto seleccionado está fuera de la zona de entrega disponible. Puedes cambiar la ubicación o contactar al restaurante.`
+            );
+
+            actualizarHint('<i class="bi bi-exclamation-triangle-fill"></i> Zona fuera de cobertura. Contacta al restaurante.', false);
+
+            if (mostrarModal) {
+                mostrarModalFueraDeCobertura(distanciaKm);
+            }
+
+            return false;
+        }
+
+        function construirMensajeWhatsAppDistancia(distanciaKm) {
+            const nombre = document.getElementById('nombre')?.value.trim() || '';
+            const apellido = document.getElementById('apellido')?.value.trim() || '';
+            const direccion = document.getElementById('direccion')?.value.trim() || 'Sin referencia escrita todavía';
+            const lat = document.getElementById('lat')?.value || '';
+            const lng = document.getElementById('lng')?.value || '';
+            const total = document.getElementById('total-display')?.innerText || '';
+            const mapsUrl = lat && lng ? `https://www.google.com/maps/search/?api=1&query=${lat},${lng}` : '';
+
+            return `Hola, quiero consultar si pueden tomar un pedido fuera del radio normal de entrega.\n\n` +
+                `Sucursal: ${SUCURSAL.nombre}\n` +
+                `Cliente: ${nombre} ${apellido}\n` +
+                `` +
+                `Total aproximado: ${total}\n` +
+                `Referencia: ${direccion}\n` +
+                (mapsUrl ? `Ubicación: ${mapsUrl}\n\n` : '\n') +
+                `¿Me confirman si pueden realizar la entrega o cuánto sería el recargo?`;
+        }
+
+        function obtenerUrlWhatsAppDistancia(distanciaKm) {
+            const telefono = (SUCURSAL.whatsapp || '').replace(/\D/g, '');
+            const mensaje = construirMensajeWhatsAppDistancia(distanciaKm);
+            return `https://wa.me/${telefono}?text=${encodeURIComponent(mensaje)}`;
+        }
+
+        function mostrarModalFueraDeCobertura(distanciaKm) {
+            if (modalDistanciaAbierto) return;
+            modalDistanciaAbierto = true;
+
+            Swal.fire({
+                title: 'Zona fuera de cobertura',
+                html: `La ubicación seleccionada está fuera de la zona de entrega disponible.<br><br>Para pedidos a zonas más lejanas, contacta al restaurante y confirma si pueden atenderte.`,
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonText: '<i class="bi bi-whatsapp"></i> Contactar por WhatsApp',
+                cancelButtonText: 'Cambiar ubicación',
+                confirmButtonColor: '#25D366',
+                cancelButtonColor: '#333333',
+                customClass: {
+                    popup: 'swal-premium-popup',
+                    confirmButton: 'swal-premium-confirm',
+                    cancelButton: 'swal-premium-cancel'
+                }
+            }).then((result) => {
+                modalDistanciaAbierto = false;
+
+                if (result.isConfirmed) {
+                    window.open(obtenerUrlWhatsAppDistancia(distanciaKm), '_blank');
+                }
+            });
+        }
+
+        function desbloquearBoton(modo, precision=null) {
+            limpiarValidacionUbicacion();
+            const puntoActual = obtenerLatLng(map.getCenter());
+            updatePosition(puntoActual);
+
+            if (!validarRadioEntrega(puntoActual, true)) {
+                return false;
+            }
+
             gpsSuccess = true;
+            modoUbicacion = modo;
+            ultimaPrecision = precision;
+
+            document.getElementById('ubicacion_modo').value = modo;
+            document.getElementById('ubicacion_precision').value = precision !== null ? precision : '';
             document.getElementById('btn-finalizar').disabled = false;
-            document.getElementById('location-hint').style.display = 'none'; // Se va el mensaje de alerta
+
+            actualizarHint('<i class="bi bi-check-circle-fill"></i> Ubicación confirmada. Ya puedes realizar el pedido.', true);
+            return true;
         }
 
-        function detectarUbicacionInteligente(manual) {
-            if (!navigator.geolocation) return;
-            if(manual) Swal.fire({ title: 'Buscando satélites...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
-            
+        function marcarPinComoAjustado(mensaje) {
+            if (!mapReady) return;
+
+            bloquearBotonPedido();
+            habilitarConfirmacionManual();
+            updatePosition(map.getCenter());
+
+            actualizarEstadoUbicacion(
+                'warning',
+                '<b>Pin pendiente de confirmación.</b> ' + mensaje
+            );
+
+            actualizarHint('<i class="bi bi-pin-map-fill"></i> Presiona “Confirmar ubicación del pin”.');
+        }
+
+
+        function limpiarBuscadorUbicacion() {
+            const autocompleteEl = document.getElementById('location-search-google');
+            const container = document.getElementById('place-autocomplete-container');
+
+            if (autocompleteEl) {
+                try { autocompleteEl.value = ''; } catch (e) {}
+                try { autocompleteEl.setAttribute('value', ''); } catch (e) {}
+
+                // En algunos navegadores el input interno puede estar dentro del Shadow DOM.
+                // Si está disponible, también lo limpiamos para evitar que quede texto visualmente.
+                try {
+                    const shadowInput = autocompleteEl.shadowRoot ? autocompleteEl.shadowRoot.querySelector('input') : null;
+                    if (shadowInput) {
+                        shadowInput.value = '';
+                        shadowInput.dispatchEvent(new Event('input', { bubbles: true }));
+                        shadowInput.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                } catch (e) {}
+            }
+
+            // Respaldo por si Google cambia la estructura interna del componente.
+            if (container) {
+                container.querySelectorAll('input').forEach(input => {
+                    input.value = '';
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                    input.dispatchEvent(new Event('change', { bubbles: true }));
+                });
+            }
+        }
+
+        async function configurarAutocomplete() {
+            if (autocompleteConfigured || document.getElementById('location-search-google')) {
+                autocompleteConfigured = true;
+                return;
+            }
+
+            const container = document.getElementById('place-autocomplete-container');
+            const loadingBox = document.getElementById('place-search-loading');
+
+            if (!container || !window.google || !google.maps || !google.maps.importLibrary) {
+                if (loadingBox) {
+                    loadingBox.innerHTML = '<i class="bi bi-exclamation-triangle-fill text-danger"></i><span>No se pudo iniciar el buscador.</span>';
+                }
+                return;
+            }
+
+            try {
+                const { PlaceAutocompleteElement } = await google.maps.importLibrary('places');
+
+                if (loadingBox) loadingBox.remove();
+                container.removeAttribute('onclick');
+                container.removeAttribute('onkeydown');
+                container.removeAttribute('role');
+                container.removeAttribute('tabindex');
+
+                const placeAutocomplete = new PlaceAutocompleteElement({
+                    includedRegionCodes: ['sv']
+                });
+
+                placeAutocomplete.id = 'location-search-google';
+                placeAutocomplete.setAttribute('aria-label', 'Buscar ubicación de entrega');
+                placeAutocomplete.setAttribute('placeholder', 'Buscar colonia, residencial, negocio o punto cercano');
+
+                // Sesga las sugerencias hacia la sucursal. No bloquea por sí solo,
+                // el bloqueo real lo hace validarRadioEntrega().
+                try {
+                    placeAutocomplete.locationBias = {
+                        center: { lat: SUCURSAL.lat, lng: SUCURSAL.lng },
+                        radius: Math.max(SUCURSAL.radioKm * 1000, 3000)
+                    };
+                    placeAutocomplete.requestedRegion = 'sv';
+                } catch (e) {
+                    console.warn('No se pudo aplicar locationBias al autocomplete:', e);
+                }
+
+                container.appendChild(placeAutocomplete);
+                autocompleteConfigured = true;
+
+                async function manejarSeleccion(event) {
+                    try {
+                        let place = null;
+
+                        if (event.placePrediction && typeof event.placePrediction.toPlace === 'function') {
+                            place = event.placePrediction.toPlace();
+                        } else if (event.place) {
+                            place = event.place;
+                        }
+
+                        if (!place) {
+                            throw new Error('No se recibió el lugar seleccionado.');
+                        }
+
+                        if (typeof place.fetchFields === 'function') {
+                            await place.fetchFields({
+                                fields: ['displayName', 'formattedAddress', 'location']
+                            });
+                        }
+
+                        if (!place.location) {
+                            Swal.fire({
+                                title: 'No encontré esa ubicación',
+                                text: 'Prueba escribiendo una colonia, residencial, negocio o punto de referencia cercano.',
+                                icon: 'warning',
+                                confirmButtonColor: '#D35400'
+                            });
+                            return;
+                        }
+
+                        map.setCenter(place.location);
+                        map.setZoom(17);
+                        updatePosition(place.location);
+                        habilitarConfirmacionManual();
+                        bloquearBotonPedido();
+
+                        const punto = obtenerLatLng(place.location);
+                        const dentroCobertura = validarRadioEntrega(punto, true);
+
+                        const nombreLugar = place.displayName || 'Ubicación encontrada';
+                        const direccionLugar = place.formattedAddress || '';
+
+                        if (dentroCobertura) {
+                            actualizarEstadoUbicacion(
+                                'warning',
+                                `<b>${nombreLugar}</b>${direccionLugar ? '<br>' + direccionLugar : ''}<br>Ajusta el mapa si hace falta y presiona <b>Confirmar ubicación del pin</b>.`
+                            );
+
+                            actualizarHint('<i class="bi bi-pin-map-fill"></i> Confirma el pin para continuar.');
+                        }
+                    } catch (error) {
+                        console.error('Error seleccionando ubicación:', error);
+                        Swal.fire({
+                            title: 'No pude usar esa ubicación',
+                            text: 'Intenta buscar otra referencia o mueve el mapa manualmente.',
+                            icon: 'warning',
+                            confirmButtonColor: '#D35400'
+                        });
+                    }
+                }
+
+                placeAutocomplete.addEventListener('gmp-select', manejarSeleccion);
+                placeAutocomplete.addEventListener('gmp-placeselect', manejarSeleccion);
+                placeAutocomplete.addEventListener('gmp-error', () => {
+                    actualizarEstadoUbicacion(
+                        'error',
+                        '<b>No pudimos mostrar sugerencias en este momento.</b> Puedes mover el mapa manualmente y confirmar el pin.'
+                    );
+                });
+            } catch (error) {
+                console.error('Error cargando PlaceAutocompleteElement:', error);
+
+                if (loadingBox) {
+                    loadingBox.innerHTML = '<i class="bi bi-exclamation-triangle-fill text-danger"></i><span>No se pudo cargar el buscador de ubicación.</span>';
+                }
+
+                actualizarEstadoUbicacion(
+                    'error',
+                    '<b>No pudimos abrir el buscador en este momento.</b> Puedes mover el mapa manualmente y confirmar el pin.'
+                );
+            }
+        }
+
+        async function confirmarPinManual() {
+            if (!mapReady) {
+                try {
+                    await cargarGoogleMapsSiNecesario();
+                    habilitarConfirmacionManual();
+                } catch (error) {
+                    Swal.fire({
+                        title: 'No se pudo abrir el mapa',
+                        text: 'Revisa tu conexión e intenta nuevamente.',
+                        icon: 'error',
+                        confirmButtonColor: '#D35400'
+                    });
+                    return;
+                }
+            }
+
+            if (!pinPuedeConfirmarse) {
+                Swal.fire({
+                    title: 'Ajusta el pin primero',
+                    text: 'Busca tu zona o mueve el mapa hasta que el pin naranja quede en el punto de entrega.',
+                    icon: 'warning',
+                    confirmButtonColor: '#D35400'
+                });
+                return;
+            }
+
+            const centro = map.getCenter();
+            updatePosition(centro);
+
+            const punto = obtenerLatLng(centro);
+            if (!validarRadioEntrega(punto, true)) {
+                return;
+            }
+
+            desbloquearBoton('PIN_MANUAL', ultimaPrecision);
+
+            actualizarEstadoUbicacion(
+                'ok',
+                `<b>Ubicación confirmada.</b> El repartidor recibirá el punto marcado con el pin naranja.`
+            );
+
+            Swal.fire({
+                toast: true,
+                position: 'top-end',
+                icon: 'success',
+                title: 'Ubicación confirmada',
+                showConfirmButton: false,
+                timer: 1800
+            });
+        }
+
+        async function detectarUbicacionInteligente(manual) {
+            if (manual) {
+                limpiarBuscadorUbicacion();
+            }
+
+            try {
+                await cargarGoogleMapsSiNecesario();
+            } catch (error) {
+                if (manual) {
+                    Swal.fire({
+                        title: 'No se pudo abrir el mapa',
+                        text: 'Revisa tu conexión e intenta nuevamente.',
+                        icon: 'error',
+                        confirmButtonColor: '#D35400'
+                    });
+                }
+                return;
+            }
+
+            if (!navigator.geolocation) {
+                actualizarEstadoUbicacion(
+                    'warning',
+                    '<b>Este navegador no permite ubicación automática.</b> Busca tu zona, mueve el mapa y confirma el pin.'
+                );
+                habilitarConfirmacionManual();
+                return;
+            }
+
+            if (manual) {
+                Swal.fire({
+                    title: 'Buscando ubicación...',
+                    text: 'Esto puede tardar unos segundos.',
+                    didOpen: () => Swal.showLoading(),
+                    allowOutsideClick: false
+                });
+            }
+
             navigator.geolocation.getCurrentPosition(
-                (pos) => { 
-                    const p = { lat: pos.coords.latitude, lng: pos.coords.longitude }; 
-                    if(manual) Swal.close(); 
-                    map.setCenter(p); 
+                (pos) => {
+                    const p = {
+                        lat: pos.coords.latitude,
+                        lng: pos.coords.longitude
+                    };
+
+                    const precision = Math.round(pos.coords.accuracy || 99999);
+                    ultimaPrecision = precision;
+
+                    if (manual) Swal.close();
+
+                    map.setCenter(p);
                     map.setZoom(17);
-                    
-                    // AQUI ES EL ÚNICO LUGAR DONDE SE DESBLOQUEA
-                    desbloquearBoton();
+                    updatePosition(map.getCenter());
+
+                    const dentroCobertura = validarRadioEntrega(p, manual);
+                    if (!dentroCobertura) {
+                        return;
+                    }
+
+                    if (precision <= PRECISION_CONFIABLE_METROS) {
+                        habilitarConfirmacionManual();
+
+                        if (esComputadora()) {
+                            bloquearBotonPedido();
+                            actualizarEstadoUbicacion(
+                                'warning',
+                                `<b>Ubicación detectada.</b><br>En computadora puede no ser exacta. Revisa el pin naranja y presiona <b>Confirmar ubicación del pin</b> antes de hacer tu pedido.`
+                            );
+                            actualizarHint('<i class="bi bi-pin-map-fill"></i> Confirma el pin para continuar.');
+                        } else {
+                            desbloquearBoton('GPS_PRECISO', precision);
+                            actualizarEstadoUbicacion(
+                                'ok',
+                                `<b>Ubicación detectada.</b> Revisa que el pin naranja esté en el punto correcto de entrega antes de hacer tu pedido.`
+                            );
+                        }
+                    } else if (precision <= PRECISION_ACEPTABLE_METROS) {
+                        bloquearBotonPedido();
+                        habilitarConfirmacionManual();
+
+                        actualizarEstadoUbicacion(
+                            'warning',
+                            `<b>Ubicación detectada.</b><br>Revisa el pin naranja y presiona <b>Confirmar ubicación del pin</b> antes de hacer tu pedido.`
+                        );
+
+                        actualizarHint('<i class="bi bi-pin-map-fill"></i> Confirma el pin para continuar.');
+                    } else {
+                        bloquearBotonPedido();
+                        habilitarConfirmacionManual();
+
+                        let mensajeExtra = 'Tu ubicación fue detectada.';
+                        if (precision >= PRECISION_MUY_IMPRECISA_METROS) {
+                            mensajeExtra = 'Si estás en computadora, esta ubicación puede no ser exacta.';
+                        }
+
+                        actualizarEstadoUbicacion(
+                            'warning',
+                            `<b>Verifica tu ubicación.</b> ${mensajeExtra}<br>Revisa el pin naranja, muévelo si hace falta y presiona <b>Confirmar ubicación del pin</b>.`
+                        );
+
+                        actualizarHint('<i class="bi bi-exclamation-triangle-fill"></i> Ajusta y confirma el pin antes de pedir.');
+
+                        if (manual) {
+                            Swal.fire({
+                                title: 'Verifica tu ubicación',
+                                html: `Si estás en computadora, tu ubicación puede no ser la correcta.<br><br>Revisa que el pin naranja esté en el punto de entrega. Si no está exacto, muévelo o busca tu zona y luego confirma el pin.`,
+                                icon: 'warning',
+                                confirmButtonText: 'Entendido',
+                                confirmButtonColor: '#D35400'
+                            });
+                        }
+                    }
                 },
                 (error) => {
-                    if(manual) {
-                        Swal.close();
+                    if (manual) Swal.close();
+
+                    bloquearBotonPedido();
+                    habilitarConfirmacionManual();
+
+                    actualizarEstadoUbicacion(
+                        'warning',
+                        '<b>No se pudo obtener ubicación automática.</b> Puedes buscar tu zona, mover el mapa y confirmar el pin manualmente.'
+                    );
+
+                    actualizarHint('<i class="bi bi-pin-map-fill"></i> Busca o mueve el mapa y confirma el pin.');
+
+                    if (manual) {
                         Swal.fire({
-                            title: 'GPS Desactivado',
-                            text: 'El navegador no tiene permiso. Mira la guía de ayuda.',
+                            title: 'Ubicación no disponible',
+                            text: 'Puedes usar el buscador o mover el mapa manualmente. Luego presiona “Confirmar ubicación del pin”.',
                             icon: 'warning',
                             showCancelButton: true,
-                            confirmButtonText: 'Ver pasos',
+                            confirmButtonText: 'Ver ayuda',
                             cancelButtonText: 'Cerrar',
                             confirmButtonColor: '#D35400',
-                            customClass: { popup: 'swal-premium-popup', confirmButton: 'swal-premium-confirm', cancelButton: 'swal-premium-cancel' }
+                            customClass: {
+                                popup: 'swal-premium-popup',
+                                confirmButton: 'swal-premium-confirm',
+                                cancelButton: 'swal-premium-cancel'
+                            }
                         }).then((result) => {
                             if (result.isConfirmed) {
                                 var myModal = new bootstrap.Modal(document.getElementById('helpGPSModal'));
@@ -326,22 +1555,120 @@
                         });
                     }
                 },
-                { enableHighAccuracy: true, timeout: 10000 }
+                {
+                    enableHighAccuracy: true,
+                    timeout: 15000,
+                    maximumAge: 0
+                }
             );
         }
 
+
+        function limpiarValidacionCampo(id) {
+            const campo = document.getElementById(id);
+            const error = document.getElementById('error-' + id);
+
+            if (campo) {
+                campo.classList.remove('invalid-field');
+            }
+
+            if (error) {
+                error.classList.remove('active');
+            }
+        }
+
+        function marcarCampoInvalido(id, mensaje=null) {
+            const campo = document.getElementById(id);
+            const error = document.getElementById('error-' + id);
+
+            if (campo) {
+                campo.classList.add('invalid-field');
+            }
+
+            if (error) {
+                if (mensaje) error.innerHTML = mensaje;
+                error.classList.add('active');
+            }
+        }
+
+        function limpiarValidacionUbicacion() {
+            const mapContainer = document.getElementById('map-container');
+            const statusBox = document.getElementById('location-status');
+
+            if (mapContainer) mapContainer.classList.remove('location-invalid');
+            if (statusBox) statusBox.classList.remove('location-invalid');
+        }
+
+        function marcarUbicacionInvalida(mensaje) {
+            const mapContainer = document.getElementById('map-container');
+            const statusBox = document.getElementById('location-status');
+            const statusText = document.getElementById('location-status-text');
+
+            if (mapContainer) mapContainer.classList.add('location-invalid');
+            if (statusBox) statusBox.classList.add('location-invalid');
+            if (statusText && mensaje) statusText.innerHTML = mensaje;
+        }
+
+        function limpiarTodasLasValidaciones() {
+            ['nombre', 'apellido', 'direccion', 'telefono'].forEach(id => limpiarValidacionCampo(id));
+            limpiarValidacionUbicacion();
+        }
+
+        function enfocarPrimerCampo(ids) {
+            for (const id of ids) {
+                const campo = document.getElementById(id);
+                if (campo) {
+                    campo.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    setTimeout(() => campo.focus(), 350);
+                    return;
+                }
+            }
+        }
+
+        function instalarLimpiezaVisualDeCampos() {
+            const nombre = document.getElementById('nombre');
+            const apellido = document.getElementById('apellido');
+            const direccion = document.getElementById('direccion');
+            const telefono = document.getElementById('phone_visual');
+
+            if (nombre) nombre.addEventListener('input', () => limpiarValidacionCampo('nombre'));
+            if (apellido) apellido.addEventListener('input', () => limpiarValidacionCampo('apellido'));
+            if (direccion) direccion.addEventListener('input', () => limpiarValidacionCampo('direccion'));
+            if (telefono) telefono.addEventListener('input', () => limpiarValidacionCampo('telefono'));
+        }
+
         function borrarItemSinRecargar(key) {
-            Swal.fire({ title: '¿Eliminar producto?', icon: 'warning', showCancelButton: true, confirmButtonText: 'Sí, eliminar', cancelButtonText: 'Cancelar', customClass: { popup: 'swal-premium-popup', title: 'swal-premium-title', confirmButton: 'swal-premium-confirm', cancelButton: 'swal-premium-cancel', actions: 'swal2-actions' }, buttonsStyling: false })
-            .then((result) => {
+            Swal.fire({
+                title: '¿Eliminar producto?',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonText: 'Sí, eliminar',
+                cancelButtonText: 'Cancelar',
+                customClass: {
+                    popup: 'swal-premium-popup',
+                    title: 'swal-premium-title',
+                    confirmButton: 'swal-premium-confirm',
+                    cancelButton: 'swal-premium-cancel',
+                    actions: 'swal2-actions'
+                },
+                buttonsStyling: false
+            }).then((result) => {
                 if (result.isConfirmed) {
-                    fetch(`/eliminar-item/${key}/`, { method: 'GET', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+                    fetch(`/eliminar-item/${key}/`, {
+                        method: 'GET',
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                    })
                     .then(response => response.json())
                     .then(data => {
                         if(data.status === 'ok') {
-                            if(data.vacio) { 
+                            if(data.vacio) {
                                 document.getElementById('checkout-form-container').style.display = 'none';
                                 document.getElementById('resumen-carrito').innerHTML = '<div class="text-center py-4"><i class="bi bi-cart-x fs-1 text-muted opacity-50"></i><p class="mt-2 text-muted">Tu carrito está vacío.</p><a href="/" class="btn btn-sm btn-outline-dark rounded-pill px-3">Ir al Menú</a></div>';
-                            } else { document.getElementById('resumen-carrito').innerHTML = data.html; precioBaseGlobal = data.total; actualizarTotal(); }
+                            } else {
+                                document.getElementById('resumen-carrito').innerHTML = data.html;
+                                precioBaseGlobal = data.total;
+                                actualizarTotal();
+                            }
                         }
                     });
                 }
@@ -351,64 +1678,127 @@
         function actualizarTotal() {
             const radios = document.getElementsByName('metodo_pago');
             let metodo = 'EFECTIVO';
-            for(let i = 0; i < radios.length; i++) { if(radios[i].checked) metodo = radios[i].value; }
-            
+
+            for(let i = 0; i < radios.length; i++) {
+                if(radios[i].checked) metodo = radios[i].value;
+            }
+
             const display = document.getElementById('total-display');
             const aviso = document.getElementById('aviso-comision');
             let totalFinal = precioBaseGlobal;
-            
-            if (metodo === 'TARJETA') { 
-                totalFinal = precioBaseGlobal * 1.05; 
-                aviso.classList.remove('d-none'); 
-            } else { 
-                aviso.classList.add('d-none'); 
+
+            if (metodo === 'TARJETA') {
+                totalFinal = precioBaseGlobal * 1.05;
+                aviso.classList.remove('d-none');
+            } else {
+                aviso.classList.add('d-none');
             }
+
             display.innerText = '$' + totalFinal.toFixed(2);
         }
 
         const phoneVisual = document.querySelector("#phone_visual");
-        if(phoneVisual) { iti = window.intlTelInput(phoneVisual, { utilsScript: "https://cdnjs.cloudflare.com/ajax/libs/intl-tel-input/17.0.8/js/utils.js", preferredCountries: ["sv"], separateDialCode: true, initialCountry: "sv" }); }
-        
+
+        if(phoneVisual) {
+            iti = window.intlTelInput(phoneVisual, {
+                utilsScript: "https://cdnjs.cloudflare.com/ajax/libs/intl-tel-input/17.0.8/js/utils.js",
+                preferredCountries: ["sv"],
+                separateDialCode: true,
+                initialCountry: "sv"
+            });
+        }
+
+        instalarLimpiezaVisualDeCampos();
+
         document.getElementById('pedidoForm').addEventListener('submit', function(e) {
             e.preventDefault();
-            
+
+            limpiarTodasLasValidaciones();
+
             const nombre = document.getElementById('nombre').value.trim();
             const apellido = document.getElementById('apellido').value.trim();
             const direccion = document.getElementById('direccion').value.trim();
+            const telefonoVisual = document.getElementById('phone_visual');
+            const telefonoTexto = telefonoVisual ? telefonoVisual.value.trim() : '';
             const lat = document.getElementById('lat').value;
+            const lng = document.getElementById('lng').value;
 
-            // Filtro de campos vacíos
-            if (!nombre || !apellido || !direccion) {
-                Swal.fire({ title: 'Faltan datos', text: 'Por favor completa todos los campos de texto.', icon: 'warning', confirmButtonColor: '#D35400' });
+            const camposFaltantes = [];
+
+            if (!nombre) {
+                marcarCampoInvalido('nombre', 'Ingresa tu nombre.');
+                camposFaltantes.push('nombre');
+            }
+
+            if (!apellido) {
+                marcarCampoInvalido('apellido', 'Ingresa tu apellido.');
+                camposFaltantes.push('apellido');
+            }
+
+            if (!telefonoTexto) {
+                marcarCampoInvalido('telefono', 'Ingresa tu número de WhatsApp.');
+                camposFaltantes.push('phone_visual');
+            }
+
+            if (!direccion) {
+                marcarCampoInvalido('direccion', 'Agrega una referencia para encontrar tu dirección.');
+                camposFaltantes.push('direccion');
+            }
+
+            if (camposFaltantes.length > 0) {
+                Swal.fire({
+                    title: 'Faltan datos',
+                    text: 'Revisa los campos marcados en rojo antes de continuar.',
+                    icon: 'warning',
+                    confirmButtonColor: '#D35400'
+                });
+                enfocarPrimerCampo(camposFaltantes);
                 return;
             }
 
-            // SEGURIDAD: Si no usó el botón de GPS (gpsSuccess es false), no pasa.
-            if (!gpsSuccess) { 
-                Swal.fire({ 
-                    title: 'Ubicación Requerida',
-                    text: 'Por seguridad, debes presionar el botón "Usar mi ubicación actual" para confirmar dónde estás.', 
-                    icon: 'warning', 
-                    confirmButtonColor: '#D35400' 
-                }); 
-                return; 
+            if (!gpsSuccess || !lat || !lng) {
+                marcarUbicacionInvalida('<b>Ubicación requerida.</b> Usa tu ubicación actual o confirma manualmente el pin del mapa.');
+                Swal.fire({
+                    title: 'Ubicación requerida',
+                    text: 'Debes usar tu ubicación actual o confirmar manualmente el pin del mapa.',
+                    icon: 'warning',
+                    confirmButtonColor: '#D35400'
+                });
+                document.getElementById('map-container').scrollIntoView({ behavior: 'smooth', block: 'center' });
+                return;
+            }
+
+            const punto = { lat: parseFloat(lat), lng: parseFloat(lng) };
+            if (!validarRadioEntrega(punto, true)) {
+                return;
             }
 
             if (iti && !iti.isValidNumber()) {
                 document.getElementById("phone-feedback").classList.remove("d-none");
-                Swal.fire({ title: 'Teléfono inválido', text: 'Revisa el número de WhatsApp.', icon: 'error', confirmButtonColor: '#D35400' });
+                marcarCampoInvalido('telefono', 'Ingresa un número de WhatsApp válido.');
+                Swal.fire({
+                    title: 'Teléfono inválido',
+                    text: 'Revisa el número de WhatsApp.',
+                    icon: 'error',
+                    confirmButtonColor: '#D35400'
+                });
+                enfocarPrimerCampo(['phone_visual']);
                 return;
             } else {
                 document.getElementById("phone-feedback").classList.add("d-none");
+                limpiarValidacionCampo('telefono');
             }
 
             document.getElementById('telefono_real').value = iti.getNumber();
-            
+            if (mapReady && map) {
+                updatePosition(map.getCenter());
+            }
+
             const btn = document.getElementById('btn-finalizar');
             btn.disabled = true;
             btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Procesando...';
             document.getElementById('loadingOverlay').classList.remove('d-none');
-            
+
             this.submit();
         });
     </script>

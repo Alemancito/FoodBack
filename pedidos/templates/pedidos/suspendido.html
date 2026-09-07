@@ -4,57 +4,206 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mantenimiento | FoodBack</title>
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;700&display=swap" rel="stylesheet">
+    <title>Volvemos pronto</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700;800&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
     <style>
+        :root {
+            --accent: #D35400;
+            --dark: #111827;
+            --soft: #f8fafc;
+        }
+
+        * { box-sizing: border-box; }
+
         body {
-            background-color: #f8f9fa;
+            min-height: 100vh;
+            margin: 0;
             font-family: 'Poppins', sans-serif;
-            height: 100vh;
+            color: white;
             display: flex;
             align-items: center;
             justify-content: center;
-            text-align: center;
-            padding: 20px;
+            padding: 24px;
+            background:
+                radial-gradient(circle at 15% 15%, rgba(211, 84, 0, 0.38), transparent 32%),
+                radial-gradient(circle at 85% 20%, rgba(255, 184, 107, 0.18), transparent 30%),
+                linear-gradient(135deg, #080808 0%, #151515 55%, #241208 100%);
+            overflow: hidden;
         }
+
+        .glow-orb {
+            position: fixed;
+            width: 280px;
+            height: 280px;
+            border-radius: 50%;
+            background: rgba(211, 84, 0, 0.18);
+            filter: blur(40px);
+            animation: floatOrb 7s ease-in-out infinite;
+            pointer-events: none;
+        }
+
+        .orb-one { top: -80px; right: -80px; }
+        .orb-two { bottom: -110px; left: -90px; animation-delay: 1.6s; }
+
         .maintenance-card {
+            width: min(96vw, 560px);
+            position: relative;
+            z-index: 2;
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.14);
+            border-radius: 32px;
+            padding: 38px 28px;
+            text-align: center;
+            box-shadow: 0 30px 100px rgba(0,0,0,0.45);
+            backdrop-filter: blur(18px);
+            overflow: hidden;
+        }
+
+        .maintenance-card::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(120deg, transparent, rgba(255,255,255,0.08), transparent);
+            transform: translateX(-100%);
+            animation: shimmer 4.8s infinite;
+        }
+
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(255,255,255,0.10);
+            border: 1px solid rgba(255,255,255,0.16);
+            color: rgba(255,255,255,0.78);
+            padding: 8px 14px;
+            border-radius: 999px;
+            font-size: 0.78rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            margin-bottom: 24px;
+        }
+
+        .chef-icon {
+            width: 104px;
+            height: 104px;
+            margin: 0 auto 24px;
+            border-radius: 30px;
+            background: linear-gradient(145deg, rgba(211,84,0,0.96), rgba(255,143,58,0.96));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 20px 50px rgba(211,84,0,0.34);
+            animation: breathe 2.8s ease-in-out infinite;
+        }
+
+        .chef-icon i {
+            font-size: 3.5rem;
+            color: white;
+        }
+
+        h1 {
+            font-weight: 800;
+            letter-spacing: -1.3px;
+            font-size: clamp(2rem, 7vw, 3rem);
+            margin-bottom: 14px;
+        }
+
+        p {
+            color: rgba(255,255,255,0.72);
+            line-height: 1.6;
+            margin: 0 auto;
+            max-width: 430px;
+        }
+
+        .divider {
+            width: 72px;
+            height: 5px;
+            border-radius: 999px;
+            background: var(--accent);
+            margin: 26px auto;
+            box-shadow: 0 0 22px rgba(211,84,0,0.8);
+        }
+
+        .actions {
+            display: grid;
+            gap: 12px;
+            margin-top: 30px;
+        }
+
+        .btn-refresh {
+            border: none;
             background: white;
-            padding: 40px;
-            border-radius: 20px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.08);
-            max-width: 500px;
-            width: 100%;
+            color: #111;
+            border-radius: 18px;
+            padding: 15px 18px;
+            font-weight: 800;
+            box-shadow: 0 12px 35px rgba(255,255,255,0.12);
+            transition: transform 0.18s ease, box-shadow 0.18s ease;
         }
-        .icon-box {
-            font-size: 4rem;
-            margin-bottom: 20px;
-            animation: pulse 2s infinite;
+
+        .btn-refresh:active {
+            transform: scale(0.98);
+            box-shadow: 0 6px 18px rgba(255,255,255,0.10);
         }
-        @keyframes pulse {
-            0% { transform: scale(1); opacity: 1; }
-            50% { transform: scale(1.1); opacity: 0.7; }
-            100% { transform: scale(1); opacity: 1; }
+
+        .sub-note {
+            margin-top: 18px;
+            color: rgba(255,255,255,0.46);
+            font-size: 0.78rem;
+        }
+
+        @keyframes breathe {
+            0%, 100% { transform: translateY(0) scale(1); }
+            50% { transform: translateY(-6px) scale(1.03); }
+        }
+
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            45%, 100% { transform: translateX(100%); }
+        }
+
+        @keyframes floatOrb {
+            0%, 100% { transform: translate(0,0) scale(1); }
+            50% { transform: translate(20px,-18px) scale(1.05); }
         }
     </style>
 </head>
 <body>
-    <div class="maintenance-card">
-        <div class="icon-box">👨‍🍳🔧</div>
-        <h2 class="fw-bold mb-3">Estamos mejorando tu experiencia</h2>
-        <p class="text-muted mb-4">
-            Nuestra plataforma de pedidos se encuentra en un breve mantenimiento técnico programado.
+    <div class="glow-orb orb-one"></div>
+    <div class="glow-orb orb-two"></div>
+
+    <main class="maintenance-card">
+        <div class="status-pill">
+            <i class="bi bi-lightning-charge-fill"></i>
+            Servicio temporalmente no disponible
+        </div>
+
+        <div class="chef-icon">
+            <i class="bi bi-cup-hot-fill"></i>
+        </div>
+
+        <h1>Estamos preparando algo mejor</h1>
+        <p>
+            En este momento el servicio de pedidos está en una breve pausa técnica.
+            Vuelve a intentarlo en unos minutos.
         </p>
-        <p class="mb-4">
-            Estamos afinando los últimos detalles en la cocina digital para servirte mejor. 
-            ¡Volveremos a estar en línea muy pronto!
+
+        <div class="divider"></div>
+
+        <p>
+            Gracias por tu paciencia. Estamos afinando detalles para que tu experiencia sea más rápida, clara y segura.
         </p>
-        <div class="d-grid gap-2">
-            <button onclick="location.reload()" class="btn btn-dark rounded-pill py-2 fw-bold">
-                🔄 Intentar nuevamente
+
+        <div class="actions">
+            <button onclick="location.reload()" class="btn-refresh">
+                <i class="bi bi-arrow-clockwise me-2"></i> Intentar nuevamente
             </button>
         </div>
-        <p class="mt-4 small text-muted opacity-50">Powered by FoodBack</p>
-    </div>
+
+        <div class="sub-note">Gracias por preferirnos.</div>
+    </main>
 </body>
 </html>

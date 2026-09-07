@@ -1,0 +1,69 @@
+<div class="row">
+    {% for p in pedidos_nuevos %}
+    <div class="col-md-6 col-lg-4">
+        <div class="order-card card-new">
+            <div class="card-top">
+                <span class="order-id">Orden #{{ p.id }}</span>
+                <span class="time-badge">{{ p.fecha_creacion|time:"H:i" }}</span>
+            </div>
+
+            <div class="card-content pb-2">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="fw-bold m-0">{{ p.cliente.nombre }} {{ p.cliente.apellido }}</h5>
+                        <a href="https://wa.me/{{ p.cliente.telefono|cut:'+'|cut:' ' }}" target="_blank" class="btn-wa-mini">
+                            <i class="bi bi-whatsapp"></i> Chat
+                        </a>
+                    </div>
+
+                    <div class="text-end">
+                        <div class="price-big">${{ p.total_final }}</div>
+                        <div class="pay-method">{{ p.metodo_pago }}</div>
+                    </div>
+                </div>
+
+                <div class="chef-list">
+                    {% for item in p.detalles.all %}
+                    <div class="chef-item">
+                        <div class="qty-box">{{ item.cantidad }}</div>
+                        <div>
+                            {{ item.producto.nombre }}
+
+                            {% if item.opcion %}
+                                <span class="fw-bold text-warning small">({{ item.opcion.nombre }})</span>
+                            {% endif %}
+
+                            {% for extra in item.extras.all %}
+                            <div style="font-size: 0.8rem; color: #6c757d; margin-left: 2px;">
+                                + {{ extra.nombre }}
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% empty %}
+                        <small class="text-muted">Cargando productos...</small>
+                    {% endfor %}
+                </div>
+
+                <small class="text-muted d-block mb-1 mt-2">
+                    <i class="bi bi-geo-alt-fill text-danger"></i>
+                    {{ p.direccion_entrega|truncatechars:35 }}
+                </small>
+            </div>
+
+            <div class="btn-action-wrapper">
+                <form method="POST" onsubmit="pausePolling()">
+                    {% csrf_token %}
+                    <input type="hidden" name="pedido_id" value="{{ p.id }}">
+                    <input type="hidden" name="accion" value="cocina">
+                    <button class="btn-main btn-accept">
+                        Aceptar y Cocinar <i class="bi bi-fire ms-2"></i>
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+    {% empty %}
+        <p class="text-center text-muted mt-5">No hay pedidos pendientes.</p>
+    {% endfor %}
+</div>

@@ -90,6 +90,89 @@
         }
         .fb-input::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; }
 
+
+        /* --- FIX iPhone Safari: inputs de hora ---
+           Safari/iOS renderiza los input[type="time"] con controles internos
+           muy anchos cuando usa formato 12h: "8:00 a. m.". Estas reglas
+           fuerzan que el campo respete su columna y no se monte sobre el otro. */
+        .time-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+            gap: 12px;
+            width: 100%;
+        }
+
+        .time-field {
+            min-width: 0;
+        }
+
+        input[type="time"].fb-input {
+            min-width: 0;
+            width: 100%;
+            height: 58px;
+            line-height: normal;
+            text-align: center;
+            font-size: 1rem;
+            padding: 10px 12px;
+            overflow: hidden;
+            box-sizing: border-box;
+        }
+
+        input[type="time"].fb-input::-webkit-datetime-edit,
+        input[type="time"].fb-input::-webkit-datetime-edit-fields-wrapper,
+        input[type="time"].fb-input::-webkit-date-and-time-value {
+            padding: 0;
+            margin: 0;
+            min-width: 0;
+            text-align: center;
+        }
+
+        @supports (-webkit-touch-callout: none) {
+            input[type="time"].fb-input {
+                -webkit-appearance: none;
+                appearance: none;
+                font-size: 0.95rem;
+                letter-spacing: -0.4px;
+                padding-left: 8px;
+                padding-right: 8px;
+            }
+
+            input[type="time"].fb-input::-webkit-calendar-picker-indicator {
+                display: none;
+                opacity: 0;
+            }
+        }
+
+        @media (max-width: 430px) {
+            .fb-card {
+                padding: 20px 14px;
+            }
+
+            .agenda-track {
+                gap: 14px;
+                margin-left: -6px;
+                margin-right: -6px;
+                padding-left: 8px;
+                padding-right: 8px;
+            }
+
+            .day-card {
+                flex-basis: 300px;
+                padding: 18px;
+            }
+
+            .time-grid {
+                gap: 10px;
+            }
+
+            input[type="time"].fb-input {
+                height: 56px;
+                font-size: 0.9rem;
+                padding-left: 6px;
+                padding-right: 6px;
+            }
+        }
+
         /* --- AGENDA SCROLL --- */
         .agenda-track {
             display: flex; overflow-x: auto; gap: 15px; padding-bottom: 10px;
@@ -245,16 +328,16 @@
                         </div>
 
                         <div id="open-panel-{{ forloop.counter }}" style="{% if not dia.abierto %}display:none;{% endif %}">
-                            <div class="row g-3">
-                                <div class="col-6">
+                            <div class="time-grid">
+                                <div class="time-field">
                                     <label class="form-label">Apertura</label>
-                                    <input type="time" name="hora_apertura_dia" class="fb-input" 
+                                    <input type="time" name="hora_apertura_dia" class="fb-input"
                                            value="{{ dia.hora_ini|time:'H:i' }}"
                                            oninput="triggerSave('{{ forloop.counter }}')">
                                 </div>
-                                <div class="col-6">
+                                <div class="time-field">
                                     <label class="form-label">Cierre</label>
-                                    <input type="time" name="hora_cierre_dia" class="fb-input" 
+                                    <input type="time" name="hora_cierre_dia" class="fb-input"
                                            value="{{ dia.hora_fin|time:'H:i' }}"
                                            oninput="triggerSave('{{ forloop.counter }}')">
                                 </div>
@@ -295,12 +378,12 @@
                     <small class="section-desc">Estos cambios afectan a todos los días que <b>NO</b> tengan la etiqueta "EDITADO".</small>
                 </div>
 
-                <div class="row g-3 mb-4">
-                    <div class="col-6">
+                <div class="time-grid mb-4">
+                    <div class="time-field">
                         <label class="form-label">Abres</label>
                         <input type="time" name="hora_apertura" class="fb-input" value="{{ config.hora_apertura|time:'H:i' }}">
                     </div>
-                    <div class="col-6">
+                    <div class="time-field">
                         <label class="form-label">Cierras</label>
                         <input type="time" name="hora_cierre" class="fb-input" value="{{ config.hora_cierre|time:'H:i' }}">
                     </div>

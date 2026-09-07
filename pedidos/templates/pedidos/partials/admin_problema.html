@@ -1,0 +1,41 @@
+<div class="row">
+    {% for p in pedidos_problema %}
+    <div class="col-md-6 col-lg-4">
+        <div class="problem-card order-card p-3">
+            <div class="d-flex align-items-center mb-3">
+                <i class="bi bi-exclamation-octagon-fill text-danger fs-1 me-3"></i>
+                <div>
+                    <h4 class="fw-bold m-0 text-danger">Atención #{{ p.id }}</h4>
+                    <small class="text-muted">Problema reportado.</small>
+                </div>
+            </div>
+
+            <a href="https://wa.me/{{ p.cliente.telefono }}" target="_blank" class="btn-whatsapp">
+                <i class="bi bi-whatsapp fs-5"></i> Chat con Cliente
+            </a>
+
+            <div class="row g-2 mt-3">
+                <div class="col-6">
+                    <form method="POST" onsubmit="pausePolling()">
+                        {% csrf_token %}
+                        <input type="hidden" name="pedido_id" value="{{ p.id }}">
+                        <input type="hidden" name="accion" value="reintentar">
+                        <button class="btn btn-outline-primary w-100 fw-bold">Reintentar</button>
+                    </form>
+                </div>
+
+                <div class="col-6">
+                    <form method="POST" onsubmit="pausePolling()">
+                        {% csrf_token %}
+                        <input type="hidden" name="pedido_id" value="{{ p.id }}">
+                        <input type="hidden" name="accion" value="cancelar">
+                        <button class="btn btn-outline-dark w-100 fw-bold">Cancelar</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% empty %}
+        <p class="text-center text-muted mt-5">No hay alertas por ahora.</p>
+    {% endfor %}
+</div>

@@ -1,6 +1,6 @@
 """
 Django settings for core project.
-Optimizado para Railway + WhiteNoise + Cloudinary (FORMA CORRECTA)
+Optimizado para Railway + WhiteNoise + Cloudinary.
 Django 4.2 LTS
 """
 
@@ -28,8 +28,11 @@ ALLOWED_HOSTS = ['*']
 CSRF_TRUSTED_ORIGINS = [
     'https://*.railway.app',
     'https://*.up.railway.app',
-    'https://*.ngrok-free.app',  # Por si acaso te da una .app
-    'https://*.ngrok-free.dev',  # ESTA ES LA QUE TE DIO TU CONSOLA
+    'https://*.ngrok-free.app',
+    'https://*.ngrok-free.dev',
+    'https://*.devtunnels.ms',
+    'https://foodbacksv.com',
+    'https://*.foodbacksv.com',
 ]
 
 # ===============================
@@ -116,11 +119,10 @@ USE_I18N = True
 USE_TZ = True
 
 # ===============================
-# ARCHIVOS ESTÁTICOS (ADMIN, CSS, JS)
+# ARCHIVOS ESTÁTICOS
 # ===============================
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
-
 STATICFILES_STORAGE = 'whitenoise.storage.StaticFilesStorage'
 
 # ===============================
@@ -137,22 +139,23 @@ CLOUDINARY_STORAGE = {
 MEDIA_URL = '/media/'
 
 # ===============================
+# WOMPI / FOODBACK
+# ===============================
+# Estas variables se leen desde .env con decouple.config en views.py:
+# WOMPI_APP_ID
+# WOMPI_API_SECRET
+# WOMPI_AUTH_URL=https://id.wompi.sv/connect/token
+# WOMPI_API_URL=https://api.wompi.sv/EnlacePago
+# WOMPI_NOTIFICATION_EMAIL=correo@tuempresa.com
+# FOODBACK_SUBSCRIPTION_PRICE=50.00
+# PENDING_ORDER_EXPIRATION_MINUTES=45
+
+# ===============================
 # OTROS
 # ===============================
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-
 # --- CONFIGURACIÓN DE SESIÓN (MODO TURNO FIJO) ---
-
-# 1. Duración exacta: 15 Horas en segundos
-# Matemática: 15 horas * 60 minutos * 60 segundos = 54000
-SESSION_COOKIE_AGE = 54000 
-
-# 2. EL TRUCO: False
-# Esto hace que el tiempo NO se reinicie con cada clic o pedido.
-# El cronómetro arranca al login y corta a las 15h exactas, hagas lo que hagas.
-SESSION_SAVE_EVERY_REQUEST = False 
-
-# 3. (Opcional) Si cierran el navegador por error y vuelven a abrir,
-# siguen logueados (siempre y cuando estén dentro de las 15h).
+SESSION_COOKIE_AGE = 54000
+SESSION_SAVE_EVERY_REQUEST = False
 SESSION_EXPIRE_AT_BROWSER_CLOSE = False

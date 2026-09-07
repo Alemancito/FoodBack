@@ -1,0 +1,123 @@
+{% if mis_pedidos %}
+    {% for p in mis_pedidos %}
+    <div class="backpack-card">
+        <div class="d-flex justify-content-between">
+            <div>
+                <div class="order-id">#{{ p.id }}</div>
+                <div class="customer-name">{{ p.cliente.nombre }}</div>
+            </div>
+
+            <div class="text-end">
+                <div class="fs-3 fw-bold text-white">${{ p.total_final }}</div>
+
+                {% if p.metodo_pago == 'TARJETA' %}
+                    <div class="small fw-bold" style="color:#00E5FF">
+                        <i class="bi bi-credit-card"></i> TARJETA
+                    </div>
+                {% else %}
+                    <div class="small fw-bold text-sec">EFECTIVO</div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="address-box">
+            <i class="bi bi-geo-alt-fill text-danger fs-5"></i>
+            <div style="line-height: 1.3;">
+                {% if p.direccion_entrega %}
+                    {{ p.direccion_entrega }}
+                {% else %}
+                    Ubicación GPS Exacta
+                {% endif %}
+            </div>
+        </div>
+
+        {% if p.metodo_pago == 'EFECTIVO' %}
+            <div class="money-alert">
+                <i class="bi bi-cash me-1"></i> COBRAR AL CLIENTE
+            </div>
+        {% elif p.metodo_pago == 'TARJETA' %}
+            <div class="card-alert">
+                <i class="bi bi-check-circle-fill me-1"></i> PAGADO CON TARJETA
+            </div>
+        {% endif %}
+
+        <div onclick="toggleDetails('details-{{ p.id }}', this)" class="product-toggle">
+            <span>📦 Ver {{ p.detalles.count }} productos</span>
+            <i class="bi bi-chevron-down"></i>
+        </div>
+
+        <div id="details-{{ p.id }}" class="product-list">
+            {% for item in p.detalles.all %}
+            <div class="prod-row">
+                <div>
+                    <span class="qty-tag">{{ item.cantidad }}</span>
+                    {{ item.producto.nombre }}
+
+                    {% if item.opcion %}
+                    <span style="color:var(--color-accent); font-weight:bold; font-size:0.8rem;">
+                        ({{ item.opcion.nombre }})
+                    </span>
+                    {% endif %}
+
+                    {% for extra in item.extras.all %}
+                    <div style="font-size: 0.8rem; color: #888; margin-left: 30px;">
+                        + {{ extra.nombre }}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="d-flex justify-content-between mb-3">
+            {% if p.latitud %}
+                <a href="https://waze.com/ul?ll={{ p.latitud }},{{ p.longitud }}&navigate=yes" target="_blank" class="btn-map">
+                    <i class="bi bi-car-front-fill me-1"></i> Waze
+                </a>
+
+                <a href="https://www.google.com/maps/search/?api=1&query={{ p.latitud }},{{ p.longitud }}" target="_blank" class="btn-map">
+                    <i class="bi bi-google me-1"></i> Maps
+                </a>
+            {% else %}
+                <button class="btn-map w-100 opacity-50" disabled>Sin GPS</button>
+            {% endif %}
+        </div>
+
+        <div class="actions-row">
+            <form method="POST" style="flex-grow: 1;" onsubmit="return confirmarEntrega(this, '{{ p.id }}')">
+                {% csrf_token %}
+                <input type="hidden" name="pedido_id" value="{{ p.id }}">
+                <input type="hidden" name="accion" value="entregado">
+                <button type="submit" class="btn-success-custom w-100">
+                    ENTREGADO <i class="bi bi-check-lg"></i>
+                </button>
+            </form>
+        </div>
+
+        <div class="actions-row secondary-actions">
+            <form method="POST" style="flex-grow: 2;" onsubmit="return confirmarSoltar(this, '{{ p.id }}')">
+                {% csrf_token %}
+                <input type="hidden" name="pedido_id" value="{{ p.id }}">
+                <input type="hidden" name="accion" value="soltar">
+                <button type="submit" class="btn-release-custom w-100">
+                    <i class="bi bi-arrow-counterclockwise"></i> Quitar de mochila
+                </button>
+            </form>
+
+            <form method="POST" style="flex-grow: 1;" onsubmit="pausePolling()">
+                {% csrf_token %}
+                <input type="hidden" name="pedido_id" value="{{ p.id }}">
+                <input type="hidden" name="accion" value="problema">
+                <button type="submit" class="btn-error-custom w-100" title="Reportar problema">
+                    <i class="bi bi-exclamation-triangle-fill"></i>
+                </button>
+            </form>
+        </div>
+    </div>
+    {% endfor %}
+{% else %}
+    <div class="text-center py-5 text-sec opacity-50">
+        <i class="bi bi-box2 fs-1"></i>
+        <p class="mt-2">Mochila vacía</p>
+    </div>
+{% endif %}

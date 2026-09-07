@@ -1,0 +1,30 @@
+<div class="row">
+    {% for p in pedidos_ruta %}
+    <div class="col-md-6 col-lg-4">
+        <div class="order-card card-route">
+            <div class="card-content d-flex justify-content-between align-items-center">
+                <div>
+                    <h5 class="fw-bold mb-1">#{{ p.id }} - {{ p.cliente.nombre }}</h5>
+
+                    {% if p.repartidor %}
+                        <span class="badge bg-dark rounded-pill px-3 py-2">
+                            <i class="bi bi-helmet me-1"></i> {{ p.repartidor.username }}
+                        </span>
+                    {% else %}
+                        <span class="badge bg-secondary rounded-pill px-3 py-2">
+                            Buscando Repartidor...
+                        </span>
+                    {% endif %}
+                </div>
+
+                <div class="text-end">
+                    <span class="fw-bold fs-5">${{ p.total_final }}</span>
+                    <div class="small text-muted">{{ p.metodo_pago }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% empty %}
+        <p class="text-center text-muted mt-5">No hay pedidos en ruta.</p>
+    {% endfor %}
+</div>

@@ -1,0 +1,60 @@
+<div class="row">
+    {% for p in pedidos_cocina %}
+    <div class="col-md-6 col-lg-4">
+        <div class="kitchen-ticket">
+            <div class="k-header">
+                <div>
+                    <div class="k-ticket-label">Ticket Cocina</div>
+                    <div class="k-ticket-id">#{{ p.id }}</div>
+                </div>
+
+                <div class="text-end">
+                    <div class="k-client">{{ p.cliente.nombre }}</div>
+                    <span class="badge bg-light text-dark border">
+                        {{ p.fecha_creacion|time:"H:i" }}
+                    </span>
+                </div>
+            </div>
+
+            <div class="k-body">
+                {% for item in p.detalles.all %}
+                <div class="k-row">
+                    <div class="k-badge">{{ item.cantidad }}</div>
+
+                    <div class="k-prod">
+                        {{ item.producto.nombre }}
+
+                        {% if item.opcion %}
+                        <div style="font-size: 0.85rem; color: #D35400; font-weight: 700; margin-top: 2px;">
+                            ➜ {{ item.opcion.nombre }}
+                        </div>
+                        {% endif %}
+
+                        {% for extra in item.extras.all %}
+                        <div style="font-size: 0.85rem; color: #666; font-weight: 600; margin-left: 10px;">
+                            + {{ extra.nombre }}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% empty %}
+                    <span class="text-muted">Cargando...</span>
+                {% endfor %}
+            </div>
+
+            <div class="k-footer">
+                <form method="POST" onsubmit="pausePolling()">
+                    {% csrf_token %}
+                    <input type="hidden" name="pedido_id" value="{{ p.id }}">
+                    <input type="hidden" name="accion" value="ruta">
+                    <button class="btn-ticket-done">
+                        ¡ORDEN LISTA! <i class="bi bi-check-lg"></i>
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+    {% empty %}
+        <p class="text-center text-muted mt-5">No hay órdenes en cocina.</p>
+    {% endfor %}
+</div>

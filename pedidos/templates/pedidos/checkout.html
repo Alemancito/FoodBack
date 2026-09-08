@@ -665,10 +665,39 @@
 
     {% endif %}
 
-    <form
-        method="POST"
-        action="{% url 'pagar_wompi' pedido_pendiente.tracking_token %}"
+    {% if tarjeta_cliente_bloqueada %}
+
+<div class="alert alert-warning border-0 rounded-4 mt-3 mb-2">
+    <i class="bi bi-lock-fill me-1"></i>
+
+    <strong>
+        Pago con tarjeta pausado temporalmente.
+    </strong>
+
+    <div class="small mt-1">
+        Detectamos varios intentos rechazados.
+        Intenta nuevamente más tarde.
+    </div>
+</div>
+
+{% else %}
+
+<form
+    method="POST"
+    action="{% url 'pagar_wompi' pedido_pendiente.tracking_token %}"
+>
+    {% csrf_token %}
+
+    <button
+        type="submit"
+        class="btn btn-dark w-100 rounded-pill py-3 fw-bold"
     >
+        <i class="bi bi-arrow-repeat me-1"></i>
+        Reintentar pago con tarjeta
+    </button>
+</form>
+
+{% endif %}
         {% csrf_token %}
 
         <button
@@ -791,16 +820,113 @@
                     </div>
                 </label>
 
-                <label class="w-100">
-                    <input type="radio" name="metodo_pago" value="TARJETA" class="payment-option" onchange="actualizarTotal()">
-                    <div class="payment-card">
-                        <div class="d-flex align-items-center gap-3">
-                            <i class="bi bi-credit-card-2-front fs-4 text-primary"></i>
-                            <div><div class="fw-bold">Tarjeta / Wompi</div><small class="text-muted" style="color: var(--color-accent);">+5% Servicio Digital</small></div>
-                        </div>
-                        <i class="bi bi-check-circle-fill fs-4 check-icon"></i>
-                    </div>
-                </label>
+                {% if tarjeta_cliente_bloqueada %}
+
+<label
+    class="w-100"
+    style="cursor: not-allowed;"
+>
+    <input
+        type="radio"
+        name="metodo_pago"
+        value="TARJETA"
+        class="payment-option"
+        disabled
+    >
+
+    <div
+        class="payment-card"
+        style="
+            opacity: 0.55;
+            cursor: not-allowed;
+            background: #f8f9fa;
+        "
+    >
+        <div class="d-flex align-items-center gap-3">
+
+            <i
+                class="bi bi-credit-card-2-front fs-4 text-secondary"
+            ></i>
+
+            <div>
+                <div class="fw-bold">
+                    Tarjeta temporalmente no disponible
+                </div>
+
+                <small class="text-muted">
+                    Puedes pagar en efectivo o
+                    intentar nuevamente más tarde.
+                </small>
+            </div>
+
+        </div>
+
+        <i
+            class="bi bi-lock-fill text-secondary fs-5"
+        ></i>
+    </div>
+</label>
+
+<div
+    class="alert alert-warning border-0 small rounded-4 mt-2"
+>
+    <i class="bi bi-shield-exclamation me-1"></i>
+
+    Detectamos varios intentos de tarjeta
+    rechazados recientemente.
+
+    Por seguridad, esta opción se pausó
+    temporalmente en este dispositivo.
+
+    <strong>
+        El pago en efectivo sigue disponible.
+    </strong>
+</div>
+
+{% else %}
+
+<label class="w-100">
+
+    <input
+        type="radio"
+        name="metodo_pago"
+        value="TARJETA"
+        class="payment-option"
+        onchange="actualizarTotal()"
+    >
+
+    <div class="payment-card">
+
+        <div class="d-flex align-items-center gap-3">
+
+            <i
+                class="bi bi-credit-card-2-front fs-4 text-primary"
+            ></i>
+
+            <div>
+                <div class="fw-bold">
+                    Tarjeta / Wompi
+                </div>
+
+                <small
+                    class="text-muted"
+                    style="color: var(--color-accent);"
+                >
+                    +5% Servicio Digital
+                </small>
+            </div>
+
+        </div>
+
+        <i
+            class="bi bi-check-circle-fill fs-4 check-icon"
+        ></i>
+
+    </div>
+
+</label>
+
+{% endif %}
 
                 <div class="total-bar">
                     <small id="aviso-comision" class="text-danger fw-bold d-none d-block mb-3 text-center bg-danger-subtle py-1 px-3 rounded-pill mx-auto" style="font-size: 0.75rem; width: fit-content;">

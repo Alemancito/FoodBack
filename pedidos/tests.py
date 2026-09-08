@@ -1,6 +1,8 @@
 import json
 from unittest.mock import patch
 
+import hashlib
+
 from datetime import date, timedelta
 from decimal import Decimal
 
@@ -24,6 +26,7 @@ from .models import (
     Producto,
     PagoWompi,
     DetallePedido,
+    EventoPagoWompi,
 )
 
 
@@ -2305,4 +2308,837 @@ class PaymentRecoverySecurityTests(FoodBackTestBase):
         self.assertContains(
             response,
             "Pago pendiente",
+        )
+        
+class PaymentResilienceLoggingTests(
+    FoodBackTestBase
+):
+    """
+    FB-SEC-003B3-A:
+    Los fallos financieros deben generar
+    telemetría segura e idempotente.
+    """
+
+    def crear_pedido_tarjeta(
+        self,
+        telefono,
+    ):
+        pedido = self.crear_pedido(
+            estado="PENDIENTE",
+            telefono=telefono,
+        )
+
+        pedido.metodo_pago = "TARJETA"
+        pedido.save()
+
+        return pedido
+
+    def crear_pago(
+        self,
+        pedido,
+    ):
+        referencia = (
+            f"ORDEN-{pedido.id}-LOGTEST"
+        )
+
+        pedido.wompi_referencia = referencia
+        pedido.save(
+            update_fields=[
+                "wompi_referencia"
+            ]
+        )
+
+        return PagoWompi.objects.create(
+            tipo="PEDIDO",
+            pedido=pedido,
+            referencia=referencia,
+            monto=pedido.total_final,
+            estado="PENDIENTE",
+            cliente_token_hash=(
+                "a" * 64
+            ),
+        )
+
+    @patch(
+        "pedidos.views."
+        "_validar_hash_webhook_wompi",
+        return_value=True,
+    )
+    def test_rechazo_genera_evento_para_cliente(
+        self,
+        mock_hash,
+    ):
+        pedido = self.crear_pedido_tarjeta(
+            "79200001"
+        )
+
+        pago = self.crear_pago(
+            pedido
+        )
+
+        body = {
+            "transaccion": {
+                "identificadorEnlaceComercio":
+                    pago.referencia,
+                "esAprobada":
+                    False,
+                "idTransaccion":
+                    "TX-RECHAZO-LOG",
+                "monto":
+                    str(pago.monto),
+            }
+        }
+
+        response = self.client.post(
+            reverse("wompi_webhook"),
+            data=json.dumps(body),
+            content_type="application/json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        evento = (
+            EventoPagoWompi.objects
+            .get(
+                pago=pago
+            )
+        )
+
+        self.assertEqual(
+            evento.categoria,
+            "RECHAZO_CLIENTE",
+        )
+
+        self.assertTrue(
+            evento.cuenta_para_cliente
+        )
+
+        self.assertFalse(
+            evento.cuenta_para_global
+        )
+
+        self.assertEqual(
+            evento.cliente_token_hash,
+            pago.cliente_token_hash,
+        )
+
+    @patch(
+        "pedidos.views."
+        "_validar_hash_webhook_wompi",
+        return_value=True,
+    )
+    def test_replay_rechazo_no_duplica_eventos(
+        self,
+        mock_hash,
+    ):
+        pedido = self.crear_pedido_tarjeta(
+            "79200002"
+        )
+
+        pago = self.crear_pago(
+            pedido
+        )
+
+        body = {
+            "transaccion": {
+                "identificadorEnlaceComercio":
+                    pago.referencia,
+                "esAprobada":
+                    False,
+                "idTransaccion":
+                    "TX-REPLAY-RECHAZO",
+                "monto":
+                    str(pago.monto),
+            }
+        }
+
+        url = reverse(
+            "wompi_webhook"
+        )
+
+        for _ in range(5):
+            self.client.post(
+                url,
+                data=json.dumps(body),
+                content_type=(
+                    "application/json"
+                ),
+            )
+
+        self.assertEqual(
+            EventoPagoWompi.objects.filter(
+                pago=pago,
+                categoria="RECHAZO_CLIENTE",
+            ).count(),
+            1,
+        )
+
+    @patch(
+        "pedidos.views."
+        "_wompi_crear_enlace_pago"
+    )
+    def test_error_tecnico_genera_evento_global(
+        self,
+        mock_wompi,
+    ):
+        mock_wompi.side_effect = Exception(
+            "Timeout simulado"
+        )
+
+        pedido = self.crear_pedido_tarjeta(
+            "79200003"
+        )
+
+        response = self.client.post(
+            reverse(
+                "pagar_wompi",
+                args=[
+                    pedido.tracking_token
+                ],
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        pago = (
+            PagoWompi.objects
+            .filter(
+                pedido=pedido
+            )
+            .latest(
+                "fecha_creacion"
+            )
+        )
+
+        evento = (
+            EventoPagoWompi.objects
+            .get(
+                pago=pago,
+                categoria="ERROR_TECNICO",
+            )
+        )
+
+        self.assertFalse(
+            evento.cuenta_para_cliente
+        )
+
+        self.assertTrue(
+            evento.cuenta_para_global
+        )
+
+        self.assertEqual(
+            len(
+                pago.cliente_token_hash
+            ),
+            64,
+        )
+        
+class PaymentUserCooldownSecurityTests(
+    FoodBackTestBase
+):
+    """
+    FB-SEC-003B3-B/C
+
+    Un número elevado de rechazos atribuibles al cliente
+    debe suspender temporalmente TARJETA para ese navegador,
+    sin afectar efectivo ni otros clientes.
+    """
+
+    WOMPI_URL_FAKE = (
+        "https://wompi.test/"
+        "user-cooldown"
+    )
+
+    def fijar_token_cliente(
+        self,
+        client=None,
+        token="cliente-test-cooldown",
+    ):
+        client = client or self.client
+
+        session = client.session
+
+        session[
+            "wompi_cliente_token"
+        ] = token
+
+        session.save()
+
+        return hashlib.sha256(
+            token.encode("utf-8")
+        ).hexdigest()
+
+    def crear_rechazos(
+        self,
+        cliente_token_hash,
+        cantidad,
+        prefijo="COOLDOWN",
+    ):
+        eventos = []
+
+        for numero in range(cantidad):
+
+            evento = (
+                EventoPagoWompi.objects.create(
+                    cliente_token_hash=(
+                        cliente_token_hash
+                    ),
+                    categoria=(
+                        "RECHAZO_CLIENTE"
+                    ),
+                    origen="WEBHOOK",
+                    codigo="WOMPI_RECHAZADO",
+                    mensaje=(
+                        "Rechazo de prueba."
+                    ),
+                    cuenta_para_cliente=True,
+                    cuenta_para_global=False,
+                    clave_evento=(
+                        f"{prefijo}:"
+                        f"{cliente_token_hash}:"
+                        f"{numero}"
+                    ),
+                )
+            )
+
+            eventos.append(
+                evento
+            )
+
+        return eventos
+
+    def crear_pedido_tarjeta(
+        self,
+        telefono,
+    ):
+        pedido = self.crear_pedido(
+            estado="PENDIENTE",
+            telefono=telefono,
+        )
+
+        pedido.metodo_pago = (
+            "TARJETA"
+        )
+
+        pedido.estado = (
+            "PENDIENTE"
+        )
+
+        pedido.save()
+
+        return pedido
+
+    def respuesta_wompi_fake(self):
+        return (
+            {
+                "urlEnlace":
+                    self.WOMPI_URL_FAKE,
+
+                "idEnlace":
+                    "LINK-COOLDOWN",
+            },
+            {
+                "mock": True,
+            },
+        )
+
+    @patch(
+        "pedidos.views."
+        "_wompi_crear_enlace_pago"
+    )
+    def test_cuatro_rechazos_aun_permiten_tarjeta(
+        self,
+        mock_wompi,
+    ):
+        mock_wompi.return_value = (
+            self.respuesta_wompi_fake()
+        )
+
+        token_hash = (
+            self.fijar_token_cliente()
+        )
+
+        self.crear_rechazos(
+            token_hash,
+            4,
+        )
+
+        pedido = (
+            self.crear_pedido_tarjeta(
+                "79300001"
+            )
+        )
+
+        response = self.client.post(
+            reverse(
+                "pagar_wompi",
+                args=[
+                    pedido.tracking_token
+                ],
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        self.assertEqual(
+            response["Location"],
+            self.WOMPI_URL_FAKE,
+        )
+
+        mock_wompi.assert_called_once()
+
+    @patch(
+        "pedidos.views."
+        "_wompi_crear_enlace_pago"
+    )
+    def test_cinco_rechazos_bloquean_tarjeta(
+        self,
+        mock_wompi,
+    ):
+        mock_wompi.return_value = (
+            self.respuesta_wompi_fake()
+        )
+
+        token_hash = (
+            self.fijar_token_cliente()
+        )
+
+        self.crear_rechazos(
+            token_hash,
+            5,
+        )
+
+        pedido = (
+            self.crear_pedido_tarjeta(
+                "79300002"
+            )
+        )
+
+        response = self.client.post(
+            reverse(
+                "pagar_wompi",
+                args=[
+                    pedido.tracking_token
+                ],
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        self.assertEqual(
+            response["Location"],
+            reverse("checkout"),
+        )
+
+        self.assertFalse(
+            PagoWompi.objects.filter(
+                pedido=pedido
+            ).exists()
+        )
+
+        mock_wompi.assert_not_called()
+
+    @patch(
+        "pedidos.views."
+        "_wompi_crear_enlace_pago"
+    )
+    def test_bloqueo_tambien_impide_reusar_enlace_pendiente(
+        self,
+        mock_wompi,
+    ):
+        token_hash = (
+            self.fijar_token_cliente()
+        )
+
+        self.crear_rechazos(
+            token_hash,
+            5,
+        )
+
+        pedido = (
+            self.crear_pedido_tarjeta(
+                "79300003"
+            )
+        )
+
+        referencia = (
+            f"ORDEN-{pedido.id}-"
+            f"COOLDOWN-PENDIENTE"
+        )
+
+        pedido.wompi_referencia = (
+            referencia
+        )
+
+        pedido.save(
+            update_fields=[
+                "wompi_referencia"
+            ]
+        )
+
+        pago = (
+            PagoWompi.objects.create(
+                tipo="PEDIDO",
+                pedido=pedido,
+                referencia=referencia,
+                monto=pedido.total_final,
+                estado="PENDIENTE",
+                url_enlace=(
+                    self.WOMPI_URL_FAKE
+                ),
+                cliente_token_hash=(
+                    token_hash
+                ),
+            )
+        )
+
+        response = self.client.post(
+            reverse(
+                "pagar_wompi",
+                args=[
+                    pedido.tracking_token
+                ],
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        self.assertEqual(
+            response["Location"],
+            reverse("checkout"),
+        )
+
+        # No debe redirigir al enlace viejo.
+        self.assertNotEqual(
+            response["Location"],
+            pago.url_enlace,
+        )
+
+        mock_wompi.assert_not_called()
+
+    @patch(
+        "pedidos.views."
+        "_wompi_crear_enlace_pago"
+    )
+    def test_checkout_tarjeta_bloqueada_no_crea_pedido(
+        self,
+        mock_wompi,
+    ):
+        mock_wompi.return_value = (
+            self.respuesta_wompi_fake()
+        )
+
+        token_hash = (
+            self.fijar_token_cliente()
+        )
+
+        self.crear_rechazos(
+            token_hash,
+            5,
+        )
+
+        session = self.client.session
+
+        session["cart"] = {
+            f"{self.producto.id}-0-0":
+                1
+        }
+
+        session.save()
+
+        response = self.client.post(
+            reverse("checkout"),
+            {
+                "telefono":
+                    "79300004",
+
+                "nombre":
+                    "Cliente",
+
+                "apellido":
+                    "Bloqueado",
+
+                "direccion":
+                    "Dirección de prueba",
+
+                "metodo_pago":
+                    "TARJETA",
+
+                "latitud":
+                    "13.4800",
+
+                "longitud":
+                    "-88.1800",
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        self.assertEqual(
+            response["Location"],
+            reverse("checkout"),
+        )
+
+        self.assertFalse(
+            Pedido.objects.filter(
+                cliente__telefono=
+                    "79300004"
+            ).exists()
+        )
+
+        mock_wompi.assert_not_called()
+
+    def test_efectivo_sigue_disponible_durante_bloqueo(
+        self
+    ):
+        token_hash = (
+            self.fijar_token_cliente()
+        )
+
+        self.crear_rechazos(
+            token_hash,
+            5,
+        )
+
+        session = self.client.session
+
+        session["cart"] = {
+            f"{self.producto.id}-0-0":
+                1
+        }
+
+        session.save()
+
+        response = self.client.post(
+            reverse("checkout"),
+            {
+                "telefono":
+                    "79300005",
+
+                "nombre":
+                    "Cliente",
+
+                "apellido":
+                    "Efectivo",
+
+                "direccion":
+                    "Dirección de prueba",
+
+                "metodo_pago":
+                    "EFECTIVO",
+
+                "latitud":
+                    "13.4800",
+
+                "longitud":
+                    "-88.1800",
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        pedido = (
+            Pedido.objects.get(
+                cliente__telefono=
+                    "79300005"
+            )
+        )
+
+        self.assertEqual(
+            pedido.metodo_pago,
+            "EFECTIVO",
+        )
+
+        self.assertEqual(
+            pedido.estado,
+            "RECIBIDO",
+        )
+
+    @patch(
+        "pedidos.views."
+        "_wompi_crear_enlace_pago"
+    )
+    def test_otro_navegador_no_hereda_bloqueo(
+        self,
+        mock_wompi,
+    ):
+        mock_wompi.return_value = (
+            self.respuesta_wompi_fake()
+        )
+
+        hash_bloqueado = (
+            self.fijar_token_cliente(
+                token=(
+                    "navegador-bloqueado"
+                )
+            )
+        )
+
+        self.crear_rechazos(
+            hash_bloqueado,
+            5,
+        )
+
+        otro_cliente = Client()
+
+        self.fijar_token_cliente(
+            client=otro_cliente,
+            token=(
+                "navegador-distinto"
+            ),
+        )
+
+        pedido = (
+            self.crear_pedido_tarjeta(
+                "79300006"
+            )
+        )
+
+        response = otro_cliente.post(
+            reverse(
+                "pagar_wompi",
+                args=[
+                    pedido.tracking_token
+                ],
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        self.assertEqual(
+            response["Location"],
+            self.WOMPI_URL_FAKE,
+        )
+
+        mock_wompi.assert_called_once()
+
+    @patch(
+        "pedidos.views."
+        "_wompi_crear_enlace_pago"
+    )
+    def test_cooldown_expirado_reactiva_tarjeta(
+        self,
+        mock_wompi,
+    ):
+        mock_wompi.return_value = (
+            self.respuesta_wompi_fake()
+        )
+
+        token_hash = (
+            self.fijar_token_cliente()
+        )
+
+        eventos = self.crear_rechazos(
+            token_hash,
+            5,
+            prefijo="COOLDOWN-OLD",
+        )
+
+        fecha_antigua = (
+            timezone.now()
+            - timedelta(minutes=31)
+        )
+
+        EventoPagoWompi.objects.filter(
+            id__in=[
+                evento.id
+                for evento in eventos
+            ]
+        ).update(
+            fecha=fecha_antigua
+        )
+
+        pedido = (
+            self.crear_pedido_tarjeta(
+                "79300007"
+            )
+        )
+
+        response = self.client.post(
+            reverse(
+                "pagar_wompi",
+                args=[
+                    pedido.tracking_token
+                ],
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        self.assertEqual(
+            response["Location"],
+            self.WOMPI_URL_FAKE,
+        )
+
+        mock_wompi.assert_called_once()
+
+    def test_checkout_muestra_tarjeta_temporalmente_bloqueada(
+        self
+    ):
+        token_hash = (
+            self.fijar_token_cliente()
+        )
+
+        self.crear_rechazos(
+            token_hash,
+            5,
+        )
+
+        session = self.client.session
+
+        session["cart"] = {
+            f"{self.producto.id}-0-0":
+                1
+        }
+
+        session.save()
+
+        response = self.client.get(
+            reverse("checkout")
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.assertTrue(
+            response.context[
+                "tarjeta_cliente_bloqueada"
+            ]
+        )
+
+        self.assertContains(
+            response,
+            (
+                "Tarjeta temporalmente "
+                "no disponible"
+            ),
         )

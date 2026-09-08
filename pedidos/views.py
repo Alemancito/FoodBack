@@ -8,7 +8,7 @@ import time  # Necesario para generar referencias únicas
 from datetime import datetime, date, timedelta
 from decimal import Decimal, InvalidOperation
 from django.shortcuts import render, redirect, get_object_or_404
-from .models import Categoria, Producto, Pedido, DetallePedido, Cliente, ConfiguracionNegocio, DiaEspecial, OpcionProducto, Extra, PagoWompi
+from .models import Categoria, Producto, Pedido, DetallePedido, Cliente, ConfiguracionNegocio, DiaEspecial, OpcionProducto, Extra, PagoWompi, EventoPagoWompi,EstadoPasarelaPago
 from django.db import transaction
 from django.contrib import messages
 from decouple import config
@@ -683,6 +683,31 @@ def checkout_view(request):
         lng = request.POST.get(
             'longitud'
         )
+        
+        if metodo_pago == 'TARJETA':
+
+            estado_bloqueo = (
+                _estado_bloqueo_tarjeta_cliente(
+                    request
+                )
+            )
+
+            if estado_bloqueo[
+                'bloqueada'
+            ]:
+                messages.warning(
+                    request,
+                    (
+                        'Tarjeta temporalmente no disponible '
+                        'debido a varios intentos rechazados. '
+                        'Puedes usar efectivo o intentarlo '
+                        'nuevamente más tarde.'
+                    )
+                )
+
+                return redirect(
+                    'checkout'
+                )
 
         if not cart:
             messages.error(
@@ -930,6 +955,11 @@ def checkout_view(request):
             .first()
         )
 
+    estado_tarjeta_cliente = (
+        _estado_bloqueo_tarjeta_cliente(
+            request
+        )
+    )
 
     context = {
         'items':
@@ -956,6 +986,23 @@ def checkout_view(request):
                 'GOOGLE_MAPS_API_KEY',
                 default=''
             ),
+                'tarjeta_cliente_bloqueada': (
+            estado_tarjeta_cliente[
+                'bloqueada'
+            ]
+        ),
+
+        'tarjeta_cliente_bloqueada_hasta': (
+            estado_tarjeta_cliente[
+                'bloqueado_hasta'
+            ]
+        ),
+
+        'tarjeta_cliente_fallos': (
+            estado_tarjeta_cliente[
+                'cantidad_fallos'
+            ]
+        ),
     }
 
     return render(
@@ -965,6 +1012,246 @@ def checkout_view(request):
     )
 
 # --- VISTAS DE PAGO WOMPI (CLIENTES PAGANDO PEDIDOS) ---
+
+
+def _cliente_pago_token_hash(request):
+    """
+    Identificador anónimo estable para este navegador.
+
+    No usamos teléfono, IP, session_key ni datos de tarjeta.
+    El navegador recibe solamente un UUID aleatorio guardado
+    en su sesión; en la base únicamente almacenamos su hash.
+    """
+
+    token = request.session.get(
+        'wompi_cliente_token'
+    )
+
+    if not token:
+        token = uuid.uuid4().hex
+
+        request.session[
+            'wompi_cliente_token'
+        ] = token
+
+        request.session.modified = True
+
+    return hashlib.sha256(
+        token.encode('utf-8')
+    ).hexdigest()
+
+
+def _registrar_evento_pago(
+    pago,
+    *,
+    categoria,
+    origen,
+    codigo='',
+    mensaje='',
+    cuenta_para_cliente=False,
+    cuenta_para_global=False,
+    clave_evento=None,
+    metadata=None,
+):
+    """
+    Registra telemetría financiera sanitizada.
+
+    Si clave_evento ya existe, devolvemos el evento anterior
+    y NO incrementamos futuros contadores otra vez.
+    """
+
+    defaults = {
+        'pago':
+            pago,
+
+        'pedido':
+            pago.pedido
+            if pago
+            else None,
+
+        'configuracion_negocio':
+            (
+                pago.configuracion_negocio
+                if pago
+                else None
+            ),
+
+        'cliente_token_hash':
+            (
+                pago.cliente_token_hash
+                if pago
+                else ''
+            ),
+
+        'categoria':
+            categoria,
+
+        'origen':
+            origen,
+
+        'codigo':
+            codigo,
+
+        'mensaje':
+            mensaje,
+
+        'cuenta_para_cliente':
+            cuenta_para_cliente,
+
+        'cuenta_para_global':
+            cuenta_para_global,
+
+        'metadata':
+            metadata or {},
+    }
+
+    if clave_evento:
+        evento, creado = (
+            EventoPagoWompi.objects
+            .get_or_create(
+                clave_evento=clave_evento,
+                defaults=defaults,
+            )
+        )
+
+        return evento, creado
+
+    evento = EventoPagoWompi.objects.create(
+        **defaults
+    )
+
+    return evento, True
+
+def _estado_bloqueo_tarjeta_cliente(request):
+    """
+    Determina si este navegador debe tener TARJETA
+    temporalmente suspendida por demasiados rechazos.
+
+    No usa teléfono, nombre, IP ni datos bancarios.
+
+    Devuelve:
+        {
+            'bloqueada': bool,
+            'cantidad_fallos': int,
+            'limite': int,
+            'bloqueado_hasta': datetime | None,
+        }
+    """
+
+    try:
+        limite = int(
+            config(
+                'WOMPI_USER_FAILURE_LIMIT',
+                default=5,
+            )
+        )
+    except (TypeError, ValueError):
+        limite = 5
+
+    try:
+        ventana_minutos = int(
+            config(
+                'WOMPI_USER_FAILURE_WINDOW_MINUTES',
+                default=30,
+            )
+        )
+    except (TypeError, ValueError):
+        ventana_minutos = 30
+
+    try:
+        cooldown_minutos = int(
+            config(
+                'WOMPI_USER_COOLDOWN_MINUTES',
+                default=30,
+            )
+        )
+    except (TypeError, ValueError):
+        cooldown_minutos = 30
+
+    limite = max(limite, 1)
+    ventana_minutos = max(
+        ventana_minutos,
+        1,
+    )
+    cooldown_minutos = max(
+        cooldown_minutos,
+        1,
+    )
+
+    cliente_token_hash = (
+        _cliente_pago_token_hash(
+            request
+        )
+    )
+
+    ahora = timezone.now()
+
+    inicio_ventana = (
+        ahora
+        - timedelta(
+            minutes=ventana_minutos
+        )
+    )
+
+    eventos = list(
+        EventoPagoWompi.objects
+        .filter(
+            cliente_token_hash=(
+                cliente_token_hash
+            ),
+            cuenta_para_cliente=True,
+            fecha__gte=inicio_ventana,
+        )
+        .order_by('-fecha')[
+            :limite
+        ]
+    )
+
+    cantidad_fallos = len(
+        eventos
+    )
+
+    if cantidad_fallos < limite:
+        return {
+            'bloqueada': False,
+            'cantidad_fallos':
+                cantidad_fallos,
+            'limite':
+                limite,
+            'bloqueado_hasta':
+                None,
+        }
+
+    ultimo_fallo = eventos[0]
+
+    bloqueado_hasta = (
+        ultimo_fallo.fecha
+        + timedelta(
+            minutes=cooldown_minutos
+        )
+    )
+
+    bloqueada = (
+        bloqueado_hasta > ahora
+    )
+
+    return {
+        'bloqueada':
+            bloqueada,
+
+        'cantidad_fallos':
+            cantidad_fallos,
+
+        'limite':
+            limite,
+
+        'bloqueado_hasta':
+            (
+                bloqueado_hasta
+                if bloqueada
+                else None
+            ),
+    }
 
 
 def _decimal_monto(value, default='0.00'):
@@ -1630,6 +1917,29 @@ def _iniciar_pago_wompi_pedido(request, pedido):
             'order_tracker',
             tracking_token=pedido.tracking_token
         )
+        
+    estado_bloqueo = (
+    _estado_bloqueo_tarjeta_cliente(
+            request
+        )   
+    )
+
+    if estado_bloqueo[
+        'bloqueada'
+    ]:
+        messages.warning(
+            request,
+            (
+                'Tarjeta temporalmente no disponible '
+                'debido a varios intentos rechazados. '
+                'Puedes pagar en efectivo o intentar '
+                'nuevamente más tarde.'
+            )
+        )
+
+        return redirect(
+            'checkout'
+        )    
 
     try:
         base = _base_url(request)
@@ -1645,6 +1955,22 @@ def _iniciar_pago_wompi_pedido(request, pedido):
             .order_by('-fecha_creacion')
             .first()
         )
+        
+        if (
+            pago
+            and not pago.cliente_token_hash
+        ):
+            pago.cliente_token_hash = (
+                _cliente_pago_token_hash(
+                    request
+                )
+            )
+
+            pago.save(
+                update_fields=[
+                    'cliente_token_hash'
+                ]
+            )
 
         # Si ya tiene enlace, no contactamos Wompi otra vez.
         if pago and pago.url_enlace:
@@ -1696,6 +2022,11 @@ def _iniciar_pago_wompi_pedido(request, pedido):
                 referencia=referencia,
                 monto=pedido.total_final,
                 estado='PENDIENTE',
+                cliente_token_hash=(
+                    _cliente_pago_token_hash(
+                        request
+                    )
+                ),
             )
 
         redirect_url = (
@@ -1772,6 +2103,25 @@ def _iniciar_pago_wompi_pedido(request, pedido):
         )
 
     except Exception as e:
+        if 'pago' in locals() and pago:
+
+            _registrar_evento_pago(
+                pago,
+                categoria='ERROR_TECNICO',
+                origen='INICIO',
+                codigo='WOMPI_CONNECTION_ERROR',
+                mensaje=(
+                    'No fue posible iniciar '
+                    'el enlace de pago.'
+                ),
+                cuenta_para_cliente=False,
+                cuenta_para_global=True,
+                clave_evento=(
+                    f"ERROR-INICIO:"
+                    f"{pago.id}:"
+                    f"{uuid.uuid4().hex}"
+                ),
+            )
         print(
             f'Error Wompi pedido: {e}'
         )
@@ -2618,10 +2968,44 @@ def wompi_webhook_view(request):
             return JsonResponse({'status': 'ok' if ok else 'warning', 'msg': msg})
 
         if pago and pago.estado != 'APROBADO':
+
             pago.estado = 'RECHAZADO'
             pago.es_aprobada = False
-            pago.ultimo_error = 'Webhook recibido, pero la transacción no venía aprobada.'
+
+            pago.ultimo_error = (
+                'Webhook recibido, pero la '
+                'transacción no venía aprobada.'
+            )
+
             pago.save()
+
+            cuerpo_hash = hashlib.sha256(
+                raw_body
+            ).hexdigest()
+
+            identificador_evento = (
+                str(id_transaccion).strip()
+                if id_transaccion
+                else cuerpo_hash
+            )
+
+            _registrar_evento_pago(
+                pago,
+                categoria='RECHAZO_CLIENTE',
+                origen='WEBHOOK',
+                codigo='WOMPI_RECHAZADO',
+                mensaje=(
+                    'Wompi informó que la '
+                    'transacción no fue aprobada.'
+                ),
+                cuenta_para_cliente=True,
+                cuenta_para_global=False,
+                clave_evento=(
+                    f"RECHAZO:"
+                    f"{pago.id}:"
+                    f"{identificador_evento}"
+                ),
+            )
 
         return JsonResponse({'status': 'ok', 'msg': 'Webhook recibido'})
 

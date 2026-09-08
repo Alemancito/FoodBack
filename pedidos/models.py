@@ -241,6 +241,12 @@ class PagoWompi(models.Model):
         blank=True,
         unique=True,
     )
+    
+    cliente_token_hash = models.CharField(
+        max_length=64,
+        blank=True,
+        db_index=True,
+    )
 
     monto = models.DecimalField(max_digits=10, decimal_places=2)
     estado = models.CharField(
@@ -273,6 +279,194 @@ class PagoWompi(models.Model):
         verbose_name = "Pago Wompi"
         verbose_name_plural = "Pagos Wompi"
         ordering = ['-fecha_creacion']
+        
+        
+        
+class EventoPagoWompi(models.Model):
+    CATEGORIA_CHOICES = [
+        (
+            'RECHAZO_CLIENTE',
+            'Rechazo bancario / cliente'
+        ),
+        (
+            'ERROR_TECNICO',
+            'Error técnico'
+        ),
+        (
+            'SEGURIDAD',
+            'Evento de seguridad'
+        ),
+        (
+            'INFO',
+            'Información'
+        ),
+    ]
+
+    ORIGEN_CHOICES = [
+        ('INICIO', 'Inicio de pago'),
+        ('WEBHOOK', 'Webhook'),
+        ('REDIRECT', 'Redirect'),
+        ('SISTEMA', 'Sistema'),
+    ]
+
+    pago = models.ForeignKey(
+        PagoWompi,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='eventos',
+    )
+
+    pedido = models.ForeignKey(
+        Pedido,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='eventos_pago_wompi',
+    )
+
+    configuracion_negocio = models.ForeignKey(
+        ConfiguracionNegocio,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='eventos_pago_wompi',
+    )
+
+    cliente_token_hash = models.CharField(
+        max_length=64,
+        blank=True,
+        db_index=True,
+    )
+
+    categoria = models.CharField(
+        max_length=30,
+        choices=CATEGORIA_CHOICES,
+        db_index=True,
+    )
+
+    origen = models.CharField(
+        max_length=20,
+        choices=ORIGEN_CHOICES,
+    )
+
+    codigo = models.CharField(
+        max_length=80,
+        blank=True,
+    )
+
+    mensaje = models.TextField(
+        blank=True,
+    )
+
+    # Permite que los contadores futuros sean explícitos.
+    cuenta_para_cliente = models.BooleanField(
+        default=False
+    )
+
+    cuenta_para_global = models.BooleanField(
+        default=False
+    )
+
+    # Evita que un replay del mismo webhook
+    # incremente contadores varias veces.
+    clave_evento = models.CharField(
+        max_length=128,
+        null=True,
+        blank=True,
+        unique=True,
+    )
+
+    # Solo metadata sanitizada.
+    # Nunca tarjeta, CVV, secrets ni Authorization.
+    metadata = models.JSONField(
+        default=dict,
+        blank=True,
+    )
+
+    fecha = models.DateTimeField(
+        auto_now_add=True,
+        db_index=True,
+    )
+
+    def __str__(self):
+        return (
+            f"{self.categoria} | "
+            f"{self.codigo or 'SIN-CODIGO'}"
+        )
+
+    class Meta:
+        verbose_name = "Evento de pago Wompi"
+        verbose_name_plural = "Eventos de pago Wompi"
+        ordering = ['-fecha']
+
+
+class EstadoPasarelaPago(models.Model):
+    """
+    Estado del circuit breaker.
+
+    En el futuro este estado quedará naturalmente
+    asociado a cada tenant/sucursal.
+    """
+
+    configuracion_negocio = models.OneToOneField(
+        ConfiguracionNegocio,
+        on_delete=models.CASCADE,
+        related_name='estado_pasarela',
+    )
+
+    bloqueo_manual = models.BooleanField(
+        default=False
+    )
+
+    bloqueado_hasta = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    codigo_motivo = models.CharField(
+        max_length=80,
+        blank=True,
+    )
+
+    motivo = models.TextField(
+        blank=True,
+    )
+
+    actualizado_en = models.DateTimeField(
+        auto_now=True
+    )
+
+    @property
+    def bloqueada(self):
+        if self.bloqueo_manual:
+            return True
+
+        if not self.bloqueado_hasta:
+            return False
+
+        return (
+            self.bloqueado_hasta
+            > timezone.now()
+        )
+
+    def __str__(self):
+        estado = (
+            "BLOQUEADA"
+            if self.bloqueada
+            else "ACTIVA"
+        )
+
+        return (
+            f"Pasarela "
+            f"{self.configuracion_negocio_id}: "
+            f"{estado}"
+        )
+
+    class Meta:
+        verbose_name = "Estado de pasarela"
+        verbose_name_plural = "Estados de pasarela"        
+
 
 
 class DetallePedido(models.Model):

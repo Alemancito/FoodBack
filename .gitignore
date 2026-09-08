@@ -8,6 +8,9 @@
 *.bak
 
 
+# VS Code local workspace
+.vscode/
+
 # --- SEGURIDAD (¡Lo más importante!) ---
 .env
 .env.local

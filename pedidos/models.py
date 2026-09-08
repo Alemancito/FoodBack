@@ -236,7 +236,11 @@ class PagoWompi(models.Model):
         max_length=100, null=True, blank=True, db_index=True)
     url_enlace = models.URLField(max_length=700, null=True, blank=True)
     id_transaccion = models.CharField(
-        max_length=150, null=True, blank=True, db_index=True)
+        max_length=150,
+        null=True,
+        blank=True,
+        unique=True,
+    )
 
     monto = models.DecimalField(max_digits=10, decimal_places=2)
     estado = models.CharField(

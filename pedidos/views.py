@@ -763,11 +763,9 @@ def checkout_view(request):
                 request.session.modified = True
 
                 if metodo_pago == 'TARJETA':
-                    return redirect(
-                        'pagar_wompi',
-                        tracking_token=(
-                            pedido.tracking_token
-                        )
+                    return _iniciar_pago_wompi_pedido(
+                        request,
+                        pedido
                     )
 
                 return redirect(
@@ -1185,10 +1183,19 @@ def _validar_hash_webhook_wompi(request, *, referencia=None, tipo_pago=None, raw
 
 
 def _monto_coincide(monto_esperado, monto_recibido):
+    """
+    Un pago solamente puede confirmarse si Wompi informa
+    explícitamente el monto y este coincide exactamente
+    con el registrado localmente.
+    """
+
     if monto_recibido in [None, '']:
-        # Algunos webhooks pueden no traer monto en la misma raíz.
-        return True
-    return _decimal_monto(monto_esperado) == _decimal_monto(monto_recibido)
+        return False
+
+    return (
+        _decimal_monto(monto_esperado)
+        == _decimal_monto(monto_recibido)
+    )
 
 
 def _renovar_suscripcion_30_dias(config_negocio=None):
@@ -1207,71 +1214,296 @@ def _renovar_suscripcion_30_dias(config_negocio=None):
 
 
 @transaction.atomic
-def _procesar_pago_wompi_aprobado(referencia, *, id_transaccion=None, monto=None, raw_payload=None, origen='WEBHOOK'):
-    pago = PagoWompi.objects.select_for_update().filter(referencia=referencia).first()
+def _procesar_pago_wompi_aprobado(
+    referencia,
+    *,
+    id_transaccion=None,
+    monto=None,
+    raw_payload=None,
+    origen='WEBHOOK'
+):
+    """
+    Confirma un pago Wompi solamente si:
 
-    # Respaldo por si Wompi devuelve ORDEN-15 sin token en algún evento viejo.
-    if not pago and referencia and referencia.startswith('ORDEN-'):
+    - existe el PagoWompi local;
+    - existe idTransaccion;
+    - el monto coincide exactamente;
+    - esa transacción no fue usada por otro pago;
+    - un replay del mismo pago es idempotente.
+
+    Esta función es la barrera central para cualquier
+    confirmación financiera de FoodBack.
+    """
+
+    pago = (
+        PagoWompi.objects
+        .select_for_update()
+        .filter(
+            referencia=referencia
+        )
+        .first()
+    )
+
+    # Compatibilidad temporal con referencias antiguas.
+    if (
+        not pago
+        and referencia
+        and referencia.startswith('ORDEN-')
+    ):
         try:
-            pedido_id = int(referencia.split('-')[1])
-            pedido = Pedido.objects.select_for_update().get(id=pedido_id)
-            pago = PagoWompi.objects.filter(
-                pedido=pedido).order_by('-fecha_creacion').first()
+            pedido_id = int(
+                referencia.split('-')[1]
+            )
+
+            pedido = (
+                Pedido.objects
+                .select_for_update()
+                .get(id=pedido_id)
+            )
+
+            pago = (
+                PagoWompi.objects
+                .select_for_update()
+                .filter(pedido=pedido)
+                .order_by('-fecha_creacion')
+                .first()
+            )
+
         except Exception:
             pago = None
 
-    if not pago and referencia and referencia.startswith('SUBS-'):
-        pago = PagoWompi.objects.filter(
-            referencia=referencia).order_by('-fecha_creacion').first()
+    if (
+        not pago
+        and referencia
+        and referencia.startswith('SUBS-')
+    ):
+        pago = (
+            PagoWompi.objects
+            .select_for_update()
+            .filter(
+                referencia=referencia
+            )
+            .order_by('-fecha_creacion')
+            .first()
+        )
 
     if not pago:
-        return False, 'No existe registro local para esa referencia.'
+        return (
+            False,
+            'No existe registro local para esa referencia.'
+        )
 
-    if not _monto_coincide(pago.monto, monto):
-        pago.estado = 'ERROR'
-        pago.ultimo_error = f'Monto no coincide. Esperado {pago.monto}, recibido {monto}'
-        if raw_payload is not None:
-            pago.raw_webhook = raw_payload
-        pago.save()
-        return False, pago.ultimo_error
+    # -------------------------------------------------
+    # ID DE TRANSACCIÓN OBLIGATORIO
+    # -------------------------------------------------
+
+    id_transaccion = str(
+        id_transaccion or ''
+    ).strip()
+
+    if not id_transaccion:
+        if pago.estado != 'APROBADO':
+            pago.ultimo_error = (
+                'Wompi indicó aprobación sin '
+                'idTransaccion.'
+            )
+
+            if raw_payload is not None:
+                if origen == 'REDIRECT':
+                    pago.raw_redirect = raw_payload
+                else:
+                    pago.raw_webhook = raw_payload
+
+            pago.save()
+
+        return (
+            False,
+            'La transacción no contiene '
+            'un identificador válido.'
+        )
+
+    # -------------------------------------------------
+    # REPLAY DEL MISMO PAGO
+    # -------------------------------------------------
 
     if pago.estado == 'APROBADO':
-        return True, 'Pago ya estaba aprobado.'
+
+        # Mismo pago + misma transacción =
+        # replay válido e idempotente.
+        if (
+            pago.id_transaccion
+            and str(pago.id_transaccion)
+            == id_transaccion
+        ):
+            return (
+                True,
+                'Pago ya estaba aprobado.'
+            )
+
+        # Una referencia ya aprobada jamás debe
+        # cambiar posteriormente de transacción.
+        return (
+            False,
+            'El pago ya fue aprobado con '
+            'otra transacción.'
+        )
+
+    # -------------------------------------------------
+    # MONTO OBLIGATORIO Y EXACTO
+    # -------------------------------------------------
+
+    if not _monto_coincide(
+        pago.monto,
+        monto
+    ):
+        pago.estado = 'ERROR'
+
+        pago.ultimo_error = (
+            f'Monto no coincide. '
+            f'Esperado {pago.monto}, '
+            f'recibido {monto}'
+        )
+
+        if raw_payload is not None:
+            if origen == 'REDIRECT':
+                pago.raw_redirect = raw_payload
+            else:
+                pago.raw_webhook = raw_payload
+
+        pago.save()
+
+        return (
+            False,
+            pago.ultimo_error
+        )
+
+    # -------------------------------------------------
+    # UNA TRANSACCIÓN NO PUEDE PAGAR DOS COSAS
+    # -------------------------------------------------
+
+    transaccion_usada = (
+        PagoWompi.objects
+        .select_for_update()
+        .filter(
+            id_transaccion=id_transaccion
+        )
+        .exclude(
+            pk=pago.pk
+        )
+        .exists()
+    )
+
+    if transaccion_usada:
+        pago.ultimo_error = (
+            'El idTransaccion recibido ya fue '
+            'utilizado por otro pago.'
+        )
+
+        if raw_payload is not None:
+            if origen == 'REDIRECT':
+                pago.raw_redirect = raw_payload
+            else:
+                pago.raw_webhook = raw_payload
+
+        pago.save()
+
+        return (
+            False,
+            pago.ultimo_error
+        )
+
+    # Defensa adicional mientras todavía existen
+    # campos históricos en Pedido.
+    pedido_con_misma_transaccion = (
+        Pedido.objects
+        .filter(
+            wompi_id_transaccion=id_transaccion
+        )
+    )
+
+    if pago.pedido_id:
+        pedido_con_misma_transaccion = (
+            pedido_con_misma_transaccion.exclude(
+                id=pago.pedido_id
+            )
+        )
+
+    if pedido_con_misma_transaccion.exists():
+        pago.ultimo_error = (
+            'La transacción ya está asociada '
+            'a otro pedido.'
+        )
+
+        pago.save()
+
+        return (
+            False,
+            pago.ultimo_error
+        )
+
+    # -------------------------------------------------
+    # APROBACIÓN
+    # -------------------------------------------------
 
     pago.estado = 'APROBADO'
     pago.es_aprobada = True
-    if id_transaccion:
-        pago.id_transaccion = id_transaccion
+    pago.id_transaccion = id_transaccion
+
     if raw_payload is not None:
         if origen == 'REDIRECT':
             pago.raw_redirect = raw_payload
         else:
             pago.raw_webhook = raw_payload
+
     pago.fecha_aprobacion = timezone.now()
     pago.ultimo_error = ''
     pago.save()
 
-    if pago.tipo == 'PEDIDO' and pago.pedido:
+    if (
+        pago.tipo == 'PEDIDO'
+        and pago.pedido
+    ):
         pedido = pago.pedido
+
         pedido.estado = 'RECIBIDO'
         pedido.pago_verificado = True
-        pedido.wompi_id_transaccion = id_transaccion or pedido.wompi_id_transaccion
-        pedido.fecha_pago_verificado = timezone.now()
+        pedido.wompi_id_transaccion = (
+            id_transaccion
+        )
+        pedido.fecha_pago_verificado = (
+            timezone.now()
+        )
+
         pedido.save()
-        return True, f'Pedido #{pedido.id} confirmado.'
+
+        return (
+            True,
+            f'Pedido #{pedido.id} confirmado.'
+        )
 
     if pago.tipo == 'SUSCRIPCION':
-        _renovar_suscripcion_30_dias(pago.configuracion_negocio)
-        return True, 'Suscripción renovada.'
+        _renovar_suscripcion_30_dias(
+            pago.configuracion_negocio
+        )
 
-    return True, 'Pago aprobado.'
+        return (
+            True,
+            'Suscripción renovada.'
+        )
 
-
-def pagar_wompi_view(request, tracking_token):
-    pedido = get_object_or_404(
-        Pedido,
-        tracking_token=tracking_token
+    return (
+        True,
+        'Pago aprobado.'
     )
+
+
+def _iniciar_pago_wompi_pedido(request, pedido):
+    """
+    Crea o reutiliza de forma idempotente el intento de pago
+    correspondiente a un pedido.
+
+    Nunca crea un segundo PagoWompi si ya existe uno pendiente.
+    """
 
     if pedido.metodo_pago != 'TARJETA':
         return redirect(
@@ -1289,64 +1521,159 @@ def pagar_wompi_view(request, tracking_token):
         base = _base_url(request)
         webhook_url = f"{base}/wompi-webhook/"
 
-        pago = PagoWompi.objects.filter(pedido=pedido, estado__in=[
-                                        'CREADO', 'PENDIENTE']).order_by('-fecha_creacion').first()
+        # Buscamos primero un intento reutilizable.
+        pago = (
+            PagoWompi.objects
+            .filter(
+                pedido=pedido,
+                estado__in=['CREADO', 'PENDIENTE']
+            )
+            .order_by('-fecha_creacion')
+            .first()
+        )
 
+        # Si ya tiene enlace, no contactamos Wompi otra vez.
         if pago and pago.url_enlace:
-            return redirect(pago.url_enlace)
+            return redirect(
+                pago.url_enlace
+            )
 
-        referencia = pedido.wompi_referencia or _wompi_crear_referencia(
-            'ORDEN', pedido.id)
-        pedido.wompi_referencia = referencia
-        pedido.save()
+        # Si existe un PagoWompi pendiente sin URL,
+        # reutilizamos su referencia y su registro.
+        if pago:
+            referencia = pago.referencia
 
-        pago = PagoWompi.objects.create(
-            tipo='PEDIDO',
-            pedido=pedido,
-            referencia=referencia,
-            monto=pedido.total_final,
-            estado='PENDIENTE',
+            if pedido.wompi_referencia != referencia:
+                pedido.wompi_referencia = referencia
+                pedido.save(
+                    update_fields=[
+                        'wompi_referencia'
+                    ]
+                )
+
+        else:
+            referencia = (
+                pedido.wompi_referencia
+                or _wompi_crear_referencia(
+                    'ORDEN',
+                    pedido.id
+                )
+            )
+
+            if pedido.wompi_referencia != referencia:
+                pedido.wompi_referencia = referencia
+                pedido.save(
+                    update_fields=[
+                        'wompi_referencia'
+                    ]
+                )
+
+            pago = PagoWompi.objects.create(
+                tipo='PEDIDO',
+                pedido=pedido,
+                referencia=referencia,
+                monto=pedido.total_final,
+                estado='PENDIENTE',
+            )
+
+        redirect_url = (
+            f"{base}/wompi-respuesta/"
+            f"?ref={referencia}"
         )
 
-        redirect_url = f"{base}/wompi-respuesta/?ref={referencia}"
-
-        data, raw_payload = _wompi_crear_enlace_pago(
-            request,
-            tipo_pago='PEDIDO',
-            referencia=referencia,
-            monto=pedido.total_final,
-            nombre_producto=f"Pedido #{pedido.id}",
-            redirect_url=redirect_url,
-            webhook_url=webhook_url,
+        data, raw_payload = (
+            _wompi_crear_enlace_pago(
+                request,
+                tipo_pago='PEDIDO',
+                referencia=referencia,
+                monto=pedido.total_final,
+                nombre_producto=(
+                    f"Pedido #{pedido.id}"
+                ),
+                redirect_url=redirect_url,
+                webhook_url=webhook_url,
+            )
         )
 
-        url_enlace = data.get('urlEnlace') or data.get('UrlEnlace')
-        id_enlace = data.get('idEnlace') or data.get('IdEnlace')
+        url_enlace = (
+            data.get('urlEnlace')
+            or data.get('UrlEnlace')
+        )
+
+        id_enlace = (
+            data.get('idEnlace')
+            or data.get('IdEnlace')
+        )
 
         if not url_enlace:
             pago.estado = 'ERROR'
-            pago.ultimo_error = 'Wompi no devolvió urlEnlace.'
-            pago.raw_creacion = {'request': raw_payload, 'response': data}
+            pago.ultimo_error = (
+                'Wompi no devolvió urlEnlace.'
+            )
+            pago.raw_creacion = {
+                'request': raw_payload,
+                'response': data,
+            }
             pago.save()
-            messages.error(request, 'No se pudo generar el enlace de pago.')
+
+            messages.error(
+                request,
+                'No se pudo generar el enlace de pago.'
+            )
+
             return redirect('checkout')
 
         pago.url_enlace = url_enlace
-        pago.id_enlace = str(id_enlace or '')
-        pago.raw_creacion = {'request': raw_payload, 'response': data}
+        pago.id_enlace = str(
+            id_enlace or ''
+        )
+        pago.raw_creacion = {
+            'request': raw_payload,
+            'response': data,
+        }
         pago.save()
 
-        pedido.wompi_id_enlace = str(id_enlace or '')
+        pedido.wompi_id_enlace = str(
+            id_enlace or ''
+        )
         pedido.wompi_url_enlace = url_enlace
-        pedido.save()
 
-        return redirect(url_enlace)
+        pedido.save(
+            update_fields=[
+                'wompi_id_enlace',
+                'wompi_url_enlace',
+            ]
+        )
+
+        return redirect(
+            url_enlace
+        )
 
     except Exception as e:
+        print(
+            f'Error Wompi pedido: {e}'
+        )
+
         messages.error(
-            request, 'No pudimos conectar con la pasarela de pago. Intenta de nuevo o elige efectivo.')
-        print(f'Error Wompi pedido: {e}')
+            request,
+            'No pudimos conectar con la pasarela '
+            'de pago. Intenta de nuevo o elige efectivo.'
+        )
+
         return redirect('checkout')
+
+
+@require_POST
+def pagar_wompi_view(request, tracking_token):
+    pedido = get_object_or_404(
+        Pedido,
+        tracking_token=tracking_token
+    )
+
+    return _iniciar_pago_wompi_pedido(
+        request,
+        pedido
+    )
 
 
 def wompi_respuesta_view(request):
@@ -2022,6 +2349,7 @@ def perfil_usuario_view(request):
 
 @login_required(login_url='login_custom')
 @user_passes_test(es_admin, login_url='login_custom')
+@require_POST
 def pagar_suscripcion_view(request):
     try:
         precio_mensual = _decimal_monto(

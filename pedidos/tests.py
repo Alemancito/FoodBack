@@ -1,9 +1,15 @@
+import json
+from unittest.mock import patch
+
 from datetime import date, timedelta
 from decimal import Decimal
 
 from django.contrib.auth.models import Group, User
 from django.test import Client, TestCase
 from django.urls import reverse
+
+from django.db import IntegrityError, transaction
+
 
 from .models import (
     Categoria,
@@ -14,6 +20,7 @@ from .models import (
     OpcionProducto,
     Pedido,
     Producto,
+    PagoWompi,
 )
 
 
@@ -1021,3 +1028,764 @@ class CsrfSecurityTests(FoodBackTestBase):
             response.status_code,
             403,
         )
+        
+
+class PaymentHttpSecurityTests(FoodBackTestBase):
+    """
+    FB-SEC-003B:
+    Seguridad del inicio y confirmación de pagos Wompi.
+
+    Todas las llamadas externas están mockeadas.
+    Ninguna prueba contacta Wompi real.
+    """
+
+    WOMPI_URL_FAKE = "https://wompi.test/enlace-seguro"
+
+    def crear_pedido_tarjeta(self, telefono):
+        pedido = self.crear_pedido(
+            estado="PENDIENTE",
+            telefono=telefono,
+        )
+
+        pedido.metodo_pago = "TARJETA"
+        pedido.estado = "PENDIENTE"
+        pedido.save()
+
+        pedido.refresh_from_db()
+
+        return pedido
+
+    def crear_pago_pendiente(self, pedido):
+        referencia = (
+            pedido.wompi_referencia
+            or f"ORDEN-{pedido.id}-TESTSEC"
+        )
+
+        pedido.wompi_referencia = referencia
+        pedido.save()
+
+        pago = PagoWompi.objects.create(
+            tipo="PEDIDO",
+            pedido=pedido,
+            referencia=referencia,
+            monto=pedido.total_final,
+            estado="PENDIENTE",
+        )
+
+        return pago
+
+    def respuesta_wompi_fake(self):
+        return (
+            {
+                "urlEnlace": self.WOMPI_URL_FAKE,
+                "idEnlace": "LINK-SECURITY-TEST",
+            },
+            {
+                "mock": True,
+            },
+        )
+
+    @patch("pedidos.views._wompi_crear_enlace_pago")
+    def test_get_no_debe_iniciar_pago_de_pedido(
+        self,
+        mock_crear_enlace,
+    ):
+        mock_crear_enlace.return_value = (
+            self.respuesta_wompi_fake()
+        )
+
+        pedido = self.crear_pedido_tarjeta(
+            "79000001"
+        )
+
+        response = self.client.get(
+            reverse(
+                "pagar_wompi",
+                args=[pedido.tracking_token],
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            405,
+        )
+
+        self.assertEqual(
+            PagoWompi.objects.filter(
+                pedido=pedido
+            ).count(),
+            0,
+        )
+
+        mock_crear_enlace.assert_not_called()
+
+    @patch("pedidos.views._wompi_crear_enlace_pago")
+    def test_get_no_debe_iniciar_pago_de_suscripcion(
+        self,
+        mock_crear_enlace,
+    ):
+        mock_crear_enlace.return_value = (
+            self.respuesta_wompi_fake()
+        )
+
+        self.client.force_login(
+            self.admin_user
+        )
+
+        response = self.client.get(
+            reverse("pagar_suscripcion")
+        )
+
+        self.assertEqual(
+            response.status_code,
+            405,
+        )
+
+        self.assertFalse(
+            PagoWompi.objects.filter(
+                tipo="SUSCRIPCION"
+            ).exists()
+        )
+
+        mock_crear_enlace.assert_not_called()
+
+    @patch("pedidos.views._wompi_crear_enlace_pago")
+    def test_post_si_puede_iniciar_pago_de_pedido(
+        self,
+        mock_crear_enlace,
+    ):
+        mock_crear_enlace.return_value = (
+            self.respuesta_wompi_fake()
+        )
+
+        pedido = self.crear_pedido_tarjeta(
+            "79000002"
+        )
+
+        response = self.client.post(
+            reverse(
+                "pagar_wompi",
+                args=[pedido.tracking_token],
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        self.assertEqual(
+            response["Location"],
+            self.WOMPI_URL_FAKE,
+        )
+
+        self.assertEqual(
+            PagoWompi.objects.filter(
+                pedido=pedido
+            ).count(),
+            1,
+        )
+
+    @patch("pedidos.views._wompi_crear_enlace_pago")
+    def test_repetir_inicio_pago_no_crea_dos_registros(
+        self,
+        mock_crear_enlace,
+    ):
+        mock_crear_enlace.return_value = (
+            self.respuesta_wompi_fake()
+        )
+
+        pedido = self.crear_pedido_tarjeta(
+            "79000003"
+        )
+
+        url = reverse(
+            "pagar_wompi",
+            args=[pedido.tracking_token],
+        )
+
+        self.client.post(url)
+        self.client.post(url)
+
+        self.assertEqual(
+            PagoWompi.objects.filter(
+                pedido=pedido
+            ).count(),
+            1,
+        )
+
+        self.assertEqual(
+            mock_crear_enlace.call_count,
+            1,
+        )
+
+    @patch("pedidos.views._wompi_crear_enlace_pago")
+    def test_pago_pendiente_sin_url_se_reutiliza(
+        self,
+        mock_crear_enlace,
+    ):
+        mock_crear_enlace.return_value = (
+            self.respuesta_wompi_fake()
+        )
+
+        pedido = self.crear_pedido_tarjeta(
+            "79000004"
+        )
+
+        pago_original = (
+            self.crear_pago_pendiente(
+                pedido
+            )
+        )
+
+        response = self.client.post(
+            reverse(
+                "pagar_wompi",
+                args=[pedido.tracking_token],
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        self.assertEqual(
+            response["Location"],
+            self.WOMPI_URL_FAKE,
+        )
+
+        self.assertEqual(
+            PagoWompi.objects.filter(
+                pedido=pedido
+            ).count(),
+            1,
+        )
+
+        pago_original.refresh_from_db()
+
+        self.assertEqual(
+            pago_original.url_enlace,
+            self.WOMPI_URL_FAKE,
+        )
+
+    def test_webhook_get_es_rechazado(self):
+        response = self.client.get(
+            reverse("wompi_webhook")
+        )
+
+        self.assertEqual(
+            response.status_code,
+            405,
+        )
+
+    def test_webhook_sin_firma_es_rechazado(self):
+        pedido = self.crear_pedido_tarjeta(
+            "79000005"
+        )
+
+        pago = self.crear_pago_pendiente(
+            pedido
+        )
+
+        body = {
+            "transaccion": {
+                "identificadorEnlaceComercio":
+                    pago.referencia,
+                "esAprobada": True,
+                "idTransaccion":
+                    "TX-SIN-FIRMA",
+                "monto":
+                    str(pago.monto),
+            }
+        }
+
+        response = self.client.post(
+            reverse("wompi_webhook"),
+            data=json.dumps(body),
+            content_type="application/json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403,
+        )
+
+        pedido.refresh_from_db()
+        pago.refresh_from_db()
+
+        self.assertFalse(
+            pedido.pago_verificado
+        )
+
+        self.assertNotEqual(
+            pago.estado,
+            "APROBADO",
+        )
+
+    @patch(
+        "pedidos.views._validar_hash_webhook_wompi",
+        return_value=True,
+    )
+    def test_webhook_aprobado_con_monto_incorrecto_no_confirma(
+        self,
+        mock_hash,
+    ):
+        pedido = self.crear_pedido_tarjeta(
+            "79000006"
+        )
+
+        pago = self.crear_pago_pendiente(
+            pedido
+        )
+
+        body = {
+            "transaccion": {
+                "identificadorEnlaceComercio":
+                    pago.referencia,
+                "esAprobada": True,
+                "idTransaccion":
+                    "TX-MONTO-MALO",
+                "monto":
+                    "0.01",
+            }
+        }
+
+        self.client.post(
+            reverse("wompi_webhook"),
+            data=json.dumps(body),
+            content_type="application/json",
+        )
+
+        pedido.refresh_from_db()
+        pago.refresh_from_db()
+
+        self.assertFalse(
+            pedido.pago_verificado
+        )
+
+        self.assertNotEqual(
+            pago.estado,
+            "APROBADO",
+        )
+
+    @patch(
+        "pedidos.views._validar_hash_webhook_wompi",
+        return_value=True,
+    )
+    def test_webhook_aprobado_sin_monto_no_confirma(
+        self,
+        mock_hash,
+    ):
+        pedido = self.crear_pedido_tarjeta(
+            "79000007"
+        )
+
+        pago = self.crear_pago_pendiente(
+            pedido
+        )
+
+        body = {
+            "transaccion": {
+                "identificadorEnlaceComercio":
+                    pago.referencia,
+                "esAprobada": True,
+                "idTransaccion":
+                    "TX-SIN-MONTO",
+            }
+        }
+
+        self.client.post(
+            reverse("wompi_webhook"),
+            data=json.dumps(body),
+            content_type="application/json",
+        )
+
+        pedido.refresh_from_db()
+        pago.refresh_from_db()
+
+        self.assertFalse(
+            pedido.pago_verificado
+        )
+
+        self.assertNotEqual(
+            pago.estado,
+            "APROBADO",
+        )
+        
+    @patch(
+        "pedidos.views._validar_hash_webhook_wompi",
+        return_value=True,
+    )
+    def test_replay_mismo_webhook_pedido_no_duplica_efecto(
+        self,
+        mock_hash,
+    ):
+        pedido = self.crear_pedido_tarjeta(
+        "79000008"
+        )
+
+        pago = self.crear_pago_pendiente(
+            pedido
+        )
+
+        body = {
+            "transaccion": {
+                "identificadorEnlaceComercio":
+                    pago.referencia,
+                "esAprobada": True,
+                "idTransaccion":
+                    "TX-REPLAY-PEDIDO",
+                "monto":
+                    str(pago.monto),
+            }
+        }
+
+        url = reverse("wompi_webhook")
+
+        self.client.post(
+            url,
+            data=json.dumps(body),
+            content_type="application/json",
+        )
+
+        pedido.refresh_from_db()
+        pago.refresh_from_db()
+
+        fecha_pago_1 = (
+            pedido.fecha_pago_verificado
+        )
+
+        fecha_aprobacion_1 = (
+            pago.fecha_aprobacion
+        )
+
+        self.client.post(
+            url,
+            data=json.dumps(body),
+            content_type="application/json",
+        )
+
+        pedido.refresh_from_db()
+        pago.refresh_from_db()
+
+        self.assertTrue(
+            pedido.pago_verificado
+        )
+
+        self.assertEqual(
+            pedido.fecha_pago_verificado,
+            fecha_pago_1,
+        )
+
+        self.assertEqual(
+            pago.fecha_aprobacion,
+            fecha_aprobacion_1,
+        )
+
+    @patch(
+        "pedidos.views._validar_hash_webhook_wompi",
+        return_value=True,
+    )
+    def test_replay_suscripcion_no_agrega_60_dias(
+        self,
+        mock_hash,
+    ):
+        fecha_inicial = (
+            date.today()
+            + timedelta(days=10)
+        )
+
+        self.config.fecha_vencimiento = (
+            fecha_inicial
+        )
+        self.config.save()
+
+        pago = PagoWompi.objects.create(
+            tipo="SUSCRIPCION",
+            configuracion_negocio=self.config,
+            referencia="SUBS-TEST-REPLAY",
+            monto=Decimal("50.00"),
+            estado="PENDIENTE",
+        )
+
+        body = {
+            "transaccion": {
+                "identificadorEnlaceComercio":
+                    pago.referencia,
+                "esAprobada": True,
+                "idTransaccion":
+                    "TX-SUBS-REPLAY",
+                "monto":
+                    str(pago.monto),
+            }
+        }
+
+        url = reverse("wompi_webhook")
+
+        self.client.post(
+            url,
+            data=json.dumps(body),
+            content_type="application/json",
+        )
+
+        self.client.post(
+            url,
+            data=json.dumps(body),
+            content_type="application/json",
+        )
+
+        self.config.refresh_from_db()
+
+        self.assertEqual(
+            self.config.fecha_vencimiento,
+            fecha_inicial
+            + timedelta(days=30),
+        )
+
+    @patch(
+        "pedidos.views._validar_hash_webhook_wompi",
+        return_value=True,
+    )
+    def test_misma_transaccion_no_puede_aprobar_dos_pagos(
+        self,
+        mock_hash,
+    ):
+        pedido_1 = self.crear_pedido_tarjeta(
+            "79000009"
+        )
+
+        pedido_2 = self.crear_pedido_tarjeta(
+            "79000010"
+        )
+
+        pago_1 = self.crear_pago_pendiente(
+            pedido_1
+        )
+
+        pago_2 = self.crear_pago_pendiente(
+            pedido_2
+        )
+
+        tx_repetida = "TX-GLOBAL-DUPLICADA"
+
+        body_1 = {
+            "transaccion": {
+                "identificadorEnlaceComercio":
+                    pago_1.referencia,
+                "esAprobada": True,
+                "idTransaccion":
+                    tx_repetida,
+                "monto":
+                    str(pago_1.monto),
+            }
+        }
+
+        body_2 = {
+            "transaccion": {
+                "identificadorEnlaceComercio":
+                    pago_2.referencia,
+                "esAprobada": True,
+                "idTransaccion":
+                    tx_repetida,
+                "monto":
+                    str(pago_2.monto),
+            }
+        }
+
+        url = reverse("wompi_webhook")
+
+        self.client.post(
+            url,
+            data=json.dumps(body_1),
+            content_type="application/json",
+        )
+
+        self.client.post(
+            url,
+            data=json.dumps(body_2),
+            content_type="application/json",
+        )
+
+        pedido_1.refresh_from_db()
+        pedido_2.refresh_from_db()
+
+        self.assertTrue(
+            pedido_1.pago_verificado
+        )
+
+        # Una transacción Wompi real
+        # jamás debe poder pagar dos pedidos.
+        self.assertFalse(
+            pedido_2.pago_verificado
+        )
+
+    @patch(
+        "pedidos.views._validar_hash_webhook_wompi",
+        return_value=True,
+    )
+    def test_webhook_aprobado_sin_id_transaccion_no_confirma(
+        self,
+        mock_hash,
+    ):
+        pedido = self.crear_pedido_tarjeta(
+            "79000011"
+        )
+
+        pago = self.crear_pago_pendiente(
+            pedido
+        )
+
+        body = {
+            "transaccion": {
+                "identificadorEnlaceComercio":
+                    pago.referencia,
+                "esAprobada": True,
+                "monto":
+                    str(pago.monto),
+            }
+        }
+
+        self.client.post(
+            reverse("wompi_webhook"),
+            data=json.dumps(body),
+            content_type="application/json",
+        )
+
+        pedido.refresh_from_db()
+        pago.refresh_from_db()
+
+        self.assertFalse(
+            pedido.pago_verificado
+        )
+
+        self.assertNotEqual(
+            pago.estado,
+            "APROBADO",
+        )
+
+    def test_redirect_sin_hash_no_confirma_pago(self):
+        pedido = self.crear_pedido_tarjeta(
+            "79000012"
+        )
+
+        pago = self.crear_pago_pendiente(
+            pedido
+        )
+
+        response = self.client.get(
+            "/wompi-respuesta/",
+            {
+                "ref": pago.referencia,
+                "idTransaccion":
+                    "TX-REDIRECT-SIN-HASH",
+                "monto":
+                    str(pago.monto),
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        pedido.refresh_from_db()
+        pago.refresh_from_db()
+
+        self.assertFalse(
+            pedido.pago_verificado
+        )
+
+        self.assertNotEqual(
+            pago.estado,
+            "APROBADO",
+        )
+
+    def test_iniciar_pago_pedido_sin_csrf_es_rechazado(
+        self
+    ):
+        csrf_client = Client(
+            enforce_csrf_checks=True
+        )
+
+        pedido = self.crear_pedido_tarjeta(
+            "79000013"
+        )
+
+        response = csrf_client.post(
+            reverse(
+                "pagar_wompi",
+                args=[
+                    pedido.tracking_token
+                ],
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403,
+        )
+
+        self.assertFalse(
+            PagoWompi.objects.filter(
+                pedido=pedido
+            ).exists()
+        )
+
+    def test_iniciar_suscripcion_sin_csrf_es_rechazado(
+        self
+    ):
+        csrf_client = Client(
+            enforce_csrf_checks=True
+        )
+
+        csrf_client.force_login(
+            self.admin_user
+        )
+
+        response = csrf_client.post(
+            reverse("pagar_suscripcion")
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403,
+        )
+
+        self.assertFalse(
+            PagoWompi.objects.filter(
+                tipo="SUSCRIPCION"
+            ).exists()
+        )
+        
+    def test_base_datos_impide_id_transaccion_duplicado(self):
+        pedido_1 = self.crear_pedido_tarjeta(
+            "79000014"
+        )
+
+        pedido_2 = self.crear_pedido_tarjeta(
+            "79000015"
+        )
+
+        pago_1 = self.crear_pago_pendiente(
+            pedido_1
+        )
+
+        pago_2 = self.crear_pago_pendiente(
+            pedido_2
+        )
+
+        pago_1.id_transaccion = (
+            "TX-UNIQUE-DB-TEST"
+        )
+        pago_1.save()
+
+        pago_2.id_transaccion = (
+            "TX-UNIQUE-DB-TEST"
+        )
+
+        with self.assertRaises(
+            IntegrityError
+        ):
+            with transaction.atomic():
+                pago_2.save()

@@ -3613,3 +3613,148 @@ class PaymentGlobalCircuitBreakerTests(
         )
 
         mock_wompi.assert_not_called()
+        
+class PaymentMethodPriceParityTests(
+    FoodBackTestBase
+):
+    """
+    FB-COMP-001
+
+    El precio final publicado no puede cambiar
+    solamente por elegir tarjeta en lugar de efectivo.
+    """
+
+    def test_tarjeta_no_agrega_recargo_al_pedido(
+        self
+    ):
+        pedido = self.crear_pedido(
+            estado="PENDIENTE",
+            telefono="79500001",
+        )
+
+        pedido.metodo_pago = "TARJETA"
+        pedido.total_productos = Decimal(
+            "10.00"
+        )
+        pedido.save()
+
+        pedido.refresh_from_db()
+
+        self.assertEqual(
+            pedido.comision_plataforma,
+            Decimal("0.00"),
+        )
+
+        self.assertEqual(
+            pedido.total_final,
+            Decimal("10.00"),
+        )
+
+    def test_efectivo_y_tarjeta_tienen_mismo_total(
+        self
+    ):
+        efectivo = self.crear_pedido(
+            estado="RECIBIDO",
+            telefono="79500002",
+        )
+
+        efectivo.metodo_pago = "EFECTIVO"
+        efectivo.total_productos = Decimal(
+            "17.50"
+        )
+        efectivo.save()
+
+        tarjeta = self.crear_pedido(
+            estado="PENDIENTE",
+            telefono="79500003",
+        )
+
+        tarjeta.metodo_pago = "TARJETA"
+        tarjeta.total_productos = Decimal(
+            "17.50"
+        )
+        tarjeta.save()
+
+        efectivo.refresh_from_db()
+        tarjeta.refresh_from_db()
+
+        self.assertEqual(
+            efectivo.total_final,
+            tarjeta.total_final,
+        )
+
+        self.assertEqual(
+            tarjeta.total_final,
+            Decimal("17.50"),
+        )
+
+    def test_checkout_no_anuncia_recargo_por_tarjeta(
+        self
+    ):
+        session = self.client.session
+
+        session["cart"] = {
+            f"{self.producto.id}-0-0": 1
+        }
+
+        session.save()
+
+        response = self.client.get(
+            reverse("checkout")
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.assertNotContains(
+            response,
+            "+5% Servicio Digital",
+        )
+
+        self.assertNotContains(
+            response,
+            "Incluye cargo por servicio digital",
+        )
+
+    def test_total_wompi_checkout_igual_total_productos(
+        self
+    ):
+        session = self.client.session
+
+        session["cart"] = {
+            f"{self.producto.id}-0-0": 1
+        }
+
+        session.save()
+
+        response = self.client.get(
+            reverse("checkout")
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.assertEqual(
+            Decimal(
+                str(
+                    response.context[
+                        "total_wompi"
+                    ]
+                )
+            ).quantize(
+                Decimal("0.01")
+            ),
+            Decimal(
+                str(
+                    response.context[
+                        "total_productos"
+                    ]
+                )
+            ).quantize(
+                Decimal("0.01")
+            ),
+        )

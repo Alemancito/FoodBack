@@ -920,7 +920,7 @@
                                         class="text-muted"
                                         style="color: var(--color-accent);"
                                     >
-                                        +5% Servicio Digital
+                                        Pago seguro con Wompi
                                     </small>
                                 </div>
                             </div>
@@ -934,11 +934,7 @@
                 {% endif %}
 
                 <div class="total-bar">
-                    <small id="aviso-comision" class="text-danger fw-bold d-none d-block mb-3 text-center bg-danger-subtle py-1 px-3 rounded-pill mx-auto" style="font-size: 0.75rem; width: fit-content;">
-                        <i class="bi bi-info-circle me-1"></i> Incluye cargo por servicio digital
-                    </small>
-                    
-                    <small id="location-hint" class="location-hint">
+<small id="location-hint" class="location-hint">
                         <i class="bi bi-pin-map-fill"></i> Confirma la ubicación antes de realizar el pedido
                     </small>
 
@@ -1916,25 +1912,15 @@
         }
 
         function actualizarTotal() {
-            const radios = document.getElementsByName('metodo_pago');
-            let metodo = 'EFECTIVO';
-
-            for(let i = 0; i < radios.length; i++) {
-                if(radios[i].checked) metodo = radios[i].value;
-            }
-
             const display = document.getElementById('total-display');
-            const aviso = document.getElementById('aviso-comision');
-            let totalFinal = precioBaseGlobal;
 
-            if (metodo === 'TARJETA') {
-                totalFinal = precioBaseGlobal * 1.05;
-                aviso.classList.remove('d-none');
-            } else {
-                aviso.classList.add('d-none');
+            // FB-COMP-001:
+            // El total publicado no cambia según el método de pago.
+            const totalFinal = precioBaseGlobal;
+
+            if (display) {
+                display.innerText = '$' + totalFinal.toFixed(2);
             }
-
-            display.innerText = '$' + totalFinal.toFixed(2);
         }
 
         const phoneVisual = document.querySelector("#phone_visual");

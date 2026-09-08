@@ -993,12 +993,11 @@ def checkout_view(request):
         'total_productos':
             total_productos,
 
-        'total_wompi':
-            (
-                pedido_pendiente.total_final
-                if pedido_pendiente
-                else float(total_productos) * 1.05
-            ),
+        'total_wompi': (
+            pedido_pendiente.total_productos
+            if pedido_pendiente
+            else total_productos
+        ),
 
         'pedido_pendiente':
             pedido_pendiente,
@@ -2207,6 +2206,40 @@ def _iniciar_pago_wompi_pedido(request, pedido):
         return redirect(
             'order_tracker',
             tracking_token=pedido.tracking_token
+        )
+    
+        # FB-COMP-001:
+    # Normaliza pedidos pendientes antiguos que
+    # todavía pudieran conservar el recargo histórico.
+    total_sin_recargo = Decimal(
+        str(
+            pedido.total_productos
+            or '0.00'
+        )
+    ).quantize(
+        Decimal('0.01')
+    )
+
+    if (
+        pedido.comision_plataforma
+        != Decimal('0.00')
+        or
+        pedido.total_final
+        != total_sin_recargo
+    ):
+        pedido.comision_plataforma = (
+            Decimal('0.00')
+        )
+
+        pedido.total_final = (
+            total_sin_recargo
+        )
+
+        pedido.save(
+            update_fields=[
+                'comision_plataforma',
+                'total_final',
+            ]
         )
     
     estado_global = (

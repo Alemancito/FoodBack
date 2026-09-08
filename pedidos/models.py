@@ -7,6 +7,7 @@ from django.dispatch import receiver
 from django.contrib.auth.models import User
 from datetime import date, timedelta  # IMPORTANTE: Agregar esto
 from django.utils import timezone
+from decimal import Decimal
 
 
 # --- NUEVO MODELO DE EXTRAS (Papas, Queso, Jalapeños...) ---
@@ -187,13 +188,24 @@ class Pedido(models.Model):
     fecha_pago_verificado = models.DateTimeField(null=True, blank=True)
 
     def save(self, *args, **kwargs):
-        if self.metodo_pago == 'TARJETA':
-            self.comision_plataforma = float(self.total_productos) * 0.05
-        else:
-            self.comision_plataforma = 0
+        total_productos = Decimal(
+            str(
+                self.total_productos
+                or '0.00'
+            )
+        ).quantize(
+            Decimal('0.01')
+        )
 
-        self.total_final = float(self.total_productos) + \
-            float(self.comision_plataforma)
+        self.total_productos = total_productos
+
+        # FB-COMP-001:
+        # El precio final NO cambia por elegir tarjeta.
+        self.comision_plataforma = Decimal(
+            '0.00'
+        )
+
+        self.total_final = total_productos
         super().save(*args, **kwargs)
 
     def __str__(self):

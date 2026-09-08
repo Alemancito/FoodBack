@@ -77,24 +77,18 @@ def suscripcion_activa():
 
 def _limpiar_pedidos_pendientes_vencidos():
     """
-    Limpieza oportunista: elimina pedidos con tarjeta que quedaron a medias
-    si el cliente abandonó Wompi o cerró la página.
+    TEMPORALMENTE DESACTIVADO.
 
-    No usa cron externo. Se ejecuta cuando alguien entra a pantallas clave.
+    Los pedidos relacionados con un intento de pago no deben
+    eliminarse físicamente por simplemente haber superado
+    cierto tiempo.
+
+    La expiración se implementará después mediante un proceso
+    de mantenimiento que cambie el estado de forma lógica,
+    conservando la evidencia financiera.
     """
-    try:
-        minutos = int(config('PENDING_ORDER_EXPIRATION_MINUTES', default=45))
-    except Exception:
-        minutos = 45
 
-    limite = timezone.now() - timedelta(minutes=minutos)
-
-    Pedido.objects.filter(
-        estado='PENDIENTE',
-        metodo_pago='TARJETA',
-        fecha_creacion__lt=limite,
-        pago_verificado=False,
-    ).delete()
+    return 0
 
 
 def verificar_estado_negocio():
@@ -559,6 +553,41 @@ def eliminar_item_carrito(request, producto_id):
     return redirect('checkout')
 
 
+def _obtener_pedido_pendiente_recuperable(request):
+    """
+    Busca exclusivamente el último pedido que FoodBack guardó
+    en esta sesión y que todavía espera pago con tarjeta.
+
+    No recibe IDs arbitrarios desde la URL ni desde POST.
+    """
+
+    pedido_id = request.session.get(
+        'ultimo_pedido_id'
+    )
+
+    if not pedido_id:
+        return None
+
+    return (
+        Pedido.objects
+        .filter(
+            id=pedido_id,
+            metodo_pago='TARJETA',
+            estado='PENDIENTE',
+            pago_verificado=False,
+        )
+        .select_related(
+            'cliente'
+        )
+        .prefetch_related(
+            'detalles__producto',
+            'detalles__opcion',
+            'detalles__extras',
+        )
+        .first()
+    )
+
+
 def checkout_view(request):
     _limpiar_pedidos_pendientes_vencidos()
 
@@ -581,6 +610,15 @@ def checkout_view(request):
         'cart',
         {}
     )
+    
+    pedido_pendiente = None
+
+    if request.method == 'GET' and not cart:
+        pedido_pendiente = (
+            _obtener_pedido_pendiente_recuperable(
+                request
+            )
+        )
 
     # -------------------------------------------------
     # DEFENSA EN PROFUNDIDAD
@@ -802,46 +840,122 @@ def checkout_view(request):
         '0.00'
     )
 
-    for item in items_validados:
+    # -------------------------------------------------
+    # RECUPERACIÓN DE UN PEDIDO DE TARJETA YA CREADO
+    # -------------------------------------------------
 
-        productos_en_carrito.append({
-            'producto': item[
-                'producto'
-            ],
-            'cantidad': item[
-                'cantidad'
-            ],
-            'subtotal': item[
+    if pedido_pendiente:
+
+        for detalle in pedido_pendiente.detalles.all():
+
+            extras = list(
+                detalle.extras.all()
+            )
+
+            productos_en_carrito.append({
+                'producto':
+                    detalle.producto,
+
+                'cantidad':
+                    detalle.cantidad,
+
+                'subtotal':
+                    detalle.subtotal,
+
+                'opcion':
+                    detalle.opcion,
+
+                'nombre_opcion':
+                    (
+                        detalle.opcion.nombre
+                        if detalle.opcion
+                        else ''
+                    ),
+
+                'lista_extras':
+                    extras,
+
+                # No permitimos eliminar partes individuales
+                # de un Pedido ya congelado en BD.
+                'key':
+                    None,
+            })
+
+        total_productos = (
+            pedido_pendiente.total_productos
+        )
+
+    else:
+
+        for item in items_validados:
+
+            productos_en_carrito.append({
+                'producto': item[
+                    'producto'
+                ],
+                'cantidad': item[
+                    'cantidad'
+                ],
+                'subtotal': item[
+                    'subtotal'
+                ],
+                'opcion': item[
+                    'opcion'
+                ],
+                'nombre_opcion': item[
+                    'nombre_opcion'
+                ],
+                'lista_extras': item[
+                    'lista_extras'
+                ],
+                'key': item[
+                    'key'
+                ],
+            })
+
+            total_productos += item[
                 'subtotal'
-            ],
-            'opcion': item[
-                'opcion'
-            ],
-            'nombre_opcion': item[
-                'nombre_opcion'
-            ],
-            'lista_extras': item[
-                'lista_extras'
-            ],
-            'key': item[
-                'key'
-            ],
-        })
+            ]
 
-        total_productos += item[
-            'subtotal'
-        ]
+
+    pago_pendiente = None
+
+    if pedido_pendiente:
+        pago_pendiente = (
+            pedido_pendiente
+            .pagos_wompi
+            .order_by(
+                '-fecha_creacion'
+            )
+            .first()
+        )
+
 
     context = {
-        'items': productos_en_carrito,
-        'total_productos': total_productos,
-        'total_wompi': (
-            float(total_productos) * 1.05
-        ),
-        'GOOGLE_MAPS_API_KEY': config(
-            'GOOGLE_MAPS_API_KEY',
-            default=''
-        ),
+        'items':
+            productos_en_carrito,
+
+        'total_productos':
+            total_productos,
+
+        'total_wompi':
+            (
+                pedido_pendiente.total_final
+                if pedido_pendiente
+                else float(total_productos) * 1.05
+            ),
+
+        'pedido_pendiente':
+            pedido_pendiente,
+
+        'pago_pendiente':
+            pago_pendiente,
+
+        'GOOGLE_MAPS_API_KEY':
+            config(
+                'GOOGLE_MAPS_API_KEY',
+                default=''
+            ),
     }
 
     return render(
@@ -1552,21 +1666,29 @@ def _iniciar_pago_wompi_pedido(request, pedido):
                 )
 
         else:
+            # Si no existe un intento activo reutilizable,
+            # SIEMPRE generamos una referencia nueva.
+            #
+            # Esto cubre:
+            # - RECHAZADO
+            # - CANCELADO
+            # - ERROR
+            # - cualquier intento anterior terminado
+
             referencia = (
-                pedido.wompi_referencia
-                or _wompi_crear_referencia(
+                _wompi_crear_referencia(
                     'ORDEN',
                     pedido.id
                 )
             )
 
-            if pedido.wompi_referencia != referencia:
-                pedido.wompi_referencia = referencia
-                pedido.save(
-                    update_fields=[
-                        'wompi_referencia'
-                    ]
-                )
+            pedido.wompi_referencia = referencia
+
+            pedido.save(
+                update_fields=[
+                    'wompi_referencia'
+                ]
+            )
 
             pago = PagoWompi.objects.create(
                 tipo='PEDIDO',

@@ -10,6 +10,8 @@ from django.urls import reverse
 
 from django.db import IntegrityError, transaction
 
+from django.utils import timezone
+
 
 from .models import (
     Categoria,
@@ -21,6 +23,7 @@ from .models import (
     Pedido,
     Producto,
     PagoWompi,
+    DetallePedido,
 )
 
 
@@ -1789,3 +1792,517 @@ class PaymentHttpSecurityTests(FoodBackTestBase):
         ):
             with transaction.atomic():
                 pago_2.save()
+                
+class PaymentRecoverySecurityTests(FoodBackTestBase):
+    """
+    FB-SEC-003B2:
+    Recuperación segura cuando Wompi falla,
+    rechaza el pago o el cliente abandona el flujo.
+    """
+
+    WOMPI_URL_FAKE = (
+        "https://wompi.test/"
+        "payment-recovery"
+    )
+
+    def crear_pedido_tarjeta_con_detalle(
+        self,
+        telefono,
+    ):
+        pedido = self.crear_pedido(
+            estado="PENDIENTE",
+            telefono=telefono,
+        )
+
+        pedido.metodo_pago = "TARJETA"
+        pedido.estado = "PENDIENTE"
+        pedido.save()
+
+        detalle = DetallePedido.objects.create(
+            pedido=pedido,
+            producto=self.producto,
+            cantidad=2,
+            precio_unitario=self.producto.precio,
+        )
+
+        detalle.save()
+
+        pedido.refresh_from_db()
+
+        return pedido, detalle
+
+    def crear_pago_pendiente(
+        self,
+        pedido,
+        referencia=None,
+    ):
+        referencia = (
+            referencia
+            or f"ORDEN-{pedido.id}-RECOVERY"
+        )
+
+        pedido.wompi_referencia = referencia
+        pedido.save(
+            update_fields=[
+                "wompi_referencia"
+            ]
+        )
+
+        return PagoWompi.objects.create(
+            tipo="PEDIDO",
+            pedido=pedido,
+            referencia=referencia,
+            monto=pedido.total_final,
+            estado="PENDIENTE",
+        )
+
+    @patch(
+        "pedidos.views._validar_hash_webhook_wompi",
+        return_value=True,
+    )
+    def test_pago_rechazado_conserva_pedido_y_detalles(
+        self,
+        mock_hash,
+    ):
+        pedido, detalle = (
+            self.crear_pedido_tarjeta_con_detalle(
+                "79100001"
+            )
+        )
+
+        pago = self.crear_pago_pendiente(
+            pedido
+        )
+
+        body = {
+            "transaccion": {
+                "identificadorEnlaceComercio":
+                    pago.referencia,
+                "esAprobada": False,
+                "idTransaccion":
+                    "TX-RECHAZADA-RECOVERY",
+                "monto":
+                    str(pago.monto),
+            }
+        }
+
+        response = self.client.post(
+            reverse("wompi_webhook"),
+            data=json.dumps(body),
+            content_type="application/json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        pago.refresh_from_db()
+
+        self.assertEqual(
+            pago.estado,
+            "RECHAZADO",
+        )
+
+        self.assertTrue(
+            Pedido.objects.filter(
+                pk=pedido.pk
+            ).exists()
+        )
+
+        self.assertTrue(
+            DetallePedido.objects.filter(
+                pk=detalle.pk
+            ).exists()
+        )
+
+        pedido.refresh_from_db()
+
+        self.assertEqual(
+            pedido.estado,
+            "PENDIENTE",
+        )
+
+        self.assertFalse(
+            pedido.pago_verificado
+        )
+
+    def test_pedido_pendiente_antiguo_no_se_borra_fisicamente(
+        self
+    ):
+        pedido, detalle = (
+            self.crear_pedido_tarjeta_con_detalle(
+                "79100002"
+            )
+        )
+
+        self.crear_pago_pendiente(
+            pedido
+        )
+
+        Pedido.objects.filter(
+            pk=pedido.pk
+        ).update(
+            fecha_creacion=(
+                timezone.now()
+                - timedelta(hours=2)
+            )
+        )
+
+        self.client.get(
+            reverse("menu")
+        )
+
+        self.assertTrue(
+            Pedido.objects.filter(
+                pk=pedido.pk
+            ).exists()
+        )
+
+        self.assertTrue(
+            DetallePedido.objects.filter(
+                pk=detalle.pk
+            ).exists()
+        )
+
+    def test_checkout_recupera_pedido_pendiente(
+        self
+    ):
+        pedido, detalle = (
+            self.crear_pedido_tarjeta_con_detalle(
+                "79100003"
+            )
+        )
+
+        pago = self.crear_pago_pendiente(
+            pedido
+        )
+
+        pago.url_enlace = (
+            self.WOMPI_URL_FAKE
+        )
+        pago.save()
+
+        session = self.client.session
+
+        session["ultimo_pedido_id"] = (
+            pedido.id
+        )
+
+        session["cart"] = {}
+
+        session.save()
+
+        response = self.client.get(
+            reverse("checkout")
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        # El checkout de recuperación debe
+        # mostrar el pedido existente.
+        self.assertContains(
+            response,
+            self.producto.nombre,
+        )
+
+        self.assertContains(
+            response,
+            "Pago pendiente",
+        )
+
+    @patch(
+        "pedidos.views._wompi_crear_enlace_pago"
+    )
+    def test_reintento_tras_rechazo_crea_nueva_referencia(
+        self,
+        mock_crear_enlace,
+    ):
+        mock_crear_enlace.return_value = (
+            {
+                "urlEnlace":
+                    self.WOMPI_URL_FAKE,
+                "idEnlace":
+                    "LINK-RECOVERY-2",
+            },
+            {
+                "mock": True,
+            },
+        )
+
+        pedido, detalle = (
+            self.crear_pedido_tarjeta_con_detalle(
+                "79100004"
+            )
+        )
+
+        pago_anterior = (
+            self.crear_pago_pendiente(
+                pedido
+            )
+        )
+
+        referencia_anterior = (
+            pago_anterior.referencia
+        )
+
+        pago_anterior.estado = (
+            "RECHAZADO"
+        )
+
+        pago_anterior.save()
+
+        response = self.client.post(
+            reverse(
+                "pagar_wompi",
+                args=[
+                    pedido.tracking_token
+                ],
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        self.assertEqual(
+            response["Location"],
+            self.WOMPI_URL_FAKE,
+        )
+
+        pagos = list(
+            PagoWompi.objects
+            .filter(
+                pedido=pedido
+            )
+            .order_by(
+                "fecha_creacion"
+            )
+        )
+
+        self.assertEqual(
+            len(pagos),
+            2,
+        )
+
+        self.assertNotEqual(
+            pagos[0].referencia,
+            pagos[1].referencia,
+        )
+
+        pedido.refresh_from_db()
+
+        self.assertNotEqual(
+            pedido.wompi_referencia,
+            referencia_anterior,
+        )
+
+        # El reintento NO crea otro pedido.
+        self.assertEqual(
+            Pedido.objects.filter(
+                pk=pedido.pk
+            ).count(),
+            1,
+        )
+
+    @patch(
+        "pedidos.views._validar_hash_redirect_wompi",
+        return_value=True,
+    )
+    def test_pago_exitoso_muestra_confirmacion_inmediatamente(
+        self,
+        mock_hash,
+    ):
+        pedido, detalle = (
+            self.crear_pedido_tarjeta_con_detalle(
+                "79100005"
+            )
+        )
+
+        pago = self.crear_pago_pendiente(
+            pedido
+        )
+
+        response = self.client.get(
+            reverse("wompi_respuesta"),
+            {
+                "ref":
+                    pago.referencia,
+                "idTransaccion":
+                    "TX-RECOVERY-OK",
+                "monto":
+                    str(pago.monto),
+                "esAprobada":
+                    "true",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        pedido.refresh_from_db()
+
+        self.assertTrue(
+            pedido.pago_verificado
+        )
+
+        self.assertEqual(
+            pedido.estado,
+            "RECIBIDO",
+        )
+
+        # El mensaje debe verse en la
+        # misma pantalla del tracker.
+        self.assertContains(
+            response,
+            "Pago confirmado. "
+            "Tu pedido fue recibido.",
+        )
+
+    @patch(
+        "pedidos.views._wompi_crear_enlace_pago"
+    )
+    def test_pedido_ya_pagado_no_puede_iniciar_otro_pago(
+        self,
+        mock_crear_enlace,
+    ):
+        pedido, detalle = (
+            self.crear_pedido_tarjeta_con_detalle(
+                "79100006"
+            )
+        )
+
+        pago = self.crear_pago_pendiente(
+            pedido
+        )
+
+        pago.estado = "APROBADO"
+        pago.es_aprobada = True
+        pago.id_transaccion = (
+            "TX-YA-PAGADA"
+        )
+        pago.save()
+
+        pedido.estado = "RECIBIDO"
+        pedido.pago_verificado = True
+        pedido.wompi_id_transaccion = (
+            pago.id_transaccion
+        )
+        pedido.save()
+
+        response = self.client.post(
+            reverse(
+                "pagar_wompi",
+                args=[
+                    pedido.tracking_token
+                ],
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        self.assertEqual(
+            response["Location"],
+            reverse(
+                "order_tracker",
+                args=[
+                    pedido.tracking_token
+                ],
+            ),
+        )
+
+        self.assertEqual(
+            PagoWompi.objects.filter(
+                pedido=pedido
+            ).count(),
+            1,
+        )
+
+        mock_crear_enlace.assert_not_called()
+
+    @patch(
+        "pedidos.views._wompi_crear_enlace_pago"
+    )
+    def test_error_wompi_no_deja_cliente_sin_sus_datos(
+        self,
+        mock_crear_enlace,
+    ):
+        mock_crear_enlace.side_effect = (
+            Exception(
+                "Timeout Wompi simulado"
+            )
+        )
+
+        session = self.client.session
+
+        session["cart"] = {
+            f"{self.producto.id}-0-0": 2
+        }
+
+        session.save()
+
+        response = self.client.post(
+            reverse("checkout"),
+            {
+                "telefono":
+                    "79100007",
+                "nombre":
+                    "Cliente",
+                "apellido":
+                    "Recovery",
+                "direccion":
+                    "Dirección de prueba",
+                "metodo_pago":
+                    "TARJETA",
+                "latitud":
+                    "13.4800",
+                "longitud":
+                    "-88.1800",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        pedido = (
+            Pedido.objects
+            .filter(
+                cliente__telefono=
+                    "79100007"
+            )
+            .first()
+        )
+
+        self.assertIsNotNone(
+            pedido
+        )
+
+        self.assertTrue(
+            pedido.detalles.exists()
+        )
+
+        # Aunque Wompi haya fallado,
+        # el usuario debe poder continuar
+        # viendo/recuperando su pedido.
+        self.assertContains(
+            response,
+            self.producto.nombre,
+        )
+
+        self.assertContains(
+            response,
+            "Pago pendiente",
+        )

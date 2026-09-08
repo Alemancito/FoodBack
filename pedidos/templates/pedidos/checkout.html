@@ -574,7 +574,15 @@
                             
                             <div class="d-flex justify-content-between align-items-center mt-2">
                                 <span class="badge bg-light text-dark border px-2">Cant: {{ item.cantidad }}</span>
-                                <button type="button" onclick="borrarItemSinRecargar('{{ item.key }}')" class="btn-trash-premium"><i class="bi bi-trash"></i></button>
+                                {% if not pedido_pendiente %}
+                                    <button
+                                        type="button"
+                                        onclick="borrarItemSinRecargar('{{ item.key }}')"
+                                        class="btn-trash-premium"
+                                    >
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                {% endif %}
                             </div>
                         </div>
                     </div>
@@ -593,7 +601,101 @@
             </div>
         </div>
 
-        <div id="checkout-form-container" {% if not items %}style="display:none;"{% endif %}>
+        {% if pedido_pendiente %}
+<div class="order-summary mt-3">
+
+    <div class="d-flex align-items-start gap-3">
+
+        <div
+            class="d-flex align-items-center justify-content-center flex-shrink-0"
+            style="
+                width:48px;
+                height:48px;
+                border-radius:14px;
+                background:#fff3e8;
+                color:#D35400;
+            "
+        >
+            <i class="bi bi-credit-card-2-front fs-4"></i>
+        </div>
+
+        <div class="flex-grow-1">
+
+            <div class="fw-bold">
+                Pago pendiente
+            </div>
+
+            <div class="text-muted small mt-1">
+                Tu pedido fue guardado correctamente,
+                pero todavía no hemos recibido la
+                confirmación del pago.
+            </div>
+
+        </div>
+
+    </div>
+
+    {% if pago_pendiente %}
+
+        {% if pago_pendiente.estado == 'RECHAZADO' %}
+
+        <div class="alert alert-danger border-0 small mt-3 mb-3">
+            <i class="bi bi-x-circle-fill me-1"></i>
+            El intento anterior fue rechazado.
+            Puedes volver a intentar el pago.
+        </div>
+
+        {% elif pago_pendiente.estado == 'ERROR' %}
+
+        <div class="alert alert-warning border-0 small mt-3 mb-3">
+            <i class="bi bi-exclamation-triangle-fill me-1"></i>
+            Hubo un problema al iniciar o validar el pago.
+            Tus productos y datos siguen guardados.
+        </div>
+
+        {% else %}
+
+        <div class="alert alert-info border-0 small mt-3 mb-3">
+            <i class="bi bi-hourglass-split me-1"></i>
+            Si cerraste Wompi o no terminaste el pago,
+            puedes continuar desde aquí.
+        </div>
+
+        {% endif %}
+
+    {% endif %}
+
+    <form
+        method="POST"
+        action="{% url 'pagar_wompi' pedido_pendiente.tracking_token %}"
+    >
+        {% csrf_token %}
+
+        <button
+            type="submit"
+            class="btn btn-dark w-100 rounded-pill py-3 fw-bold"
+        >
+            <i class="bi bi-arrow-repeat me-1"></i>
+            Reintentar pago con tarjeta
+        </button>
+    </form>
+
+    <a
+        href="{% url 'menu' %}"
+        class="btn btn-outline-secondary w-100 rounded-pill py-2 mt-2"
+    >
+        Volver al menú
+    </a>
+
+</div>
+{% endif %}
+
+        <div
+    id="checkout-form-container"
+    {% if not items or pedido_pendiente %}
+        style="display:none;"
+    {% endif %}
+>
             <form method="POST" action="{% url 'checkout' %}" id="pedidoForm" novalidate> 
                 {% csrf_token %}
                 <div class="form-section-title">Contacto</div>

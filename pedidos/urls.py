@@ -25,6 +25,18 @@ urlpatterns = [
         views.order_tracker_view,
         name='order_tracker'
     ),
+    
+    path(
+        'pedido/<uuid:tracking_token>/retomar-pago/',
+        views.retomar_pago_view,
+        name='retomar_pago'
+    ),
+    
+    path(
+        'pedido/<uuid:tracking_token>/cancelar-pendiente/',
+        views.cancelar_pedido_pendiente_view,
+        name='cancelar_pedido_pendiente',
+    ),
 
     # Autenticación
     path('login/', CustomLoginView.as_view(), name='login_custom'),

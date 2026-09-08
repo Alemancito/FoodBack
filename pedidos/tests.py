@@ -2516,6 +2516,27 @@ class PaymentResilienceLoggingTests(
                 "fecha_creacion"
             )
         )
+        
+        pago.refresh_from_db()
+        pedido.refresh_from_db()
+
+        self.assertEqual(
+            pago.estado,
+            "ERROR",
+        )
+
+        self.assertFalse(
+            pago.es_aprobada
+        )
+
+        self.assertEqual(
+            pedido.estado,
+            "PENDIENTE",
+        )
+
+        self.assertFalse(
+            pedido.pago_verificado
+        )
 
         evento = (
             EventoPagoWompi.objects
@@ -3757,4 +3778,402 @@ class PaymentMethodPriceParityTests(
             ).quantize(
                 Decimal("0.01")
             ),
+        )
+        
+class PaymentTrackerRecoveryTests(
+    FoodBackTestBase
+):
+    """
+    Un pedido pendiente de tarjeta debe poder
+    retomarse desde el tracker únicamente desde
+    la sesión que creó/conserva ese pedido.
+    """
+
+    def crear_pedido_pendiente_tarjeta(
+        self,
+        telefono,
+    ):
+        pedido = self.crear_pedido(
+            estado="PENDIENTE",
+            telefono=telefono,
+        )
+
+        pedido.metodo_pago = "TARJETA"
+        pedido.estado = "PENDIENTE"
+        pedido.pago_verificado = False
+        pedido.save()
+
+        DetallePedido.objects.create(
+            pedido=pedido,
+            producto=self.producto,
+            cantidad=1,
+            precio_unitario=self.producto.precio,
+        )
+
+        return pedido
+
+    def asociar_pedido_a_sesion(
+        self,
+        pedido,
+        client=None,
+    ):
+        client = client or self.client
+
+        session = client.session
+        session["ultimo_pedido_id"] = pedido.id
+        session["historial_pedidos"] = [
+            pedido.id
+        ]
+        session.save()
+
+    def test_tracker_muestra_retomar_pago(
+        self
+    ):
+        pedido = (
+            self.crear_pedido_pendiente_tarjeta(
+                "79600001"
+            )
+        )
+
+        self.asociar_pedido_a_sesion(
+            pedido
+        )
+
+        response = self.client.get(
+            reverse(
+                "order_tracker",
+                args=[
+                    pedido.tracking_token
+                ],
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.assertContains(
+            response,
+            "Retomar pago",
+        )
+
+    def test_retomar_pago_regresa_al_checkout(
+        self
+    ):
+        pedido = (
+            self.crear_pedido_pendiente_tarjeta(
+                "79600002"
+            )
+        )
+
+        self.asociar_pedido_a_sesion(
+            pedido
+        )
+
+        response = self.client.post(
+            reverse(
+                "retomar_pago",
+                args=[
+                    pedido.tracking_token
+                ],
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        self.assertEqual(
+            response["Location"],
+            reverse("checkout"),
+        )
+
+        session = self.client.session
+
+        self.assertEqual(
+            session["ultimo_pedido_id"],
+            pedido.id,
+        )
+
+    def test_otra_sesion_no_puede_retomar_pago(
+        self
+    ):
+        pedido = (
+            self.crear_pedido_pendiente_tarjeta(
+                "79600003"
+            )
+        )
+
+        otro_cliente = Client()
+
+        response = otro_cliente.post(
+            reverse(
+                "retomar_pago",
+                args=[
+                    pedido.tracking_token
+                ],
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403,
+        )
+
+    def test_pedido_pagado_no_muestra_retomar_pago(
+        self
+    ):
+        pedido = (
+            self.crear_pedido_pendiente_tarjeta(
+                "79600004"
+            )
+        )
+
+        self.asociar_pedido_a_sesion(
+            pedido
+        )
+
+        pedido.estado = "RECIBIDO"
+        pedido.pago_verificado = True
+        pedido.save()
+
+        response = self.client.get(
+            reverse(
+                "order_tracker",
+                args=[
+                    pedido.tracking_token
+                ],
+            )
+        )
+
+        self.assertNotContains(
+            response,
+            "Retomar pago",
+        )
+        
+
+class PaymentPendingCancellationTests(
+    FoodBackTestBase
+):
+    """
+    Un cliente puede cancelar su pedido pendiente
+    únicamente desde su propia sesión y cuando
+    no existe un enlace Wompi potencialmente activo.
+    """
+
+    def crear_pedido_pendiente(
+        self,
+        telefono,
+    ):
+        pedido = self.crear_pedido(
+            estado="PENDIENTE",
+            telefono=telefono,
+        )
+
+        pedido.metodo_pago = "TARJETA"
+        pedido.pago_verificado = False
+        pedido.save()
+
+        DetallePedido.objects.create(
+            pedido=pedido,
+            producto=self.producto,
+            cantidad=1,
+            precio_unitario=self.producto.precio,
+        )
+
+        return pedido
+
+    def asociar_a_sesion(
+        self,
+        pedido,
+        client=None,
+    ):
+        client = client or self.client
+
+        session = client.session
+        session["ultimo_pedido_id"] = pedido.id
+        session["historial_pedidos"] = [
+            pedido.id
+        ]
+        session.save()
+
+    def test_error_sin_enlace_puede_cancelarse(
+        self
+    ):
+        pedido = self.crear_pedido_pendiente(
+            "79700001"
+        )
+
+        self.asociar_a_sesion(
+            pedido
+        )
+
+        PagoWompi.objects.create(
+            tipo="PEDIDO",
+            pedido=pedido,
+            referencia=(
+                f"ORDEN-{pedido.id}-CANCELTEST"
+            ),
+            monto=pedido.total_final,
+            estado="ERROR",
+        )
+
+        response = self.client.post(
+            reverse(
+                "cancelar_pedido_pendiente",
+                args=[
+                    pedido.tracking_token
+                ],
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        pedido.refresh_from_db()
+
+        self.assertEqual(
+            pedido.estado,
+            "CANCELADO",
+        )
+
+        self.assertFalse(
+            pedido.pago_verificado
+        )
+
+        session = self.client.session
+
+        self.assertNotEqual(
+            session.get(
+                "ultimo_pedido_id"
+            ),
+            pedido.id,
+        )
+
+        self.assertIn(
+            pedido.id,
+            session[
+                "historial_pedidos"
+            ],
+        )
+
+    def test_enlace_wompi_activo_impide_cancelacion_local(
+        self
+    ):
+        pedido = self.crear_pedido_pendiente(
+            "79700002"
+        )
+
+        self.asociar_a_sesion(
+            pedido
+        )
+
+        PagoWompi.objects.create(
+            tipo="PEDIDO",
+            pedido=pedido,
+            referencia=(
+                f"ORDEN-{pedido.id}-ACTIVO"
+            ),
+            monto=pedido.total_final,
+            estado="PENDIENTE",
+            id_enlace="LINK-ACTIVO",
+            url_enlace=(
+                "https://wompi.test/"
+                "pago-activo"
+            ),
+        )
+
+        response = self.client.post(
+            reverse(
+                "cancelar_pedido_pendiente",
+                args=[
+                    pedido.tracking_token
+                ],
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        pedido.refresh_from_db()
+
+        self.assertEqual(
+            pedido.estado,
+            "PENDIENTE",
+        )
+
+    def test_otra_sesion_no_puede_cancelar(
+        self
+    ):
+        pedido = self.crear_pedido_pendiente(
+            "79700003"
+        )
+
+        self.asociar_a_sesion(
+            pedido
+        )
+
+        otro_cliente = Client()
+
+        response = otro_cliente.post(
+            reverse(
+                "cancelar_pedido_pendiente",
+                args=[
+                    pedido.tracking_token
+                ],
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403,
+        )
+
+        pedido.refresh_from_db()
+
+        self.assertEqual(
+            pedido.estado,
+            "PENDIENTE",
+        )
+
+    def test_pedido_pagado_no_puede_cancelarse(
+        self
+    ):
+        pedido = self.crear_pedido_pendiente(
+            "79700004"
+        )
+
+        self.asociar_a_sesion(
+            pedido
+        )
+
+        pedido.estado = "RECIBIDO"
+        pedido.pago_verificado = True
+        pedido.save()
+
+        response = self.client.post(
+            reverse(
+                "cancelar_pedido_pendiente",
+                args=[
+                    pedido.tracking_token
+                ],
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            404,
+        )
+
+        pedido.refresh_from_db()
+
+        self.assertEqual(
+            pedido.estado,
+            "RECIBIDO",
         )

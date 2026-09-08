@@ -686,6 +686,27 @@ def checkout_view(request):
         
         if metodo_pago == 'TARJETA':
 
+            estado_global = (
+                _estado_bloqueo_pasarela_global()
+            )
+
+            if estado_global[
+                'bloqueada'
+            ]:
+                messages.warning(
+                    request,
+                    (
+                        'El pago con tarjeta está '
+                        'temporalmente no disponible. '
+                        'Puedes completar tu pedido '
+                        'en efectivo.'
+                    )
+                )
+
+                return redirect(
+                    'checkout'
+                )
+
             estado_bloqueo = (
                 _estado_bloqueo_tarjeta_cliente(
                     request
@@ -960,6 +981,10 @@ def checkout_view(request):
             request
         )
     )
+    
+    estado_pasarela_global = (
+        _estado_bloqueo_pasarela_global()
+    )
 
     context = {
         'items':
@@ -1001,6 +1026,33 @@ def checkout_view(request):
         'tarjeta_cliente_fallos': (
             estado_tarjeta_cliente[
                 'cantidad_fallos'
+            ]
+        ),
+                'pasarela_global_bloqueada': (
+            estado_pasarela_global[
+                'bloqueada'
+            ]
+        ),
+
+        'pasarela_bloqueo_manual': (
+            estado_pasarela_global[
+                'bloqueo_manual'
+            ]
+        ),
+
+        'pasarela_bloqueada_hasta': (
+            estado_pasarela_global[
+                'bloqueado_hasta'
+            ]
+        ),
+
+        'tarjeta_no_disponible': (
+            estado_tarjeta_cliente[
+                'bloqueada'
+            ]
+            or
+            estado_pasarela_global[
+                'bloqueada'
             ]
         ),
     }
@@ -1251,6 +1303,245 @@ def _estado_bloqueo_tarjeta_cliente(request):
                 if bloqueada
                 else None
             ),
+    }
+    
+    
+def _estado_bloqueo_pasarela_global():
+    """
+    Circuit breaker global de Wompi para la configuración
+    de negocio actual.
+
+    Se activa cuando coinciden:
+    - suficientes errores técnicos recientes;
+    - suficientes clientes/navegadores distintos.
+
+    Los rechazos bancarios normales NO cuentan.
+    """
+
+    try:
+        limite_errores = int(
+            config(
+                'WOMPI_GLOBAL_FAILURE_LIMIT',
+                default=5,
+            )
+        )
+    except (TypeError, ValueError):
+        limite_errores = 5
+
+    try:
+        minimo_clientes = int(
+            config(
+                'WOMPI_GLOBAL_MIN_DISTINCT_CLIENTS',
+                default=3,
+            )
+        )
+    except (TypeError, ValueError):
+        minimo_clientes = 3
+
+    try:
+        ventana_minutos = int(
+            config(
+                'WOMPI_GLOBAL_FAILURE_WINDOW_MINUTES',
+                default=10,
+            )
+        )
+    except (TypeError, ValueError):
+        ventana_minutos = 10
+
+    try:
+        cooldown_minutos = int(
+            config(
+                'WOMPI_GLOBAL_COOLDOWN_MINUTES',
+                default=15,
+            )
+        )
+    except (TypeError, ValueError):
+        cooldown_minutos = 15
+
+    limite_errores = max(
+        limite_errores,
+        1,
+    )
+
+    minimo_clientes = max(
+        minimo_clientes,
+        1,
+    )
+
+    ventana_minutos = max(
+        ventana_minutos,
+        1,
+    )
+
+    cooldown_minutos = max(
+        cooldown_minutos,
+        1,
+    )
+
+    config_negocio = (
+        ConfiguracionNegocio.objects.first()
+    )
+
+    if not config_negocio:
+        return {
+            'bloqueada': False,
+            'bloqueo_manual': False,
+            'bloqueado_hasta': None,
+            'codigo_motivo': '',
+            'errores_recientes': 0,
+            'clientes_distintos': 0,
+        }
+
+    estado = (
+        EstadoPasarelaPago.objects
+        .filter(
+            configuracion_negocio=
+                config_negocio
+        )
+        .first()
+    )
+
+    # ------------------------------------------
+    # BLOQUEO MANUAL DEL OWNER
+    # ------------------------------------------
+
+    if (
+        estado
+        and estado.bloqueo_manual
+    ):
+        return {
+            'bloqueada': True,
+            'bloqueo_manual': True,
+            'bloqueado_hasta':
+                estado.bloqueado_hasta,
+            'codigo_motivo':
+                estado.codigo_motivo,
+            'errores_recientes': 0,
+            'clientes_distintos': 0,
+        }
+
+    ahora = timezone.now()
+
+    # ------------------------------------------
+    # BREAKER AUTOMÁTICO YA ACTIVO
+    # ------------------------------------------
+
+    if (
+        estado
+        and estado.bloqueado_hasta
+        and estado.bloqueado_hasta > ahora
+    ):
+        return {
+            'bloqueada': True,
+            'bloqueo_manual': False,
+            'bloqueado_hasta':
+                estado.bloqueado_hasta,
+            'codigo_motivo':
+                estado.codigo_motivo,
+            'errores_recientes': 0,
+            'clientes_distintos': 0,
+        }
+
+    # ------------------------------------------
+    # ANALIZAR TELEMETRÍA RECIENTE
+    # ------------------------------------------
+
+    inicio_ventana = (
+        ahora
+        - timedelta(
+            minutes=ventana_minutos
+        )
+    )
+
+    errores = (
+        EventoPagoWompi.objects
+        .filter(
+            cuenta_para_global=True,
+            categoria='ERROR_TECNICO',
+            fecha__gte=inicio_ventana,
+        )
+    )
+
+    cantidad_errores = (
+        errores.count()
+    )
+
+    clientes_distintos = (
+        errores
+        .exclude(
+            cliente_token_hash=''
+        )
+        .values(
+            'cliente_token_hash'
+        )
+        .distinct()
+        .count()
+    )
+
+    debe_bloquear = (
+        cantidad_errores >= limite_errores
+        and
+        clientes_distintos >= minimo_clientes
+    )
+
+    if debe_bloquear:
+
+        bloqueado_hasta = (
+            ahora
+            + timedelta(
+                minutes=cooldown_minutos
+            )
+        )
+
+        estado, _ = (
+            EstadoPasarelaPago.objects
+            .update_or_create(
+                configuracion_negocio=
+                    config_negocio,
+
+                defaults={
+                    'bloqueo_manual':
+                        False,
+
+                    'bloqueado_hasta':
+                        bloqueado_hasta,
+
+                    'codigo_motivo':
+                        'WOMPI_TECHNICAL_FAILURES',
+
+                    'motivo': (
+                        f'{cantidad_errores} errores '
+                        f'técnicos recientes de '
+                        f'{clientes_distintos} clientes.'
+                    ),
+                },
+            )
+        )
+
+        return {
+            'bloqueada': True,
+            'bloqueo_manual': False,
+            'bloqueado_hasta':
+                bloqueado_hasta,
+            'codigo_motivo':
+                estado.codigo_motivo,
+            'errores_recientes':
+                cantidad_errores,
+            'clientes_distintos':
+                clientes_distintos,
+        }
+
+    # Si existía un breaker automático vencido,
+    # queda naturalmente reactivado.
+    return {
+        'bloqueada': False,
+        'bloqueo_manual': False,
+        'bloqueado_hasta': None,
+        'codigo_motivo': '',
+        'errores_recientes':
+            cantidad_errores,
+        'clientes_distintos':
+            clientes_distintos,
     }
 
 
@@ -1916,6 +2207,27 @@ def _iniciar_pago_wompi_pedido(request, pedido):
         return redirect(
             'order_tracker',
             tracking_token=pedido.tracking_token
+        )
+    
+    estado_global = (
+        _estado_bloqueo_pasarela_global()
+    )
+
+    if estado_global[
+        'bloqueada'
+    ]:
+        messages.warning(
+            request,
+            (
+                'El pago con tarjeta está '
+                'temporalmente no disponible. '
+                'Puedes pagar en efectivo '
+                'mientras solucionamos el servicio.'
+            )
+        )
+
+        return redirect(
+            'checkout'
         )
         
     estado_bloqueo = (

@@ -1131,6 +1131,140 @@ class PaymentHttpSecurityTests(FoodBackTestBase):
         self.assertTrue(
             bool(pago.raw_webhook)
         )
+    
+    @patch(
+        "pedidos.views._wompi_crear_enlace_pago"
+    )
+    def test_repetir_inicio_suscripcion_reutiliza_mismo_pago(
+        self,
+        mock_crear_enlace,
+    ):
+        mock_crear_enlace.return_value = (
+            self.respuesta_wompi_fake()
+        )
+
+        self.client.force_login(
+            self.admin_user
+        )
+
+        url = reverse(
+            "pagar_suscripcion"
+        )
+
+        response_1 = self.client.post(
+            url
+        )
+
+        response_2 = self.client.post(
+            url
+        )
+
+        self.assertEqual(
+            response_1.status_code,
+            302,
+        )
+
+        self.assertEqual(
+            response_2.status_code,
+            302,
+        )
+
+        self.assertEqual(
+            response_1["Location"],
+            self.WOMPI_URL_FAKE,
+        )
+
+        self.assertEqual(
+            response_2["Location"],
+            self.WOMPI_URL_FAKE,
+        )
+
+        pagos = (
+            PagoWompi.objects
+            .filter(
+                tipo="SUSCRIPCION"
+            )
+        )
+
+        self.assertEqual(
+            pagos.count(),
+            1,
+        )
+
+        self.assertEqual(
+            mock_crear_enlace.call_count,
+            1,
+        )
+
+
+    @patch(
+        "pedidos.views._wompi_crear_enlace_pago"
+    )
+    def test_suscripcion_pendiente_sin_url_reutiliza_registro(
+        self,
+        mock_crear_enlace,
+    ):
+        mock_crear_enlace.return_value = (
+            self.respuesta_wompi_fake()
+        )
+
+        self.client.force_login(
+            self.admin_user
+        )
+
+        pago_original = (
+            PagoWompi.objects.create(
+                tipo="SUSCRIPCION",
+                configuracion_negocio=(
+                    self.config
+                ),
+                referencia=(
+                    "SUBS-TEST-PENDIENTE"
+                ),
+                monto=Decimal("50.00"),
+                estado="PENDIENTE",
+            )
+        )
+
+        response = self.client.post(
+            reverse(
+                "pagar_suscripcion"
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        self.assertEqual(
+            response["Location"],
+            self.WOMPI_URL_FAKE,
+        )
+
+        pagos = (
+            PagoWompi.objects
+            .filter(
+                tipo="SUSCRIPCION"
+            )
+        )
+
+        self.assertEqual(
+            pagos.count(),
+            1,
+        )
+
+        pago_original.refresh_from_db()
+
+        self.assertEqual(
+            pago_original.url_enlace,
+            self.WOMPI_URL_FAKE,
+        )
+
+        self.assertEqual(
+            mock_crear_enlace.call_count,
+            1,
+        )
 
     def crear_pedido_tarjeta(self, telefono):
         pedido = self.crear_pedido(

@@ -3775,57 +3775,256 @@ def perfil_usuario_view(request):
 @user_passes_test(es_admin, login_url='login_custom')
 @require_POST
 def pagar_suscripcion_view(request):
+    """
+    Inicia o reutiliza de forma idempotente
+    un pago pendiente de suscripción.
+
+    Mientras exista un intento CREADO/PENDIENTE:
+    - no crea otra referencia;
+    - no crea otro PagoWompi;
+    - si ya tiene URL, reutiliza el mismo enlace.
+    """
+
     try:
         precio_mensual = _decimal_monto(
-            config('FOODBACK_SUBSCRIPTION_PRICE', default='50.00'))
-        config_negocio = ConfiguracionNegocio.objects.first(
-        ) or ConfiguracionNegocio.objects.create()
-        referencia = _wompi_crear_referencia('SUBS', config_negocio.id)
+            config(
+                'FOODBACK_SUBSCRIPTION_PRICE',
+                default='50.00',
+            )
+        )
+
         base = _base_url(request)
-        redirect_url = f"{base}/wompi-suscripcion-respuesta/?ref={referencia}"
-        webhook_url = f"{base}/wompi-webhook/"
 
-        pago = PagoWompi.objects.create(
-            tipo='SUSCRIPCION',
-            configuracion_negocio=config_negocio,
-            referencia=referencia,
-            monto=precio_mensual,
-            estado='PENDIENTE',
+        webhook_url = (
+            f"{base}/wompi-webhook/"
         )
 
-        data, raw_payload = _wompi_crear_enlace_pago(
-            request,
-            tipo_pago='SUSCRIPCION',
-            referencia=referencia,
-            monto=precio_mensual,
-            nombre_producto='Suscripción mensual FoodBack',
-            redirect_url=redirect_url,
-            webhook_url=webhook_url,
-        )
+        with transaction.atomic():
 
-        url_enlace = data.get('urlEnlace') or data.get('UrlEnlace')
-        id_enlace = data.get('idEnlace') or data.get('IdEnlace')
+            config_negocio = (
+                ConfiguracionNegocio.objects
+                .select_for_update()
+                .order_by('id')
+                .first()
+            )
 
-        if not url_enlace:
-            pago.estado = 'ERROR'
-            pago.ultimo_error = 'Wompi no devolvió urlEnlace para suscripción.'
-            pago.raw_creacion = {'request': raw_payload, 'response': data}
+            if not config_negocio:
+                config_negocio = (
+                    ConfiguracionNegocio.objects.create()
+                )
+
+            # -----------------------------------------
+            # INTENTO YA EXISTENTE
+            # -----------------------------------------
+
+            pago = (
+                PagoWompi.objects
+                .select_for_update()
+                .filter(
+                    tipo='SUSCRIPCION',
+                    configuracion_negocio=(
+                        config_negocio
+                    ),
+                    estado__in=[
+                        'CREADO',
+                        'PENDIENTE',
+                    ],
+                )
+                .order_by(
+                    '-fecha_creacion'
+                )
+                .first()
+            )
+
+            # Si ya existe un enlace todavía pendiente,
+            # simplemente lo reutilizamos.
+            if pago and pago.url_enlace:
+                return redirect(
+                    pago.url_enlace
+                )
+
+            # -----------------------------------------
+            # REUTILIZAR O CREAR INTENTO
+            # -----------------------------------------
+
+            if pago:
+                referencia = (
+                    pago.referencia
+                )
+
+                # El precio queda congelado en el
+                # intento original.
+                monto_intento = (
+                    pago.monto
+                )
+
+            else:
+                referencia = (
+                    _wompi_crear_referencia(
+                        'SUBS',
+                        config_negocio.id,
+                    )
+                )
+
+                monto_intento = (
+                    precio_mensual
+                )
+
+                pago = (
+                    PagoWompi.objects.create(
+                        tipo='SUSCRIPCION',
+                        configuracion_negocio=(
+                            config_negocio
+                        ),
+                        referencia=referencia,
+                        monto=monto_intento,
+                        estado='PENDIENTE',
+                    )
+                )
+
+            redirect_url = (
+                f"{base}/"
+                f"wompi-suscripcion-respuesta/"
+                f"?ref={referencia}"
+            )
+
+            # -----------------------------------------
+            # CREAR ENLACE WOMPI
+            # -----------------------------------------
+
+            try:
+                data, raw_payload = (
+                    _wompi_crear_enlace_pago(
+                        request,
+                        tipo_pago='SUSCRIPCION',
+                        referencia=referencia,
+                        monto=monto_intento,
+                        nombre_producto=(
+                            'Suscripción mensual '
+                            'FoodBack'
+                        ),
+                        redirect_url=(
+                            redirect_url
+                        ),
+                        webhook_url=(
+                            webhook_url
+                        ),
+                    )
+                )
+
+            except Exception as e:
+                print(
+                    f'Error Wompi '
+                    f'suscripción: {e}'
+                )
+
+                pago.estado = 'ERROR'
+                pago.es_aprobada = False
+                pago.ultimo_error = (
+                    'No fue posible iniciar '
+                    'el enlace de pago '
+                    'de la suscripción.'
+                )
+
+                pago.save(
+                    update_fields=[
+                        'estado',
+                        'es_aprobada',
+                        'ultimo_error',
+                    ]
+                )
+
+                messages.error(
+                    request,
+                    'No pudimos conectar con '
+                    'la pasarela de pago. '
+                    'Intenta nuevamente.'
+                )
+
+                return redirect(
+                    'dashboard_admin'
+                )
+
+            url_enlace = (
+                data.get('urlEnlace')
+                or data.get('UrlEnlace')
+            )
+
+            id_enlace = (
+                data.get('idEnlace')
+                or data.get('IdEnlace')
+            )
+
+            if not url_enlace:
+                pago.estado = 'ERROR'
+
+                pago.ultimo_error = (
+                    'Wompi no devolvió '
+                    'urlEnlace para '
+                    'suscripción.'
+                )
+
+                pago.raw_creacion = {
+                    'request':
+                        raw_payload,
+
+                    'response':
+                        data,
+                }
+
+                pago.save()
+
+                messages.error(
+                    request,
+                    'No se pudo generar '
+                    'el enlace de pago.'
+                )
+
+                return redirect(
+                    'dashboard_admin'
+                )
+
+            pago.url_enlace = (
+                url_enlace
+            )
+
+            pago.id_enlace = str(
+                id_enlace or ''
+            )
+
+            pago.estado = 'PENDIENTE'
+
+            pago.raw_creacion = {
+                'request':
+                    raw_payload,
+
+                'response':
+                    data,
+            }
+
+            pago.ultimo_error = ''
+
             pago.save()
-            messages.error(request, 'No se pudo generar el enlace de pago.')
-            return redirect('dashboard_admin')
 
-        pago.url_enlace = url_enlace
-        pago.id_enlace = str(id_enlace or '')
-        pago.raw_creacion = {'request': raw_payload, 'response': data}
-        pago.save()
-
-        return redirect(url_enlace)
+            return redirect(
+                url_enlace
+            )
 
     except Exception as e:
-        print(f'Error Wompi suscripción: {e}')
+        print(
+            f'Error interno '
+            f'suscripción Wompi: {e}'
+        )
+
         messages.error(
-            request, 'No pudimos conectar con la pasarela de pago. Intenta nuevamente.')
-        return redirect('dashboard_admin')
+            request,
+            'No pudimos iniciar '
+            'el pago de la suscripción.'
+        )
+
+        return redirect(
+            'dashboard_admin'
+        )
 
 
 @login_required(login_url='login_custom')

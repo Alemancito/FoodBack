@@ -274,15 +274,6 @@ class PagoWompi(models.Model):
     fecha_actualizacion = models.DateTimeField(auto_now=True)
     fecha_aprobacion = models.DateTimeField(null=True, blank=True)
 
-    def marcar_aprobado(self, id_transaccion=None, raw_payload=None):
-        self.estado = 'APROBADO'
-        self.es_aprobada = True
-        if id_transaccion:
-            self.id_transaccion = id_transaccion
-        if raw_payload is not None:
-            self.raw_webhook = raw_payload
-        self.fecha_aprobacion = timezone.now()
-        self.save()
 
     def __str__(self):
         return f"{self.tipo} | {self.referencia} | {self.estado}"

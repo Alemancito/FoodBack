@@ -37,6 +37,12 @@ urlpatterns = [
         views.cancelar_pedido_pendiente_view,
         name='cancelar_pedido_pendiente',
     ),
+    
+    path(
+        'pedido/<uuid:tracking_token>/ocultar-pendiente/',
+        views.ocultar_pedido_pendiente_view,
+        name='ocultar_pedido_pendiente',
+    ),
 
     # Autenticación
     path('login/', CustomLoginView.as_view(), name='login_custom'),

@@ -2020,6 +2020,22 @@
                 updatePosition(map.getCenter());
             }
 
+            const metodoPagoSeleccionado =
+                document.querySelector(
+                    'input[name="metodo_pago"]:checked'
+                )?.value || 'EFECTIVO';
+
+            if (metodoPagoSeleccionado === 'TARJETA') {
+                sessionStorage.setItem(
+                    'foodback_wompi_handoff',
+                    '1'
+                );
+            } else {
+                sessionStorage.removeItem(
+                    'foodback_wompi_handoff'
+                );
+            }
+
             const btn = document.getElementById('btn-finalizar');
             btn.disabled = true;
             btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Procesando...';
@@ -2027,6 +2043,69 @@
 
             this.submit();
         });
+
+        // ============================================================
+        // REGRESO DESDE WOMPI / BFCache
+        // ============================================================
+        window.addEventListener('pageshow', function(event) {
+            const overlay = document.getElementById('loadingOverlay');
+            const btnFinalizar = document.getElementById('btn-finalizar');
+
+            // Nunca dejamos un spinner "congelado" al volver con Atrás.
+            if (overlay) {
+                overlay.classList.add('d-none');
+            }
+
+            if (btnFinalizar) {
+                btnFinalizar.disabled = !gpsSuccess;
+                btnFinalizar.innerHTML =
+                    '<span>Realizar Pedido</span>'
+                    + '<span id="total-display">'
+                    + '$' + precioBaseGlobal.toFixed(2)
+                    + '</span>';
+            }
+
+            const navigationEntry =
+                performance.getEntriesByType('navigation')[0];
+
+            const regresoPorHistorial =
+                event.persisted
+                || (
+                    navigationEntry
+                    && navigationEntry.type === 'back_forward'
+                );
+
+            const veniaDeWompi =
+                sessionStorage.getItem(
+                    'foodback_wompi_handoff'
+                ) === '1';
+
+            // Si el usuario salió de Wompi usando Atrás,
+            // evitamos devolverlo al checkout viejo con el modal congelado.
+            if (
+                regresoPorHistorial
+                && veniaDeWompi
+            ) {
+                sessionStorage.removeItem(
+                    'foodback_wompi_handoff'
+                );
+
+                window.location.replace(
+                    "{% url 'menu' %}"
+                );
+
+                return;
+            }
+
+            // Si Django renderizó un checkout de recuperación real
+            // (error/rechazo/pedido pendiente), el handoff ya terminó.
+            {% if pedido_pendiente %}
+            sessionStorage.removeItem(
+                'foodback_wompi_handoff'
+            );
+            {% endif %}
+        });
+
     </script>
 </body>
 </html>

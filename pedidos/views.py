@@ -365,37 +365,122 @@ def menu_view(request):
     _limpiar_pedidos_pendientes_vencidos()
 
     if not suscripcion_activa():
-        return render(request, 'pedidos/suspendido.html')
+        return render(
+            request,
+            'pedidos/suspendido.html'
+        )
 
-    categorias = Categoria.objects.all().order_by('orden')
-    cart = request.session.get('cart', {})
-    cantidad_total = sum(cart.values())
+    categorias = (
+        Categoria.objects
+        .all()
+        .order_by('orden')
+    )
 
-    abierto, mensaje_estado = verificar_estado_negocio()
+    cart = request.session.get(
+        'cart',
+        {}
+    )
 
-    ultimo_pedido_id = request.session.get('ultimo_pedido_id')
-    ultimo_pedido_activo = None
+    cantidad_total = sum(
+        cart.values()
+    )
 
-    if ultimo_pedido_id:
-        try:
-            ped = Pedido.objects.get(id=ultimo_pedido_id)
-            if ped.estado not in ['ENTREGADO', 'CANCELADO']:
-                ultimo_pedido_activo = ped
-            else:
-                if 'ultimo_pedido_id' in request.session:
-                    del request.session['ultimo_pedido_id']
-        except Pedido.DoesNotExist:
-            if 'ultimo_pedido_id' in request.session:
-                del request.session['ultimo_pedido_id']
+    abierto, mensaje_estado = (
+        verificar_estado_negocio()
+    )
 
-    return render(request, 'pedidos/menu.html', {
-        'categorias': categorias,
-        'cantidad_carrito': cantidad_total,
-        'abierto': abierto,
-        'mensaje_estado': mensaje_estado,
-        'ultimo_pedido_activo': ultimo_pedido_activo
-    })
+    ids_historial = _pedidos_sesion(
+        request
+    )
 
+    ids_ocultos = set(
+        request.session.get(
+            'pedidos_pendientes_ocultos',
+            []
+        )
+    )
+
+    candidatos = (
+        Pedido.objects
+        .filter(
+            id__in=ids_historial
+        )
+        .exclude(
+            estado__in=[
+                'ENTREGADO',
+                'CANCELADO',
+            ]
+        )
+        .order_by('-id')
+    )
+
+    pedidos_activos = []
+
+    for pedido in candidatos:
+
+        oculto_temporalmente = (
+            pedido.id in ids_ocultos
+            and
+            pedido.estado == 'PENDIENTE'
+            and
+            not pedido.pago_verificado
+        )
+
+        if oculto_temporalmente:
+            continue
+
+        pedidos_activos.append(
+            pedido
+        )
+
+    ultimo_pedido_activo = (
+        pedidos_activos[0]
+        if pedidos_activos
+        else None
+    )
+
+    if ultimo_pedido_activo:
+
+        request.session[
+            'ultimo_pedido_id'
+        ] = ultimo_pedido_activo.id
+
+    else:
+
+        request.session.pop(
+            'ultimo_pedido_id',
+            None
+        )
+
+    request.session.modified = True
+
+    return render(
+        request,
+        'pedidos/menu.html',
+        {
+            'categorias':
+                categorias,
+
+            'cantidad_carrito':
+                cantidad_total,
+
+            'abierto':
+                abierto,
+
+            'mensaje_estado':
+                mensaje_estado,
+
+            'ultimo_pedido_activo':
+                ultimo_pedido_activo,
+
+            # Nuevo: no perdemos los demás.
+            'pedidos_activos':
+                pedidos_activos,
+
+            'cantidad_pedidos_activos':
+                len(pedidos_activos),
+        }
+    )
 
 @require_POST
 def cart_add(request, producto_id):
@@ -1734,9 +1819,19 @@ def _wompi_crear_enlace_pago(request, *, referencia, monto, nombre_producto, red
 def _valor_bool_wompi(value):
     if isinstance(value, bool):
         return value
+
     if value is None:
         return False
-    return str(value).strip().lower() in ['true', '1', 'si', 'sí', 'aprobada', 'approved']
+
+    return str(value).strip().lower() in [
+        'true',
+        '1',
+        'si',
+        'sí',
+        'aprobada',
+        'approved',
+        'exitosaaprobada',
+    ]
 
 
 def _redirect_wompi_aprobado(params):
@@ -2693,6 +2788,34 @@ def _contexto_delivery_pedidos(user):
         'disponibles': disponibles,
         'mis_pedidos': mis_pedidos,
     }
+    
+def _pedidos_sesion(request):
+    ids = request.session.get(
+        'historial_pedidos',
+        []
+    )
+
+    # Limpieza defensiva: solo enteros,
+    # sin duplicados y conservando orden.
+    ids_limpios = []
+
+    for pedido_id in ids:
+        try:
+            pedido_id = int(pedido_id)
+        except (TypeError, ValueError):
+            continue
+
+        if pedido_id not in ids_limpios:
+            ids_limpios.append(pedido_id)
+
+    if ids_limpios != ids:
+        request.session[
+            'historial_pedidos'
+        ] = ids_limpios
+
+        request.session.modified = True
+
+    return ids_limpios
 
 # --- DASHBOARDS PROTEGIDOS ---
 
@@ -3145,6 +3268,12 @@ def order_tracker_view(
         and
         not pago_tiene_enlace
     )
+    
+    puede_ocultar_pedido = (
+        puede_retomar_pago
+        and
+        bool(pago_tiene_enlace)
+    )
 
     return render(
         request,
@@ -3161,6 +3290,9 @@ def order_tracker_view(
             
             'puede_cancelar_pedido':
                 puede_cancelar_pedido,
+            
+            'puede_ocultar_pedido':
+                puede_ocultar_pedido,
         }
     )
 
@@ -3357,6 +3489,146 @@ def cancelar_pedido_pendiente_view(
     )
 
 
+@require_POST
+@transaction.atomic
+def ocultar_pedido_pendiente_view(
+    request,
+    tracking_token
+):
+    """
+    Oculta de la UX un pedido pendiente cuyo
+    enlace Wompi podría seguir activo.
+
+    NO cancela el Pedido.
+    NO cancela PagoWompi.
+    NO modifica el enlace financiero.
+    """
+
+    pedido = get_object_or_404(
+        Pedido.objects.select_for_update(),
+        tracking_token=tracking_token,
+        metodo_pago='TARJETA',
+        estado='PENDIENTE',
+        pago_verificado=False,
+    )
+
+    historial = request.session.get(
+        'historial_pedidos',
+        []
+    )
+
+    ultimo_pedido_id = (
+        request.session.get(
+            'ultimo_pedido_id'
+        )
+    )
+
+    pertenece_a_sesion = (
+        pedido.id == ultimo_pedido_id
+        or
+        pedido.id in historial
+    )
+
+    if not pertenece_a_sesion:
+        raise PermissionDenied(
+            "No puedes ocultar este pedido."
+        )
+
+    pago_actual = (
+        PagoWompi.objects
+        .select_for_update()
+        .filter(
+            pedido=pedido
+        )
+        .order_by(
+            '-fecha_creacion'
+        )
+        .first()
+    )
+
+    enlace_potencialmente_activo = (
+        pago_actual
+        and (
+            bool(pago_actual.url_enlace)
+            or
+            bool(pago_actual.id_enlace)
+        )
+    )
+
+    if not enlace_potencialmente_activo:
+        messages.info(
+            request,
+            (
+                'Este pedido no tiene un enlace '
+                'Wompi activo. Puedes cancelarlo '
+                'normalmente.'
+            )
+        )
+
+        return redirect(
+            'order_tracker',
+            tracking_token=(
+                pedido.tracking_token
+            )
+        )
+
+    ocultos = request.session.get(
+        'pedidos_pendientes_ocultos',
+        []
+    )
+
+    if pedido.id not in ocultos:
+        ocultos.append(
+            pedido.id
+        )
+
+    request.session[
+        'pedidos_pendientes_ocultos'
+    ] = ocultos
+
+    if (
+        request.session.get(
+            'ultimo_pedido_id'
+        )
+        == pedido.id
+    ):
+        del request.session[
+            'ultimo_pedido_id'
+        ]
+
+    request.session.modified = True
+
+    _registrar_evento_pago(
+        pago_actual,
+        categoria='INFO',
+        origen='SISTEMA',
+        codigo='CLIENT_PENDING_ORDER_HIDDEN',
+        mensaje=(
+            'El cliente ocultó de su interfaz '
+            'un pedido pendiente con enlace '
+            'Wompi potencialmente activo.'
+        ),
+        cuenta_para_cliente=False,
+        cuenta_para_global=False,
+        clave_evento=(
+            f"OCULTAR-PENDIENTE:"
+            f"{pedido.id}"
+        ),
+    )
+
+    messages.info(
+        request,
+        (
+            'El pedido dejó de mostrarse como '
+            'pedido en curso.'
+        )
+    )
+
+    return redirect(
+        'menu'
+    )
+
+
 def api_order_status(request, tracking_token):
     try:
         pedido = Pedido.objects.only(
@@ -3431,13 +3703,70 @@ def dashboard_metrics_view(request):
 
 def perfil_usuario_view(request):
     if not suscripcion_activa():
-        return render(request, 'pedidos/suspendido.html')
+        return render(
+            request,
+            'pedidos/suspendido.html'
+        )
 
-    ids_historial = request.session.get('historial_pedidos', [])
-    mis_pedidos = Pedido.objects.filter(id__in=ids_historial).order_by('-id')
-    activos = mis_pedidos.exclude(estado__in=['ENTREGADO', 'CANCELADO'])
-    historial = mis_pedidos.filter(estado__in=['ENTREGADO', 'CANCELADO'])
-    return render(request, 'pedidos/perfil.html', {'activos': activos, 'historial': historial})
+    ids_historial = _pedidos_sesion(
+        request
+    )
+
+    ids_ocultos = set(
+        request.session.get(
+            'pedidos_pendientes_ocultos',
+            []
+        )
+    )
+
+    mis_pedidos = (
+        Pedido.objects
+        .filter(
+            id__in=ids_historial
+        )
+        .order_by('-id')
+    )
+
+    activos = []
+
+    historial = []
+
+    for pedido in mis_pedidos:
+
+        if pedido.estado in [
+            'ENTREGADO',
+            'CANCELADO',
+        ]:
+            historial.append(
+                pedido
+            )
+            continue
+
+        # Solamente ocultamos mientras
+        # realmente siga pendiente y sin pagar.
+        oculto_temporalmente = (
+            pedido.id in ids_ocultos
+            and
+            pedido.estado == 'PENDIENTE'
+            and
+            not pedido.pago_verificado
+        )
+
+        if oculto_temporalmente:
+            continue
+
+        activos.append(
+            pedido
+        )
+
+    return render(
+        request,
+        'pedidos/perfil.html',
+        {
+            'activos': activos,
+            'historial': historial,
+        }
+    )
 
 # --- PAGO DE SUSCRIPCIÓN (TU DINERO - EL CLIENTE TE PAGA A TI) ---
 
@@ -3549,13 +3878,38 @@ def wompi_webhook_view(request):
         data = json.loads(raw_body.decode('utf-8'))
         transaccion = _extraer_transaccion_wompi(data)
 
-        referencia = _get_any(
-            transaccion,
-            'identificadorEnlaceComercio', 'IdentificadorEnlaceComercio',
-            'referencia', 'Referencia'
-        ) or _get_any(data, 'identificadorEnlaceComercio', 'IdentificadorEnlaceComercio')
+        enlace_pago = _get_any(
+            data,
+            'EnlacePago',
+            'enlacePago',
+            default={},
+        ) or {}
 
-        tipo_pago = _wompi_tipo_desde_referencia(referencia)
+        referencia = (
+            _get_any(
+                transaccion,
+                'identificadorEnlaceComercio',
+                'IdentificadorEnlaceComercio',
+                'referencia',
+                'Referencia',
+            )
+            or
+            _get_any(
+                data,
+                'identificadorEnlaceComercio',
+                'IdentificadorEnlaceComercio',
+            )
+            or
+            _get_any(
+                enlace_pago,
+                'identificadorEnlaceComercio',
+                'IdentificadorEnlaceComercio',
+            )
+        )
+
+        tipo_pago = _wompi_tipo_desde_referencia(
+            referencia
+        )
 
         if not _validar_hash_webhook_wompi(
             request,
@@ -3563,14 +3917,47 @@ def wompi_webhook_view(request):
             tipo_pago=tipo_pago,
             raw_body=raw_body
         ):
-            return JsonResponse({'status': 'error', 'msg': 'Webhook no autorizado'}, status=403)
+            return JsonResponse(
+                {
+                    'status': 'error',
+                    'msg': 'Webhook no autorizado'
+                },
+                status=403
+            )
 
         es_aprobada = _valor_bool_wompi(
-            _get_any(transaccion, 'esAprobada', 'EsAprobada', 'approved', 'status'))
+            _get_any(
+                transaccion,
+                'esAprobada',
+                'EsAprobada',
+                'approved',
+                'status',
+                'ResultadoTransaccion',
+                'resultadoTransaccion',
+            )
+        )
+
         id_transaccion = _get_any(
-            transaccion, 'idTransaccion', 'IdTransaccion', 'id', 'Id')
-        monto = _get_any(transaccion, 'monto', 'Monto') or _get_any(
-            data, 'monto', 'Monto')
+            transaccion,
+            'idTransaccion',
+            'IdTransaccion',
+            'id',
+            'Id',
+        )
+
+        monto = (
+            _get_any(
+                transaccion,
+                'monto',
+                'Monto',
+            )
+            or
+            _get_any(
+                data,
+                'monto',
+                'Monto',
+            )
+        )
 
         if not referencia:
             return JsonResponse({'status': 'ok', 'msg': 'Webhook recibido sin referencia'})

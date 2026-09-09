@@ -607,6 +607,31 @@
                     </button>
                 </form>
                 {% endif %}
+
+                {% if puede_ocultar_pedido %}
+                <form
+                    id="ocultarPedidoForm"
+                    method="POST"
+                    action="{% url 'ocultar_pedido_pendiente' pedido.tracking_token %}"
+                    class="mt-2"
+                >
+                    {% csrf_token %}
+
+                    <button
+                        id="btnOcultarPedido"
+                        type="button"
+                        class="btn btn-light w-100 rounded-pill py-2 fw-bold"
+                        style="
+                            border:1px solid #e5e7eb;
+                            color:#4b5563;
+                            font-size:0.86rem;
+                        "
+                    >
+                        <i class="bi bi-eye-slash me-1"></i>
+                        Dejar de mostrar este pedido
+                    </button>
+                </form>
+                {% endif %}
             </div>
         </div>
         {% endif %}
@@ -665,6 +690,13 @@
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
     <script>
+        // El flujo Wompi ya llegó al tracker.
+        // Evita que una navegación posterior se confunda con un regreso
+        // directo desde la pasarela.
+        sessionStorage.removeItem(
+            'foodback_wompi_handoff'
+        );
+
         // ============================================================
         // MAPA
         // ============================================================
@@ -938,6 +970,67 @@
                                 + ' Cancelando...';
 
                             cancelarPedidoForm.submit();
+                        }
+                    });
+                }
+            );
+        }
+
+        // ============================================================
+        // OCULTAR PEDIDO PENDIENTE CON ENLACE WOMPI ACTIVO
+        // ============================================================
+        const btnOcultarPedido =
+            document.getElementById(
+                'btnOcultarPedido'
+            );
+
+        const ocultarPedidoForm =
+            document.getElementById(
+                'ocultarPedidoForm'
+            );
+
+        if (
+            btnOcultarPedido
+            && ocultarPedidoForm
+        ) {
+            btnOcultarPedido.addEventListener(
+                'click',
+                function () {
+                    Swal.fire({
+                        title: '¿Dejar de mostrar este pedido?',
+                        html:
+                            'Lo ocultaremos de tus <b>pedidos en curso</b>.'
+                            + '<br><br>'
+                            + 'No cancelaremos el enlace de Wompi porque '
+                            + 'todavía podría estar activo.'
+                            + '<br><br>'
+                            + '<b>Si Wompi confirma un pago después, '
+                            + 'el pedido volverá a aparecer.</b>',
+                        icon: 'question',
+                        showCancelButton: true,
+                        confirmButtonText:
+                            'Sí, ocultarlo',
+                        cancelButtonText:
+                            'No, mantenerlo',
+                        reverseButtons: true,
+                        focusCancel: true,
+                        buttonsStyling: false,
+                        customClass: {
+                            popup: 'foodback-swal',
+                            confirmButton:
+                                'btn btn-dark foodback-swal-confirm',
+                            cancelButton:
+                                'btn btn-light foodback-swal-cancel'
+                        }
+                    }).then(result => {
+                        if (result.isConfirmed) {
+                            btnOcultarPedido.disabled = true;
+                            btnOcultarPedido.innerHTML =
+                                '<span class="spinner-border '
+                                + 'spinner-border-sm me-1"></span>'
+                                + ' Ocultando...';
+
+                            ocultarPedidoForm.submit();
                         }
                     });
                 }

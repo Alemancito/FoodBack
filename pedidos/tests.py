@@ -1047,6 +1047,90 @@ class PaymentHttpSecurityTests(FoodBackTestBase):
     """
 
     WOMPI_URL_FAKE = "https://wompi.test/enlace-seguro"
+    
+    @patch(
+    "pedidos.views._validar_hash_webhook_wompi",
+    return_value=True,
+    )
+    def test_webhook_formato_real_wompi_aprueba_pedido(
+        self,
+        mock_hash,
+    ):
+        pedido = self.crear_pedido_tarjeta(
+            "79000009"
+        )
+
+        pago = self.crear_pago_pendiente(
+            pedido
+        )
+
+        body = {
+            "IdCuenta": 123,
+            "FechaTransaccion": "2026-09-08T00:00:00",
+            "Monto": str(pago.monto),
+
+            "IdTransaccion":
+                "TX-WOMPI-FORMATO-REAL",
+
+            "ResultadoTransaccion":
+                "ExitosaAprobada",
+
+            "EsProductiva": False,
+
+            "EnlacePago": {
+                "Id": 999999,
+
+                "IdentificadorEnlaceComercio":
+                    pago.referencia,
+
+                "NombreProducto":
+                    f"Pedido #{pedido.id}",
+
+                "DescripcionProducto":
+                    "",
+            },
+        }
+
+        response = self.client.post(
+            reverse("wompi_webhook"),
+            data=json.dumps(body),
+            content_type="application/json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        pedido.refresh_from_db()
+        pago.refresh_from_db()
+
+        self.assertTrue(
+            pedido.pago_verificado
+        )
+
+        self.assertEqual(
+            pedido.estado,
+            "RECIBIDO",
+        )
+
+        self.assertEqual(
+            pago.estado,
+            "APROBADO",
+        )
+
+        self.assertTrue(
+            pago.es_aprobada
+        )
+
+        self.assertEqual(
+            pago.id_transaccion,
+            "TX-WOMPI-FORMATO-REAL",
+        )
+
+        self.assertTrue(
+            bool(pago.raw_webhook)
+        )
 
     def crear_pedido_tarjeta(self, telefono):
         pedido = self.crear_pedido(
@@ -4176,4 +4260,427 @@ class PaymentPendingCancellationTests(
         self.assertEqual(
             pedido.estado,
             "RECIBIDO",
+        )
+        
+class PaymentPendingHideTests(
+    FoodBackTestBase
+):
+    """
+    Un enlace Wompi potencialmente activo
+    puede ocultarse de la UX sin alterar
+    su estado financiero.
+    """
+
+    def crear_pedido_con_enlace(
+        self,
+        telefono,
+    ):
+        pedido = self.crear_pedido(
+            estado="PENDIENTE",
+            telefono=telefono,
+        )
+
+        pedido.metodo_pago = "TARJETA"
+        pedido.pago_verificado = False
+        pedido.save()
+
+        pago = PagoWompi.objects.create(
+            tipo="PEDIDO",
+            pedido=pedido,
+            referencia=(
+                f"ORDEN-{pedido.id}-HIDE"
+            ),
+            monto=pedido.total_final,
+            estado="PENDIENTE",
+            id_enlace="LINK-HIDE",
+            url_enlace=(
+                "https://wompi.test/"
+                "link-activo"
+            ),
+        )
+
+        session = self.client.session
+
+        session[
+            "historial_pedidos"
+        ] = [
+            pedido.id
+        ]
+
+        session[
+            "ultimo_pedido_id"
+        ] = pedido.id
+
+        session.save()
+
+        return pedido, pago
+
+    def test_ocultar_no_cancela_pedido_ni_pago(
+        self
+    ):
+        pedido, pago = (
+            self.crear_pedido_con_enlace(
+                "79800001"
+            )
+        )
+
+        response = self.client.post(
+            reverse(
+                "ocultar_pedido_pendiente",
+                args=[
+                    pedido.tracking_token
+                ],
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        pedido.refresh_from_db()
+        pago.refresh_from_db()
+
+        self.assertEqual(
+            pedido.estado,
+            "PENDIENTE",
+        )
+
+        self.assertFalse(
+            pedido.pago_verificado
+        )
+
+        self.assertEqual(
+            pago.estado,
+            "PENDIENTE",
+        )
+
+        self.assertTrue(
+            pago.url_enlace
+        )
+
+    def test_oculto_desaparece_del_menu(
+        self
+    ):
+        pedido, _ = (
+            self.crear_pedido_con_enlace(
+                "79800002"
+            )
+        )
+
+        self.client.post(
+            reverse(
+                "ocultar_pedido_pendiente",
+                args=[
+                    pedido.tracking_token
+                ],
+            )
+        )
+
+        response = self.client.get(
+            reverse("menu")
+        )
+
+        self.assertIsNone(
+            response.context[
+                "ultimo_pedido_activo"
+            ]
+        )
+
+    def test_oculto_desaparece_de_mis_pedidos_activos(
+        self
+    ):
+        pedido, _ = (
+            self.crear_pedido_con_enlace(
+                "79800003"
+            )
+        )
+
+        self.client.post(
+            reverse(
+                "ocultar_pedido_pendiente",
+                args=[
+                    pedido.tracking_token
+                ],
+            )
+        )
+
+        response = self.client.get(
+            reverse("perfil_usuario")
+        )
+
+        activos = list(
+            response.context[
+                "activos"
+            ]
+        )
+
+        self.assertNotIn(
+            pedido,
+            activos,
+        )
+
+    def test_otra_sesion_no_puede_ocultarlo(
+        self
+    ):
+        pedido, _ = (
+            self.crear_pedido_con_enlace(
+                "79800004"
+            )
+        )
+
+        otro_cliente = Client()
+
+        response = otro_cliente.post(
+            reverse(
+                "ocultar_pedido_pendiente",
+                args=[
+                    pedido.tracking_token
+                ],
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403,
+        )
+
+    def test_si_luego_se_paga_vuelve_a_aparecer(
+        self
+    ):
+        pedido, _ = (
+            self.crear_pedido_con_enlace(
+                "79800005"
+            )
+        )
+
+        self.client.post(
+            reverse(
+                "ocultar_pedido_pendiente",
+                args=[
+                    pedido.tracking_token
+                ],
+            )
+        )
+
+        pedido.estado = "RECIBIDO"
+        pedido.pago_verificado = True
+        pedido.save()
+
+        response = self.client.get(
+            reverse("menu")
+        )
+
+        self.assertIsNotNone(
+            response.context[
+                "ultimo_pedido_activo"
+            ]
+        )
+
+        self.assertEqual(
+            response.context[
+                "ultimo_pedido_activo"
+            ].id,
+            pedido.id,
+        )
+        
+class MultipleActiveOrdersVisibilityTests(
+    FoodBackTestBase
+):
+
+    def test_pagar_pedido_oculto_no_hace_desaparecer_otro_activo(
+        self
+    ):
+        # Pedido anterior que ya estaba confirmado.
+        pedido_anterior = self.crear_pedido(
+            estado="RECIBIDO",
+            telefono="79910001",
+        )
+
+        pedido_anterior.metodo_pago = "TARJETA"
+        pedido_anterior.pago_verificado = True
+        pedido_anterior.save()
+
+        # Segundo pedido: estuvo oculto mientras era pendiente,
+        # pero posteriormente terminó pagándose.
+        pedido_nuevo = self.crear_pedido(
+            estado="RECIBIDO",
+            telefono="79910002",
+        )
+
+        pedido_nuevo.metodo_pago = "TARJETA"
+        pedido_nuevo.pago_verificado = True
+        pedido_nuevo.save()
+
+        session = self.client.session
+
+        session[
+            "historial_pedidos"
+        ] = [
+            pedido_anterior.id,
+            pedido_nuevo.id,
+        ]
+
+        # Simula que el segundo pedido había sido ocultado
+        # cuando todavía estaba pendiente.
+        session[
+            "pedidos_pendientes_ocultos"
+        ] = [
+            pedido_nuevo.id,
+        ]
+
+        session[
+            "ultimo_pedido_id"
+        ] = pedido_nuevo.id
+
+        session.save()
+
+        response = self.client.get(
+            reverse("perfil_usuario")
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        activos = list(
+            response.context["activos"]
+        )
+
+        self.assertIn(
+            pedido_anterior,
+            activos,
+        )
+
+        self.assertIn(
+            pedido_nuevo,
+            activos,
+        )
+
+        self.assertEqual(
+            len(activos),
+            2,
+        )
+        
+    def test_ocultar_segundo_y_luego_pagarlo_conserva_ambos_activos(
+    self
+    ):
+        pedido_38 = self.crear_pedido(
+            estado="RECIBIDO",
+            telefono="79920001",
+        )
+
+        pedido_38.metodo_pago = "TARJETA"
+        pedido_38.pago_verificado = True
+        pedido_38.save()
+
+        pedido_39 = self.crear_pedido(
+            estado="PENDIENTE",
+            telefono="79920002",
+        )
+
+        pedido_39.metodo_pago = "TARJETA"
+        pedido_39.pago_verificado = False
+        pedido_39.save()
+
+        PagoWompi.objects.create(
+            tipo="PEDIDO",
+            pedido=pedido_39,
+            referencia=(
+                f"ORDEN-{pedido_39.id}-MULTI"
+            ),
+            monto=pedido_39.total_final,
+            estado="PENDIENTE",
+            id_enlace="MULTI-LINK",
+            url_enlace=(
+                "https://wompi.test/multi"
+            ),
+        )
+
+        session = self.client.session
+
+        session[
+            "historial_pedidos"
+        ] = [
+            pedido_38.id,
+            pedido_39.id,
+        ]
+
+        session[
+            "ultimo_pedido_id"
+        ] = pedido_39.id
+
+        session.save()
+
+        # El usuario oculta #39.
+        response = self.client.post(
+            reverse(
+                "ocultar_pedido_pendiente",
+                args=[
+                    pedido_39.tracking_token
+                ],
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        # #38 debe seguir visible.
+        response = self.client.get(
+            reverse("perfil_usuario")
+        )
+
+        activos = list(
+            response.context[
+                "activos"
+            ]
+        )
+
+        self.assertIn(
+            pedido_38,
+            activos,
+        )
+
+        self.assertNotIn(
+            pedido_39,
+            activos,
+        )
+
+        # Simulamos confirmación posterior de Wompi.
+        pedido_39.estado = "RECIBIDO"
+        pedido_39.pago_verificado = True
+
+        pedido_39.save(
+            update_fields=[
+                "estado",
+                "pago_verificado",
+            ]
+        )
+
+        response = self.client.get(
+            reverse("perfil_usuario")
+        )
+
+        activos = list(
+            response.context[
+                "activos"
+            ]
+        )
+
+        self.assertIn(
+            pedido_38,
+            activos,
+        )
+
+        self.assertIn(
+            pedido_39,
+            activos,
+        )
+
+        self.assertEqual(
+            len(activos),
+            2,
         )

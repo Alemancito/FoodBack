@@ -2711,14 +2711,21 @@ def _iniciar_pago_wompi_pedido(request, pedido):
             )
             return redirect("checkout")
 
-        # Buscamos primero un intento reutilizable.
+        # Buscamos primero un intento reutilizable
+        # del mismo pedido y del mismo Tenant.
         pago = (
             PagoWompi.objects
             .filter(
                 pedido=pedido,
-                estado__in=['CREADO', 'PENDIENTE']
+                tenant=tenant_pago,
+                estado__in=[
+                    "CREADO",
+                    "PENDIENTE",
+                ],
             )
-            .order_by('-fecha_creacion')
+            .order_by(
+                "-fecha_creacion"
+            )
             .first()
         )
 
@@ -2943,61 +2950,180 @@ def pagar_wompi_view(request, tracking_token):
 
 
 def wompi_respuesta_view(request):
-    referencia = request.GET.get('ref') or request.GET.get('pedido_ref')
-    id_transaccion = request.GET.get('idTransaccion', '').strip()
+    referencia = (
+        request.GET.get("ref")
+        or request.GET.get("pedido_ref")
+    )
+
+    id_transaccion = (
+        request.GET.get(
+            "idTransaccion",
+            "",
+        )
+        .strip()
+    )
 
     if not referencia:
-        messages.error(request, 'No se recibió la referencia del pago.')
-        return redirect('menu')
+        messages.error(
+            request,
+            "No se recibió la referencia del pago.",
+        )
+
+        return redirect(
+            "menu"
+        )
+
+    tenant = getattr(
+        request,
+        "tenant",
+        None,
+    )
+
+    sucursal = getattr(
+        request,
+        "sucursal",
+        None,
+    )
+
+    if not tenant or not sucursal:
+        return HttpResponseForbidden(
+            "No hay un restaurante activo."
+        )
 
     pago = (
         PagoWompi.objects
-        .filter(referencia=referencia)
-        .select_related('pedido')
+        .filter(
+            referencia=referencia,
+            tipo="PEDIDO",
+            tenant=tenant,
+            pedido__sucursal=sucursal,
+        )
+        .select_related(
+            "pedido"
+        )
         .first()
     )
 
-    pedido = pago.pedido if pago else None
+    pedido = (
+        pago.pedido
+        if pago
+        else None
+    )
 
     if not pago or not pedido:
         messages.error(
-            request, 'No encontramos el pedido relacionado al pago.')
-        return redirect('menu')
+            request,
+            (
+                "No encontramos el pedido "
+                "relacionado al pago."
+            ),
+        )
 
-    pago.raw_redirect = dict(request.GET.items())
-    pago.save()
+        return redirect(
+            "menu"
+        )
 
-    request.session['ultimo_pedido_id'] = pedido.id
-    historial = request.session.get('historial_pedidos', [])
+    pago.raw_redirect = dict(
+        request.GET.items()
+    )
+
+    pago.save(
+        update_fields=[
+            "raw_redirect",
+            "fecha_actualizacion",
+        ]
+    )
+
+    request.session[
+        "ultimo_pedido_id"
+    ] = pedido.id
+
+    historial = (
+        request.session.get(
+            "historial_pedidos",
+            [],
+        )
+    )
+
     if pedido.id not in historial:
-        historial.append(pedido.id)
-    request.session['historial_pedidos'] = historial
+        historial.append(
+            pedido.id
+        )
+
+    request.session[
+        "historial_pedidos"
+    ] = historial
+
     request.session.modified = True
 
-    # Si Wompi envía hash en el redirect, podemos confirmar inmediatamente.
-    # Si no viene hash, NO confiamos en la URL: dejamos que el webhook confirme.
-    if _validar_hash_redirect_wompi(request.GET, referencia=pago.referencia, tipo_pago=pago.tipo) and _redirect_wompi_aprobado(request.GET):
-        ok, msg = _procesar_pago_wompi_aprobado(
-            pago.referencia,
-            id_transaccion=id_transaccion,
-            monto=request.GET.get('monto'),
-            raw_payload=dict(request.GET.items()),
-            origen='REDIRECT'
+    if (
+        _validar_hash_redirect_wompi(
+            request.GET,
+            referencia=pago.referencia,
+            tipo_pago=pago.tipo,
         )
+        and
+        _redirect_wompi_aprobado(
+            request.GET
+        )
+    ):
+        ok, msg = (
+            _procesar_pago_wompi_aprobado(
+                pago.referencia,
+                id_transaccion=(
+                    id_transaccion
+                ),
+                monto=request.GET.get(
+                    "monto"
+                ),
+                raw_payload=dict(
+                    request.GET.items()
+                ),
+                origen="REDIRECT",
+            )
+        )
+
         if ok:
             messages.success(
-                request, 'Pago confirmado. Tu pedido fue recibido.')
+                request,
+                (
+                    "Pago confirmado. "
+                    "Tu pedido fue recibido."
+                ),
+            )
         else:
-            messages.warning(request, f'Pago en revisión: {msg}')
-    elif pago.estado == 'APROBADO' or pedido.pago_verificado:
-        messages.success(request, 'Pago confirmado. Tu pedido fue recibido.')
+            messages.warning(
+                request,
+                f"Pago en revisión: {msg}",
+            )
+
+    elif (
+        pago.estado == "APROBADO"
+        or pedido.pago_verificado
+    ):
+        messages.success(
+            request,
+            (
+                "Pago confirmado. "
+                "Tu pedido fue recibido."
+            ),
+        )
+
     else:
         messages.info(
-            request, 'Estamos verificando tu pago. Tu pedido se activará automáticamente al confirmarse.')
+            request,
+            (
+                "Estamos verificando tu pago. "
+                "Tu pedido se activará "
+                "automáticamente al confirmarse."
+            ),
+        )
 
     return redirect(
-        'order_tracker',
-        tracking_token=pedido.tracking_token
+        "order_tracker",
+        tracking_token=(
+            pedido.tracking_token
+        ),
     )
 
 

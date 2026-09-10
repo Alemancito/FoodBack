@@ -1407,6 +1407,7 @@ class PaymentHttpSecurityTests(FoodBackTestBase):
 
         pago = PagoWompi.objects.create(
             tipo="PEDIDO",
+            tenant=pedido.sucursal.tenant,
             pedido=pedido,
             referencia=referencia,
             monto=pedido.total_final,
@@ -2192,6 +2193,7 @@ class PaymentRecoverySecurityTests(FoodBackTestBase):
 
         return PagoWompi.objects.create(
             tipo="PEDIDO",
+            tenant=pedido.sucursal.tenant,
             pedido=pedido,
             referencia=referencia,
             monto=pedido.total_final,
@@ -6507,4 +6509,95 @@ class ClienteTenantIsolationTests(
         self.assertEqual(
             cliente_a.nombre,
             "Cliente Rancheritos",
+        )
+        
+class WompiRedirectTenantIsolationTests(
+    FoodBackTestBase
+):
+
+    def test_redirect_de_otro_tenant_no_toca_pago_ni_sesion(
+        self,
+    ):
+        tenant_b = Tenant.objects.create(
+            nombre="Restaurante B Redirect",
+            slug="restaurante-b-redirect",
+        )
+
+        sucursal_b = Sucursal.objects.create(
+            tenant=tenant_b,
+            nombre="Sucursal B",
+            slug="principal-b",
+            estado=Sucursal.Estado.ACTIVA,
+        )
+
+        cliente_b = Cliente.objects.create(
+            tenant=tenant_b,
+            telefono="78889991",
+            nombre="Cliente",
+            apellido="Tenant B",
+        )
+
+        pedido_b = Pedido.objects.create(
+            sucursal=sucursal_b,
+            cliente=cliente_b,
+            direccion_entrega="Tenant B",
+            metodo_pago="TARJETA",
+            estado="PENDIENTE",
+            total_productos=Decimal("10.00"),
+        )
+
+        pago_b = PagoWompi.objects.create(
+            tipo="PEDIDO",
+            tenant=tenant_b,
+            pedido=pedido_b,
+            referencia=(
+                "ORDEN-TENANT-B-REDIRECT"
+            ),
+            monto=Decimal("10.00"),
+            estado="PENDIENTE",
+        )
+
+        response = self.client.get(
+            reverse(
+                "wompi_respuesta"
+            ),
+            {
+                "ref":
+                    pago_b.referencia,
+
+                "idTransaccion":
+                    "TX-AJENA",
+
+                "monto":
+                    "10.00",
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        pago_b.refresh_from_db()
+
+        self.assertEqual(
+            pago_b.raw_redirect,
+            {},
+        )
+
+        session = self.client.session
+
+        self.assertNotEqual(
+            session.get(
+                "ultimo_pedido_id"
+            ),
+            pedido_b.id,
+        )
+
+        self.assertNotIn(
+            pedido_b.id,
+            session.get(
+                "historial_pedidos",
+                [],
+            ),
         )

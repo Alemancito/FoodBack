@@ -669,7 +669,7 @@ def cart_add(request, producto_id):
     producto = get_object_or_404(
         Producto,
         id=producto_id,
-        categoria__tenant=getattr(request, "tenant", None),
+        categoria__tenant=request.tenant,
         disponible=True,
     )
 
@@ -860,9 +860,9 @@ def _obtener_pedido_pendiente_recuperable(request):
         Pedido.objects
         .filter(
             id=pedido_id,
-            sucursal=getattr(request, "sucursal", None),
-            metodo_pago='TARJETA',
-            estado='PENDIENTE',
+            sucursal=request.sucursal,
+            metodo_pago="TARJETA",
+            estado="PENDIENTE",
             pago_verificado=False,
         )
         .select_related(
@@ -1045,12 +1045,13 @@ def checkout_view(request):
 
                 cliente, created = (
                     Cliente.objects.get_or_create(
+                        tenant=request.tenant,
                         telefono=telefono,
                         defaults={
-                            'nombre': nombre,
-                            'apellido': apellido,
-                            'direccion_ultima': direccion,
-                        }
+                            "nombre": nombre,
+                            "apellido": apellido,
+                            "direccion_ultima": direccion,
+                        },
                     )
                 )
 
@@ -2911,7 +2912,8 @@ def _iniciar_pago_wompi_pedido(request, pedido):
 def pagar_wompi_view(request, tracking_token):
     pedido = get_object_or_404(
         Pedido,
-        tracking_token=tracking_token
+        tracking_token=tracking_token,
+        sucursal=request.sucursal
     )
 
     return _iniciar_pago_wompi_pedido(
@@ -2982,7 +2984,8 @@ def wompi_respuesta_view(request):
 def pedido_exito_view(request, tracking_token):
     pedido = get_object_or_404(
         Pedido,
-        tracking_token=tracking_token
+        tracking_token=tracking_token,
+        sucursal=request.sucursal
     )
 
     return redirect(
@@ -3014,28 +3017,30 @@ def _parse_last_update(value):
     return dt
 
 
-def _ultimo_cambio_pedidos(sucursal=None):
+def _ultimo_cambio_pedidos(
+    sucursal,
+):
     """
-    Devuelve la última modificación de pedidos.
+    Devuelve la última modificación de pedidos
+    exclusivamente para una sucursal.
 
-    Si se proporciona una sucursal, la consulta queda
-    completamente aislada a esa sucursal.
-
-    El parámetro opcional se mantiene temporalmente porque
-    Delivery todavía usa este helper y será migrado en el
-    siguiente bloque multi-tenant.
+    No existe fallback global.
     """
 
-    queryset = Pedido.objects.all()
+    if not sucursal:
+        return None
 
-    if sucursal is not None:
-        queryset = queryset.filter(
+    return (
+        Pedido.objects
+        .filter(
             sucursal=sucursal
         )
-
-    return queryset.aggregate(
-        ultimo=Max("actualizado_en")
-    )["ultimo"]
+        .aggregate(
+            ultimo=Max(
+                "actualizado_en"
+            )
+        )["ultimo"]
+    )
 
 
 def _query_detalles_optimizada():
@@ -4178,7 +4183,8 @@ def order_tracker_view(
 ):
     pedido = get_object_or_404(
         Pedido,
-        tracking_token=tracking_token
+        tracking_token=tracking_token,
+        sucursal=request.sucursal
     )
 
     historial = request.session.get(
@@ -4273,6 +4279,7 @@ def retomar_pago_view(
         metodo_pago='TARJETA',
         estado='PENDIENTE',
         pago_verificado=False,
+        sucursal=request.sucursal,
     )
 
     historial = request.session.get(
@@ -4329,6 +4336,7 @@ def cancelar_pedido_pendiente_view(
         metodo_pago='TARJETA',
         estado='PENDIENTE',
         pago_verificado=False,
+        sucursal=request.sucursal,
     )
 
     historial = request.session.get(
@@ -4475,6 +4483,7 @@ def ocultar_pedido_pendiente_view(
         metodo_pago='TARJETA',
         estado='PENDIENTE',
         pago_verificado=False,
+        sucursal=request.sucursal,
     )
 
     historial = request.session.get(
@@ -4601,7 +4610,8 @@ def api_order_status(request, tracking_token):
             'estado',
             'actualizado_en'
         ).get(
-            tracking_token=tracking_token
+                tracking_token=tracking_token,
+                sucursal=request.sucursal,
         )
 
         return JsonResponse({

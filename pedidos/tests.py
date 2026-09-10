@@ -144,6 +144,7 @@ class FoodBackTestBase(TestCase):
         # ========================================================
 
         cls.cliente_pedido = Cliente.objects.create(
+            tenant=cls.tenant,
             telefono="70000001",
             nombre="Cliente",
             apellido="Prueba",
@@ -219,6 +220,7 @@ class FoodBackTestBase(TestCase):
             telefono = f"71{Cliente.objects.count():06d}"
 
         cliente = Cliente.objects.create(
+            tenant=self.tenant,
             telefono=telefono,
             nombre="Cliente",
             apellido="Pedido",
@@ -6240,4 +6242,151 @@ class MetricsAndProfileSucursalIsolationTests(
         self.assertNotIn(
             self.pedido_b.id,
             ids_visibles,
+        )
+
+
+
+class ClienteTenantIsolationTests(
+    FoodBackTestBase
+):
+
+    def setUp(self):
+        self.tenant_b = Tenant.objects.create(
+            nombre="Restaurante B Clientes",
+            slug="restaurante-b-clientes",
+        )
+
+    def test_mismo_telefono_puede_existir_en_dos_tenants(
+        self,
+    ):
+        telefono = "79998881"
+
+        cliente_a = Cliente.objects.create(
+            tenant=self.tenant,
+            telefono=telefono,
+            nombre="Cliente A",
+            apellido="Prueba",
+        )
+
+        cliente_b = Cliente.objects.create(
+            tenant=self.tenant_b,
+            telefono=telefono,
+            nombre="Cliente B",
+            apellido="Prueba",
+        )
+
+        self.assertNotEqual(
+            cliente_a.id,
+            cliente_b.id,
+        )
+
+        self.assertEqual(
+            Cliente.objects.filter(
+                telefono=telefono
+            ).count(),
+            2,
+        )
+
+    def test_mismo_telefono_no_puede_duplicarse_en_mismo_tenant(
+        self,
+    ):
+        telefono = "79998882"
+
+        Cliente.objects.create(
+            tenant=self.tenant,
+            telefono=telefono,
+            nombre="Primero",
+            apellido="Cliente",
+        )
+
+        with self.assertRaises(
+            IntegrityError
+        ):
+            with transaction.atomic():
+                Cliente.objects.create(
+                    tenant=self.tenant,
+                    telefono=telefono,
+                    nombre="Segundo",
+                    apellido="Cliente",
+                )
+
+    def test_checkout_no_modifica_cliente_de_otro_tenant(
+        self,
+    ):
+        telefono = "79998883"
+
+        cliente_b = Cliente.objects.create(
+            tenant=self.tenant_b,
+            telefono=telefono,
+            nombre="NO TOCAR",
+            apellido="Tenant B",
+            direccion_ultima=(
+                "Dirección Tenant B"
+            ),
+        )
+
+        session = self.client.session
+
+        session["cart"] = {
+            f"{self.producto.id}-0-0": 1
+        }
+
+        session.save()
+
+        response = self.client.post(
+            reverse("checkout"),
+            {
+                "telefono":
+                    telefono,
+
+                "nombre":
+                    "Cliente Rancheritos",
+
+                "apellido":
+                    "Tenant A",
+
+                "direccion":
+                    "Dirección Tenant A",
+
+                "metodo_pago":
+                    "EFECTIVO",
+
+                "latitud":
+                    "13.4800",
+
+                "longitud":
+                    "-88.1800",
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        cliente_b.refresh_from_db()
+
+        self.assertEqual(
+            cliente_b.nombre,
+            "NO TOCAR",
+        )
+
+        self.assertEqual(
+            cliente_b.direccion_ultima,
+            "Dirección Tenant B",
+        )
+
+        cliente_a = Cliente.objects.get(
+            tenant=self.tenant,
+            telefono=telefono,
+        )
+
+        self.assertNotEqual(
+            cliente_a.id,
+            cliente_b.id,
+        )
+
+        self.assertEqual(
+            cliente_a.nombre,
+            "Cliente Rancheritos",
         )

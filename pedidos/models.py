@@ -776,8 +776,6 @@ class EventoPagoWompi(models.Model):
         "Tenant",
         on_delete=models.PROTECT,
         related_name="eventos_pago_wompi",
-        null=True,
-        blank=True,
         db_index=True,
     )
 
@@ -870,8 +868,6 @@ class EstadoPasarelaPago(models.Model):
         "Tenant",
         on_delete=models.PROTECT,
         related_name="estado_pasarela_wompi",
-        null=True,
-        blank=True,
     )
 
     # LEGACY TEMPORAL.

@@ -3520,6 +3520,39 @@ class PaymentGlobalCircuitBreakerTests(
         "https://wompi.test/"
         "global-breaker"
     )
+    
+    def test_bd_impide_evento_wompi_sin_tenant(
+        self,
+    ):
+        with self.assertRaises(
+            IntegrityError
+        ):
+            with transaction.atomic():
+                EventoPagoWompi.objects.create(
+                    cliente_token_hash=(
+                        "9" * 64
+                    ),
+                    categoria="ERROR_TECNICO",
+                    origen="INICIO",
+                    codigo="TEST_SIN_TENANT",
+                    mensaje="Prueba.",
+                    cuenta_para_cliente=False,
+                    cuenta_para_global=True,
+                    clave_evento=(
+                        "TEST:SIN-TENANT:"
+                        "EVENTO"
+                    ),
+                )
+
+
+    def test_bd_impide_estado_pasarela_sin_tenant(
+        self,
+    ):
+        with self.assertRaises(
+            IntegrityError
+        ):
+            with transaction.atomic():
+                EstadoPasarelaPago.objects.create()
 
     def crear_error_global(
         self,
@@ -3974,6 +4007,7 @@ class PaymentGlobalCircuitBreakerTests(
                 codigo_motivo=(
                     "WOMPI_TECHNICAL_FAILURES"
                 ),
+                tenant=self.tenant,
             )
         )
 

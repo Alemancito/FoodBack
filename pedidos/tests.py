@@ -6099,3 +6099,145 @@ class TenantSubscriptionIsolationTests(
             self.suscripcion_b.fecha_vencimiento,
             vencimiento_b,
         )
+        
+
+class MetricsAndProfileSucursalIsolationTests(
+    FoodBackTestBase
+):
+
+    def setUp(self):
+        self.sucursal_b = (
+            Sucursal.objects.create(
+                tenant=self.tenant,
+                nombre="Sucursal B Métricas",
+                slug="sucursal-b-metricas",
+                estado=(
+                    Sucursal.Estado.ACTIVA
+                ),
+            )
+        )
+
+        self.pedido_a = (
+            self.crear_pedido(
+                estado="RECIBIDO",
+                telefono="79990001",
+            )
+        )
+
+        self.pedido_a.total_productos = (
+            Decimal("10.00")
+        )
+
+        self.pedido_a.save()
+
+        cliente_b = (
+            Cliente.objects.create(
+                telefono="79990002",
+                nombre="Cliente",
+                apellido="Sucursal B",
+                direccion_ultima="San Miguel",
+            )
+        )
+
+        self.pedido_b = (
+            Pedido.objects.create(
+                sucursal=self.sucursal_b,
+                cliente=cliente_b,
+                direccion_entrega="Sucursal B",
+                metodo_pago="EFECTIVO",
+                estado="RECIBIDO",
+                total_productos=(
+                    Decimal("100.00")
+                ),
+            )
+        )
+
+    def test_metricas_solo_incluyen_sucursal_activa(
+        self,
+    ):
+        self.client.force_login(
+            self.admin_user
+        )
+
+        response = self.client.get(
+            reverse(
+                "dashboard_metrics"
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.assertEqual(
+            Decimal(
+                str(
+                    response.context[
+                        "total_ventas_hoy"
+                    ]
+                )
+            ),
+            Decimal("10.00"),
+        )
+
+        self.assertEqual(
+            response.context[
+                "cantidad_pedidos_hoy"
+            ],
+            1,
+        )
+
+    def test_perfil_no_muestra_pedido_de_otra_sucursal(
+        self,
+    ):
+        session = self.client.session
+
+        session[
+            "historial_pedidos"
+        ] = [
+            self.pedido_a.id,
+            self.pedido_b.id,
+        ]
+
+        session.save()
+
+        response = self.client.get(
+            reverse(
+                "perfil_usuario"
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        visibles = (
+            list(
+                response.context[
+                    "activos"
+                ]
+            )
+            +
+            list(
+                response.context[
+                    "historial"
+                ]
+            )
+        )
+
+        ids_visibles = {
+            pedido.id
+            for pedido in visibles
+        }
+
+        self.assertIn(
+            self.pedido_a.id,
+            ids_visibles,
+        )
+
+        self.assertNotIn(
+            self.pedido_b.id,
+            ids_visibles,
+        )

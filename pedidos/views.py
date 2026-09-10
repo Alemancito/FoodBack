@@ -4624,99 +4624,295 @@ def api_order_status(request, tracking_token):
 @login_required(login_url='login_custom')
 @user_passes_test(es_admin, login_url='login_custom')
 def dashboard_metrics_view(request):
+    tenant = getattr(
+        request,
+        "tenant",
+        None,
+    )
+
+    sucursal = getattr(
+        request,
+        "sucursal",
+        None,
+    )
+
+    if not tenant or not sucursal:
+        return HttpResponseForbidden(
+            "No hay una sucursal activa."
+        )
+
     if not suscripcion_activa(
-        request.tenant
+        tenant
     ):
         messages.error(
-            request, "⛔ Acceso denegado a Finanzas. Suscripción vencida.")
-        return redirect('dashboard_admin')
+            request,
+            (
+                "⛔ Acceso denegado a Finanzas. "
+                "Suscripción vencida."
+            ),
+        )
+
+        return redirect(
+            "dashboard_admin"
+        )
 
     hoy = datetime.now().date()
-    pedidos_validos_hoy = Pedido.objects.filter(
-        fecha_creacion__date=hoy).exclude(estado__in=['CANCELADO', 'PENDIENTE'])
 
-    resumen = pedidos_validos_hoy.aggregate(
-        total_general=Sum('total_final'),
-        total_efectivo=Sum('total_final', filter=Q(metodo_pago='EFECTIVO')),
-        total_wompi=Sum('total_final', filter=Q(metodo_pago='TARJETA'))
+    pedidos_validos_hoy = (
+        Pedido.objects
+        .filter(
+            sucursal=sucursal,
+            fecha_creacion__date=hoy,
+        )
+        .exclude(
+            estado__in=[
+                "CANCELADO",
+                "PENDIENTE",
+            ]
+        )
     )
-    total_ventas_hoy = resumen['total_general'] or 0
-    dinero_en_caja = resumen['total_efectivo'] or 0
-    dinero_banco = resumen['total_wompi'] or 0
-    cantidad_pedidos_hoy = pedidos_validos_hoy.count()
-    ticket_promedio = total_ventas_hoy / \
-        cantidad_pedidos_hoy if cantidad_pedidos_hoy > 0 else 0
 
-    fechas_grafica, montos_grafica = [], []
-    for i in range(6, -1, -1):
-        fecha = hoy - timedelta(days=i)
-        venta_dia = Pedido.objects.filter(fecha_creacion__date=fecha).exclude(estado__in=[
-            'CANCELADO', 'PENDIENTE']).aggregate(Sum('total_final'))['total_final__sum'] or 0
-        nombres_dias = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
-        fechas_grafica.append(f"{nombres_dias[fecha.weekday()]} {fecha.day}")
-        montos_grafica.append(float(venta_dia))
+    resumen = (
+        pedidos_validos_hoy
+        .aggregate(
+            total_general=Sum(
+                "total_final"
+            ),
+            total_efectivo=Sum(
+                "total_final",
+                filter=Q(
+                    metodo_pago="EFECTIVO"
+                ),
+            ),
+            total_wompi=Sum(
+                "total_final",
+                filter=Q(
+                    metodo_pago="TARJETA"
+                ),
+            ),
+        )
+    )
 
-    top_productos = DetallePedido.objects.filter(pedido__estado__in=['RECIBIDO', 'COCINA', 'RUTA', 'ENTREGADO']).values(
-        'producto__nombre').annotate(total_vendido=Sum('cantidad'), dinero_generado=Sum('subtotal')).order_by('-total_vendido')[:5]
+    total_ventas_hoy = (
+        resumen["total_general"]
+        or 0
+    )
+
+    dinero_en_caja = (
+        resumen["total_efectivo"]
+        or 0
+    )
+
+    dinero_banco = (
+        resumen["total_wompi"]
+        or 0
+    )
+
+    cantidad_pedidos_hoy = (
+        pedidos_validos_hoy.count()
+    )
+
+    ticket_promedio = (
+        total_ventas_hoy
+        / cantidad_pedidos_hoy
+        if cantidad_pedidos_hoy > 0
+        else 0
+    )
+
+    fechas_grafica = []
+    montos_grafica = []
+
+    nombres_dias = [
+        "Lun",
+        "Mar",
+        "Mié",
+        "Jue",
+        "Vie",
+        "Sáb",
+        "Dom",
+    ]
+
+    for i in range(
+        6,
+        -1,
+        -1,
+    ):
+        fecha = (
+            hoy
+            - timedelta(days=i)
+        )
+
+        venta_dia = (
+            Pedido.objects
+            .filter(
+                sucursal=sucursal,
+                fecha_creacion__date=fecha,
+            )
+            .exclude(
+                estado__in=[
+                    "CANCELADO",
+                    "PENDIENTE",
+                ]
+            )
+            .aggregate(
+                total=Sum(
+                    "total_final"
+                )
+            )["total"]
+            or 0
+        )
+
+        fechas_grafica.append(
+            (
+                f"{nombres_dias[fecha.weekday()]} "
+                f"{fecha.day}"
+            )
+        )
+
+        montos_grafica.append(
+            float(
+                venta_dia
+            )
+        )
+
+    top_productos = (
+        DetallePedido.objects
+        .filter(
+            pedido__sucursal=sucursal,
+            pedido__estado__in=[
+                "RECIBIDO",
+                "COCINA",
+                "RUTA",
+                "ENTREGADO",
+            ],
+        )
+        .values(
+            "producto__nombre"
+        )
+        .annotate(
+            total_vendido=Sum(
+                "cantidad"
+            ),
+            dinero_generado=Sum(
+                "subtotal"
+            ),
+        )
+        .order_by(
+            "-total_vendido"
+        )[:5]
+    )
 
     context = {
-        'total_ventas_hoy': total_ventas_hoy, 'dinero_en_caja': dinero_en_caja, 'dinero_banco': dinero_banco,
-        'cantidad_pedidos_hoy': cantidad_pedidos_hoy, 'ticket_promedio': ticket_promedio,
-        'fechas_grafica': json.dumps(fechas_grafica), 'montos_grafica': json.dumps(montos_grafica),
-        'top_productos': top_productos,
+        "total_ventas_hoy":
+            total_ventas_hoy,
+
+        "dinero_en_caja":
+            dinero_en_caja,
+
+        "dinero_banco":
+            dinero_banco,
+
+        "cantidad_pedidos_hoy":
+            cantidad_pedidos_hoy,
+
+        "ticket_promedio":
+            ticket_promedio,
+
+        "fechas_grafica":
+            json.dumps(
+                fechas_grafica
+            ),
+
+        "montos_grafica":
+            json.dumps(
+                montos_grafica
+            ),
+
+        "top_productos":
+            top_productos,
+
+        "sucursal":
+            sucursal,
     }
-    return render(request, 'pedidos/dashboard_metrics.html', context)
+
+    return render(
+        request,
+        "pedidos/dashboard_metrics.html",
+        context,
+    )
 
 
 def perfil_usuario_view(request):
+    tenant = getattr(
+        request,
+        "tenant",
+        None,
+    )
+
+    sucursal = getattr(
+        request,
+        "sucursal",
+        None,
+    )
+
+    if not tenant or not sucursal:
+        return HttpResponseForbidden(
+            "No hay una sucursal activa."
+        )
+
     if not suscripcion_activa(
-        request.tenant
+        tenant
     ):
         return render(
             request,
-            'pedidos/suspendido.html'
+            "pedidos/suspendido.html",
         )
 
-    ids_historial = _pedidos_sesion(
-        request
+    ids_historial = (
+        _pedidos_sesion(
+            request
+        )
     )
 
     ids_ocultos = set(
         request.session.get(
-            'pedidos_pendientes_ocultos',
-            []
+            "pedidos_pendientes_ocultos",
+            [],
         )
     )
 
     mis_pedidos = (
         Pedido.objects
         .filter(
-            id__in=ids_historial
+            id__in=ids_historial,
+            sucursal=sucursal,
         )
-        .order_by('-id')
+        .order_by(
+            "-id"
+        )
     )
 
     activos = []
-
     historial = []
 
     for pedido in mis_pedidos:
 
         if pedido.estado in [
-            'ENTREGADO',
-            'CANCELADO',
+            "ENTREGADO",
+            "CANCELADO",
         ]:
             historial.append(
                 pedido
             )
+
             continue
 
-        # Solamente ocultamos mientras
-        # realmente siga pendiente y sin pagar.
         oculto_temporalmente = (
-            pedido.id in ids_ocultos
+            pedido.id
+            in ids_ocultos
             and
-            pedido.estado == 'PENDIENTE'
+            pedido.estado
+            == "PENDIENTE"
             and
             not pedido.pago_verificado
         )
@@ -4730,11 +4926,17 @@ def perfil_usuario_view(request):
 
     return render(
         request,
-        'pedidos/perfil.html',
+        "pedidos/perfil.html",
         {
-            'activos': activos,
-            'historial': historial,
-        }
+            "activos":
+                activos,
+
+            "historial":
+                historial,
+
+            "sucursal":
+                sucursal,
+        },
     )
 
 # --- PAGO DE SUSCRIPCIÓN (TU DINERO - EL CLIENTE TE PAGA A TI) ---

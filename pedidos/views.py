@@ -8,7 +8,7 @@ import time  # Necesario para generar referencias únicas
 from datetime import datetime, date, timedelta
 from decimal import Decimal, InvalidOperation
 from django.shortcuts import render, redirect, get_object_or_404
-from .models import Categoria, Producto, Pedido, DetallePedido, Cliente, ConfiguracionNegocio, DiaEspecial, OpcionProducto, Extra, PagoWompi, EventoPagoWompi,EstadoPasarelaPago
+from .models import Categoria, Producto, Pedido, DetallePedido, Cliente, ConfiguracionNegocio, DiaEspecial, OpcionProducto, Extra, PagoWompi, EventoPagoWompi,EstadoPasarelaPago, SuscripcionTenant
 from django.db import transaction
 from django.contrib import messages
 from decouple import config
@@ -58,19 +58,52 @@ def es_repartidor(user):
 # --- VALIDACIÓN DE SUSCRIPCIÓN (EL GUARDIA DE SEGURIDAD) ---
 
 
-def suscripcion_activa():
-    """Retorna True si está al día, False si venció."""
-    config_negocio = ConfiguracionNegocio.objects.first()
-    if not config_negocio:
-        return True
+def suscripcion_activa(tenant):
+    """
+    Indica si un Tenant puede operar.
+
+    La suscripción ya NO depende de
+    ConfiguracionNegocio.
+    """
+
+    if not tenant:
+        return False
+
+    if not tenant.habilitado:
+        return False
+
+    try:
+        suscripcion = tenant.suscripcion
+
+    except SuscripcionTenant.DoesNotExist:
+        # Fail closed:
+        # un Tenant sin suscripción configurada
+        # no debe quedar activo accidentalmente.
+        return False
 
     hoy = date.today()
-    vencimiento = config_negocio.fecha_vencimiento
 
-    # Si tiene fecha y la fecha de hoy es MAYOR o IGUAL al vencimiento, CORTAMOS.
-    if vencimiento and hoy >= vencimiento:
+    if suscripcion.estado in [
+        SuscripcionTenant.Estado.SUSPENDIDA,
+        SuscripcionTenant.Estado.CANCELADA,
+    ]:
         return False
-    return True
+
+    if (
+        suscripcion.estado
+        == SuscripcionTenant.Estado.GRACIA
+    ):
+        return bool(
+            suscripcion.gracia_hasta
+            and
+            hoy <= suscripcion.gracia_hasta
+        )
+
+    return bool(
+        suscripcion.fecha_vencimiento
+        and
+        hoy < suscripcion.fecha_vencimiento
+    )
 
 # --- CEREBRO DEL TIEMPO ---
 
@@ -488,7 +521,9 @@ def _validar_carrito(
 def menu_view(request):
     _limpiar_pedidos_pendientes_vencidos()
 
-    if not suscripcion_activa():
+    if not suscripcion_activa(
+        request.tenant
+    ):
         return render(
             request,
             'pedidos/suspendido.html'
@@ -623,7 +658,9 @@ def menu_view(request):
 
 @require_POST
 def cart_add(request, producto_id):
-    if not suscripcion_activa():
+    if not suscripcion_activa(
+        request.tenant
+    ):
         return render(
             request,
             'pedidos/suspendido.html'
@@ -632,6 +669,7 @@ def cart_add(request, producto_id):
     producto = get_object_or_404(
         Producto,
         id=producto_id,
+        categoria__tenant=getattr(request, "tenant", None),
         disponible=True,
     )
 
@@ -822,6 +860,7 @@ def _obtener_pedido_pendiente_recuperable(request):
         Pedido.objects
         .filter(
             id=pedido_id,
+            sucursal=getattr(request, "sucursal", None),
             metodo_pago='TARJETA',
             estado='PENDIENTE',
             pago_verificado=False,
@@ -841,7 +880,9 @@ def _obtener_pedido_pendiente_recuperable(request):
 def checkout_view(request):
     _limpiar_pedidos_pendientes_vencidos()
 
-    if not suscripcion_activa():
+    if not suscripcion_activa(
+        request.tenant
+    ):
         return render(
             request,
             'pedidos/suspendido.html'
@@ -2156,19 +2197,79 @@ def _monto_coincide(monto_esperado, monto_recibido):
     )
 
 
-def _renovar_suscripcion_30_dias(config_negocio=None):
-    if not config_negocio:
-        config_negocio = ConfiguracionNegocio.objects.first(
-        ) or ConfiguracionNegocio.objects.create()
+def _renovar_suscripcion_30_dias(
+    suscripcion,
+):
+    if not suscripcion:
+        raise ValueError(
+            "No existe una suscripción para renovar."
+        )
 
     hoy = date.today()
-    base_fecha = config_negocio.fecha_vencimiento
-    if not base_fecha or base_fecha < hoy:
+
+    base_fecha = (
+        suscripcion.fecha_vencimiento
+    )
+
+    if (
+        not base_fecha
+        or base_fecha < hoy
+    ):
         base_fecha = hoy
 
-    config_negocio.fecha_vencimiento = base_fecha + timedelta(days=30)
-    config_negocio.save()
-    return config_negocio
+    suscripcion.fecha_vencimiento = (
+        base_fecha
+        + timedelta(days=30)
+    )
+
+    suscripcion.estado = (
+        SuscripcionTenant.Estado.ACTIVA
+    )
+
+    suscripcion.gracia_hasta = None
+
+    suscripcion.save(
+        update_fields=[
+            "fecha_vencimiento",
+            "estado",
+            "gracia_hasta",
+            "actualizado_en",
+        ]
+    )
+
+    return suscripcion
+
+
+def _tenant_pago_suscripcion(
+    pago,
+):
+    """
+    Resuelve el Tenant de una suscripción.
+
+    PagoWompi.tenant es la fuente nueva.
+
+    configuracion_negocio queda solamente
+    como compatibilidad con registros legacy.
+    """
+
+    if pago.tenant_id:
+        return pago.tenant
+
+    config_negocio = (
+        pago.configuracion_negocio
+    )
+
+    if (
+        config_negocio
+        and config_negocio.sucursal_id
+    ):
+        return (
+            config_negocio
+            .sucursal
+            .tenant
+        )
+
+    return None
 
 
 @transaction.atomic
@@ -2178,39 +2279,35 @@ def _procesar_pago_wompi_aprobado(
     id_transaccion=None,
     monto=None,
     raw_payload=None,
-    origen='WEBHOOK'
+    origen="WEBHOOK",
 ):
     """
-    Confirma un pago Wompi solamente si:
+    Confirma un pago Wompi únicamente si:
 
     - existe el PagoWompi local;
     - existe idTransaccion;
     - el monto coincide exactamente;
-    - esa transacción no fue usada por otro pago;
-    - un replay del mismo pago es idempotente.
-
-    Esta función es la barrera central para cualquier
-    confirmación financiera de FoodBack.
+    - la transacción no fue usada por otro pago;
+    - los replays son idempotentes;
+    - una suscripción pertenece a un Tenant válido.
     """
 
     pago = (
         PagoWompi.objects
         .select_for_update()
-        .filter(
-            referencia=referencia
-        )
+        .filter(referencia=referencia)
         .first()
     )
 
-    # Compatibilidad temporal con referencias antiguas.
+    # Compatibilidad temporal con referencias antiguas de pedidos.
     if (
         not pago
         and referencia
-        and referencia.startswith('ORDEN-')
+        and referencia.startswith("ORDEN-")
     ):
         try:
             pedido_id = int(
-                referencia.split('-')[1]
+                referencia.split("-")[1]
             )
 
             pedido = (
@@ -2223,32 +2320,30 @@ def _procesar_pago_wompi_aprobado(
                 PagoWompi.objects
                 .select_for_update()
                 .filter(pedido=pedido)
-                .order_by('-fecha_creacion')
+                .order_by("-fecha_creacion")
                 .first()
             )
-
         except Exception:
             pago = None
 
+    # Compatibilidad temporal con referencias antiguas de suscripción.
     if (
         not pago
         and referencia
-        and referencia.startswith('SUBS-')
+        and referencia.startswith("SUBS-")
     ):
         pago = (
             PagoWompi.objects
             .select_for_update()
-            .filter(
-                referencia=referencia
-            )
-            .order_by('-fecha_creacion')
+            .filter(referencia=referencia)
+            .order_by("-fecha_creacion")
             .first()
         )
 
     if not pago:
         return (
             False,
-            'No existe registro local para esa referencia.'
+            "No existe registro local para esa referencia.",
         )
 
     # -------------------------------------------------
@@ -2256,18 +2351,18 @@ def _procesar_pago_wompi_aprobado(
     # -------------------------------------------------
 
     id_transaccion = str(
-        id_transaccion or ''
+        id_transaccion or ""
     ).strip()
 
     if not id_transaccion:
-        if pago.estado != 'APROBADO':
+        if pago.estado != "APROBADO":
             pago.ultimo_error = (
-                'Wompi indicó aprobación sin '
-                'idTransaccion.'
+                "Wompi indicó aprobación sin "
+                "idTransaccion."
             )
 
             if raw_payload is not None:
-                if origen == 'REDIRECT':
+                if origen == "REDIRECT":
                     pago.raw_redirect = raw_payload
                 else:
                     pago.raw_webhook = raw_payload
@@ -2276,35 +2371,67 @@ def _procesar_pago_wompi_aprobado(
 
         return (
             False,
-            'La transacción no contiene '
-            'un identificador válido.'
+            "La transacción no contiene "
+            "un identificador válido.",
         )
 
     # -------------------------------------------------
     # REPLAY DEL MISMO PAGO
     # -------------------------------------------------
 
-    if pago.estado == 'APROBADO':
-
-        # Mismo pago + misma transacción =
-        # replay válido e idempotente.
+    if pago.estado == "APROBADO":
         if (
             pago.id_transaccion
-            and str(pago.id_transaccion)
-            == id_transaccion
+            and str(pago.id_transaccion) == id_transaccion
         ):
             return (
                 True,
-                'Pago ya estaba aprobado.'
+                "Pago ya estaba aprobado.",
             )
 
-        # Una referencia ya aprobada jamás debe
-        # cambiar posteriormente de transacción.
         return (
             False,
-            'El pago ya fue aprobado con '
-            'otra transacción.'
+            "El pago ya fue aprobado con otra transacción.",
         )
+
+    # -------------------------------------------------
+    # SUSCRIPCIÓN: RESOLVER Y BLOQUEAR EL TENANT CORRECTO
+    # -------------------------------------------------
+
+    suscripcion_pago = None
+
+    if pago.tipo == "SUSCRIPCION":
+        tenant_pago = _tenant_pago_suscripcion(
+            pago
+        )
+
+        if not tenant_pago:
+            return (
+                False,
+                "El pago de suscripción no tiene un Tenant válido.",
+            )
+
+        if not pago.tenant_id:
+            pago.tenant = tenant_pago
+            pago.save(
+                update_fields=[
+                    "tenant",
+                    "fecha_actualizacion",
+                ]
+            )
+
+        suscripcion_pago = (
+            SuscripcionTenant.objects
+            .select_for_update()
+            .filter(tenant=tenant_pago)
+            .first()
+        )
+
+        if not suscripcion_pago:
+            return (
+                False,
+                "No existe una suscripción para ese Tenant.",
+            )
 
     # -------------------------------------------------
     # MONTO OBLIGATORIO Y EXACTO
@@ -2312,18 +2439,17 @@ def _procesar_pago_wompi_aprobado(
 
     if not _monto_coincide(
         pago.monto,
-        monto
+        monto,
     ):
-        pago.estado = 'ERROR'
-
+        pago.estado = "ERROR"
         pago.ultimo_error = (
-            f'Monto no coincide. '
-            f'Esperado {pago.monto}, '
-            f'recibido {monto}'
+            f"Monto no coincide. "
+            f"Esperado {pago.monto}, "
+            f"recibido {monto}"
         )
 
         if raw_payload is not None:
-            if origen == 'REDIRECT':
+            if origen == "REDIRECT":
                 pago.raw_redirect = raw_payload
             else:
                 pago.raw_webhook = raw_payload
@@ -2332,7 +2458,7 @@ def _procesar_pago_wompi_aprobado(
 
         return (
             False,
-            pago.ultimo_error
+            pago.ultimo_error,
         )
 
     # -------------------------------------------------
@@ -2342,23 +2468,19 @@ def _procesar_pago_wompi_aprobado(
     transaccion_usada = (
         PagoWompi.objects
         .select_for_update()
-        .filter(
-            id_transaccion=id_transaccion
-        )
-        .exclude(
-            pk=pago.pk
-        )
+        .filter(id_transaccion=id_transaccion)
+        .exclude(pk=pago.pk)
         .exists()
     )
 
     if transaccion_usada:
         pago.ultimo_error = (
-            'El idTransaccion recibido ya fue '
-            'utilizado por otro pago.'
+            "El idTransaccion recibido ya fue "
+            "utilizado por otro pago."
         )
 
         if raw_payload is not None:
-            if origen == 'REDIRECT':
+            if origen == "REDIRECT":
                 pago.raw_redirect = raw_payload
             else:
                 pago.raw_webhook = raw_payload
@@ -2367,11 +2489,11 @@ def _procesar_pago_wompi_aprobado(
 
         return (
             False,
-            pago.ultimo_error
+            pago.ultimo_error,
         )
 
-    # Defensa adicional mientras todavía existen
-    # campos históricos en Pedido.
+    # Defensa adicional mientras Pedido conserva
+    # wompi_id_transaccion por compatibilidad histórica.
     pedido_con_misma_transaccion = (
         Pedido.objects
         .filter(
@@ -2388,42 +2510,40 @@ def _procesar_pago_wompi_aprobado(
 
     if pedido_con_misma_transaccion.exists():
         pago.ultimo_error = (
-            'La transacción ya está asociada '
-            'a otro pedido.'
+            "La transacción ya está asociada "
+            "a otro pedido."
         )
-
         pago.save()
 
         return (
             False,
-            pago.ultimo_error
+            pago.ultimo_error,
         )
 
     # -------------------------------------------------
     # APROBACIÓN
     # -------------------------------------------------
 
-    pago.estado = 'APROBADO'
+    pago.estado = "APROBADO"
     pago.es_aprobada = True
     pago.id_transaccion = id_transaccion
 
     if raw_payload is not None:
-        if origen == 'REDIRECT':
+        if origen == "REDIRECT":
             pago.raw_redirect = raw_payload
         else:
             pago.raw_webhook = raw_payload
 
     pago.fecha_aprobacion = timezone.now()
-    pago.ultimo_error = ''
+    pago.ultimo_error = ""
     pago.save()
 
     if (
-        pago.tipo == 'PEDIDO'
+        pago.tipo == "PEDIDO"
         and pago.pedido
     ):
         pedido = pago.pedido
-
-        pedido.estado = 'RECIBIDO'
+        pedido.estado = "RECIBIDO"
         pedido.pago_verificado = True
         pedido.wompi_id_transaccion = (
             id_transaccion
@@ -2431,28 +2551,28 @@ def _procesar_pago_wompi_aprobado(
         pedido.fecha_pago_verificado = (
             timezone.now()
         )
-
         pedido.save()
 
         return (
             True,
-            f'Pedido #{pedido.id} confirmado.'
+            f"Pedido #{pedido.id} confirmado.",
         )
 
-    if pago.tipo == 'SUSCRIPCION':
+    if pago.tipo == "SUSCRIPCION":
         _renovar_suscripcion_30_dias(
-            pago.configuracion_negocio
+            suscripcion_pago
         )
 
         return (
             True,
-            'Suscripción renovada.'
+            "Suscripción renovada.",
         )
 
     return (
         True,
-        'Pago aprobado.'
+        "Pago aprobado.",
     )
+
 
 
 def _iniciar_pago_wompi_pedido(request, pedido):
@@ -2557,6 +2677,19 @@ def _iniciar_pago_wompi_pedido(request, pedido):
         base = _base_url(request)
         webhook_url = f"{base}/wompi-webhook/"
 
+        tenant_pago = (
+            pedido.sucursal.tenant
+            if pedido.sucursal_id
+            else getattr(request, "tenant", None)
+        )
+
+        if not tenant_pago:
+            messages.error(
+                request,
+                "No fue posible determinar el restaurante del pedido.",
+            )
+            return redirect("checkout")
+
         # Buscamos primero un intento reutilizable.
         pago = (
             PagoWompi.objects
@@ -2567,6 +2700,15 @@ def _iniciar_pago_wompi_pedido(request, pedido):
             .order_by('-fecha_creacion')
             .first()
         )
+
+        if pago and not pago.tenant_id:
+            pago.tenant = tenant_pago
+            pago.save(
+                update_fields=[
+                    'tenant',
+                    'fecha_actualizacion',
+                ]
+            )
         
         if (
             pago
@@ -2630,6 +2772,7 @@ def _iniciar_pago_wompi_pedido(request, pedido):
 
             pago = PagoWompi.objects.create(
                 tipo='PEDIDO',
+                tenant=tenant_pago,
                 pedido=pedido,
                 referencia=referencia,
                 monto=pedido.total_final,
@@ -3082,10 +3225,16 @@ def _pedidos_sesion(request):
 
 
 @never_cache
-@login_required(login_url='login_custom')
-@user_passes_test(es_admin, login_url='login_custom')
+@login_required(login_url="login_custom")
+@user_passes_test(es_admin, login_url="login_custom")
 def dashboard_admin_view(request):
     _limpiar_pedidos_pendientes_vencidos()
+
+    tenant = getattr(
+        request,
+        "tenant",
+        None,
+    )
 
     sucursal = getattr(
         request,
@@ -3093,36 +3242,48 @@ def dashboard_admin_view(request):
         None,
     )
 
-    # Seguridad:
-    # un dashboard operativo nunca debe caer
+    if not tenant:
+        return HttpResponseForbidden(
+            "No hay un Tenant activo."
+        )
+
+    # Seguridad: el dashboard operativo nunca debe caer
     # accidentalmente a consultas globales.
     if not sucursal:
         return HttpResponseForbidden(
             "No hay una sucursal activa."
         )
 
-    config_negocio = (
-        ConfiguracionNegocio.objects
-        .filter(
-            sucursal=sucursal
-        )
+    suscripcion = (
+        SuscripcionTenant.objects
+        .filter(tenant=tenant)
         .first()
     )
 
-    dias_restantes = 30
-    bloqueado = False
+    dias_restantes = 0
 
     if (
-        config_negocio
-        and config_negocio.fecha_vencimiento
+        suscripcion
+        and suscripcion.fecha_vencimiento
     ):
+        fecha_limite = (
+            suscripcion.gracia_hasta
+            if (
+                suscripcion.estado
+                == SuscripcionTenant.Estado.GRACIA
+                and suscripcion.gracia_hasta
+            )
+            else suscripcion.fecha_vencimiento
+        )
+
         dias_restantes = (
-            config_negocio.fecha_vencimiento
+            fecha_limite
             - date.today()
         ).days
 
-        if dias_restantes < 0:
-            bloqueado = True
+    bloqueado = not suscripcion_activa(
+        tenant
+    )
 
     if (
         bloqueado
@@ -3130,18 +3291,13 @@ def dashboard_admin_view(request):
     ):
         messages.error(
             request,
-            (
-                "⛔ Acción denegada. "
-                "Suscripción vencida."
-            ),
+            "⛔ Acción denegada. Suscripción vencida.",
         )
 
     elif request.method == "POST":
         pedido = get_object_or_404(
             Pedido,
-            id=request.POST.get(
-                "pedido_id"
-            ),
+            id=request.POST.get("pedido_id"),
             sucursal=sucursal,
         )
 
@@ -3151,80 +3307,60 @@ def dashboard_admin_view(request):
 
         if accion == "cocina":
             pedido.estado = "COCINA"
-
             messages.success(
                 request,
-                (
-                    f"Orden #{pedido.id} "
-                    "enviada a Cocina 🔥"
-                ),
+                f"Orden #{pedido.id} enviada a Cocina 🔥",
             )
 
         elif accion == "ruta":
             pedido.estado = "RUTA"
-
             messages.success(
                 request,
-                (
-                    f"Orden #{pedido.id} "
-                    "lista para Ruta 🛵"
-                ),
+                f"Orden #{pedido.id} lista para Ruta 🛵",
             )
 
         elif accion == "reintentar":
             pedido.estado = "RUTA"
-
             messages.info(
                 request,
-                (
-                    f"Reintentando Orden "
-                    f"#{pedido.id} 🔄"
-                ),
+                f"Reintentando Orden #{pedido.id} 🔄",
             )
 
         elif accion == "cancelar":
             pedido.estado = "CANCELADO"
-
             messages.error(
                 request,
-                (
-                    f"Orden #{pedido.id} "
-                    "cancelada ❌"
-                ),
+                f"Orden #{pedido.id} cancelada ❌",
             )
 
         else:
             messages.error(
                 request,
-                "Acción no válida."
+                "Acción no válida.",
             )
-
             return redirect(
                 "dashboard_admin"
             )
 
         pedido.save()
-
         return redirect(
             "dashboard_admin"
         )
 
-    context = (
-        _contexto_admin_pedidos(
-            sucursal
-        )
+    context = _contexto_admin_pedidos(
+        sucursal
     )
 
     context.update({
-        "dias_restantes": (
-            dias_restantes
-        ),
+        "dias_restantes": dias_restantes,
         "last_update": _iso_datetime(
             _ultimo_cambio_pedidos(
                 sucursal
             )
         ),
+        "tenant": tenant,
         "sucursal": sucursal,
+        "suscripcion": suscripcion,
     })
 
     return render(
@@ -3232,6 +3368,7 @@ def dashboard_admin_view(request):
         "pedidos/dashboard_admin.html",
         context,
     )
+
 
 
 @never_cache
@@ -3363,7 +3500,9 @@ def api_dashboard_admin_sync(request):
 @login_required(login_url='login_custom')
 @user_passes_test(es_admin, login_url='login_custom')
 def admin_settings_view(request):
-    if not suscripcion_activa():
+    if not suscripcion_activa(
+        request.tenant
+    ):
         messages.error(
             request,
             "⛔ Acceso denegado a Configuración. Suscripción vencida."
@@ -3671,7 +3810,9 @@ def eliminar_excepcion_view(
     request,
     excepcion_id,
 ):
-    if not suscripcion_activa():
+    if not suscripcion_activa(
+        request.tenant
+    ):
         messages.error(
             request,
             "Acción denegada. Suscripción vencida."
@@ -3732,7 +3873,9 @@ def dashboard_delivery_view(request):
             "No hay una sucursal activa."
         )
 
-    if not suscripcion_activa():
+    if not suscripcion_activa(
+        request.tenant
+    ):
         return render(
             request,
             "pedidos/suspendido.html",
@@ -4481,7 +4624,9 @@ def api_order_status(request, tracking_token):
 @login_required(login_url='login_custom')
 @user_passes_test(es_admin, login_url='login_custom')
 def dashboard_metrics_view(request):
-    if not suscripcion_activa():
+    if not suscripcion_activa(
+        request.tenant
+    ):
         messages.error(
             request, "⛔ Acceso denegado a Finanzas. Suscripción vencida.")
         return redirect('dashboard_admin')
@@ -4524,7 +4669,9 @@ def dashboard_metrics_view(request):
 
 
 def perfil_usuario_view(request):
-    if not suscripcion_activa():
+    if not suscripcion_activa(
+        request.tenant
+    ):
         return render(
             request,
             'pedidos/suspendido.html'
@@ -4623,16 +4770,45 @@ def pagar_suscripcion_view(request):
 
         with transaction.atomic():
 
-            config_negocio = (
-                ConfiguracionNegocio.objects
+            tenant = getattr(
+                request,
+                "tenant",
+                None,
+            )
+
+            if not tenant:
+                messages.error(
+                    request,
+                    (
+                        "No fue posible determinar "
+                        "el restaurante activo."
+                    ),
+                )
+
+                return redirect(
+                    "dashboard_admin"
+                )
+
+            suscripcion = (
+                SuscripcionTenant.objects
                 .select_for_update()
-                .order_by('id')
+                .filter(
+                    tenant=tenant
+                )
                 .first()
             )
 
-            if not config_negocio:
-                config_negocio = (
-                    ConfiguracionNegocio.objects.create()
+            if not suscripcion:
+                messages.error(
+                    request,
+                    (
+                        "No existe una suscripción "
+                        "configurada para este restaurante."
+                    ),
+                )
+
+                return redirect(
+                    "dashboard_admin"
                 )
 
             # -----------------------------------------
@@ -4643,20 +4819,33 @@ def pagar_suscripcion_view(request):
                 PagoWompi.objects
                 .select_for_update()
                 .filter(
-                    tipo='SUSCRIPCION',
-                    configuracion_negocio=(
-                        config_negocio
-                    ),
+                    tipo="SUSCRIPCION",
                     estado__in=[
                         'CREADO',
                         'PENDIENTE',
                     ],
+                )
+                .filter(
+                    Q(tenant=tenant)
+                    | Q(
+                        tenant__isnull=True,
+                        configuracion_negocio__sucursal__tenant=tenant,
+                    )
                 )
                 .order_by(
                     '-fecha_creacion'
                 )
                 .first()
             )
+
+            if pago and not pago.tenant_id:
+                pago.tenant = tenant
+                pago.save(
+                    update_fields=[
+                        "tenant",
+                        "fecha_actualizacion",
+                    ]
+                )
 
             # Si ya existe un enlace todavía pendiente,
             # simplemente lo reutilizamos.
@@ -4683,8 +4872,8 @@ def pagar_suscripcion_view(request):
             else:
                 referencia = (
                     _wompi_crear_referencia(
-                        'SUBS',
-                        config_negocio.id,
+                        "SUBS",
+                        tenant.id,
                     )
                 )
 
@@ -4694,10 +4883,8 @@ def pagar_suscripcion_view(request):
 
                 pago = (
                     PagoWompi.objects.create(
-                        tipo='SUSCRIPCION',
-                        configuracion_negocio=(
-                            config_negocio
-                        ),
+                        tipo="SUSCRIPCION",
+                        tenant=tenant,
                         referencia=referencia,
                         monto=monto_intento,
                         estado='PENDIENTE',
@@ -4849,42 +5036,116 @@ def pagar_suscripcion_view(request):
         )
 
 
-@login_required(login_url='login_custom')
+@login_required(login_url="login_custom")
+@user_passes_test(es_admin, login_url="login_custom")
 def wompi_suscripcion_respuesta_view(request):
-    referencia = request.GET.get('ref') or request.GET.get('referencia')
-    id_transaccion = request.GET.get('idTransaccion', '').strip()
+    referencia = (
+        request.GET.get("ref")
+        or request.GET.get("referencia")
+    )
+
+    id_transaccion = request.GET.get(
+        "idTransaccion",
+        "",
+    ).strip()
 
     if not referencia:
-        messages.error(request, 'No se recibió la referencia del pago.')
-        return redirect('dashboard_admin')
+        messages.error(
+            request,
+            "No se recibió la referencia del pago.",
+        )
+        return redirect(
+            "dashboard_admin"
+        )
 
-    pago = PagoWompi.objects.filter(
-        referencia=referencia, tipo='SUSCRIPCION').first()
+    tenant = getattr(
+        request,
+        "tenant",
+        None,
+    )
+
+    if not tenant:
+        return HttpResponseForbidden(
+            "No hay un Tenant activo."
+        )
+
+    pago = (
+        PagoWompi.objects
+        .filter(
+            referencia=referencia,
+            tipo="SUSCRIPCION",
+            tenant=tenant,
+        )
+        .first()
+    )
+
     if not pago:
-        messages.error(request, 'No encontramos el pago de suscripción.')
-        return redirect('dashboard_admin')
+        messages.error(
+            request,
+            "No encontramos el pago de suscripción.",
+        )
+        return redirect(
+            "dashboard_admin"
+        )
 
-    pago.raw_redirect = dict(request.GET.items())
-    pago.save()
+    pago.raw_redirect = dict(
+        request.GET.items()
+    )
+    pago.save(
+        update_fields=[
+            "raw_redirect",
+            "fecha_actualizacion",
+        ]
+    )
 
-    if _validar_hash_redirect_wompi(request.GET, referencia=pago.referencia, tipo_pago=pago.tipo) and _redirect_wompi_aprobado(request.GET):
+    hash_valido = _validar_hash_redirect_wompi(
+        request.GET,
+        referencia=pago.referencia,
+        tipo_pago=pago.tipo,
+    )
+
+    if (
+        hash_valido
+        and _redirect_wompi_aprobado(
+            request.GET
+        )
+    ):
         ok, msg = _procesar_pago_wompi_aprobado(
             pago.referencia,
             id_transaccion=id_transaccion,
-            monto=request.GET.get('monto'),
-            raw_payload=dict(request.GET.items()),
-            origen='REDIRECT'
+            monto=request.GET.get("monto"),
+            raw_payload=dict(
+                request.GET.items()
+            ),
+            origen="REDIRECT",
         )
+
         if ok:
-            return render(request, 'pedidos/pago_exitoso_suscripcion.html')
+            return render(
+                request,
+                "pedidos/pago_exitoso_suscripcion.html",
+            )
+
         messages.warning(
-            request, f'Pago recibido, pero quedó en revisión: {msg}')
-        return redirect('dashboard_admin')
+            request,
+            f"Pago recibido, pero quedó en revisión: {msg}",
+        )
+        return redirect(
+            "dashboard_admin"
+        )
 
-    if pago.estado == 'APROBADO':
-        return render(request, 'pedidos/pago_exitoso_suscripcion.html')
+    if pago.estado == "APROBADO":
+        return render(
+            request,
+            "pedidos/pago_exitoso_suscripcion.html",
+        )
 
-    return render(request, 'pedidos/pago_verificando_suscripcion.html', {'pago': pago})
+    return render(
+        request,
+        "pedidos/pago_verificando_suscripcion.html",
+        {"pago": pago},
+    )
+
 
 
 @csrf_exempt

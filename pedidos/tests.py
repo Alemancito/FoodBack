@@ -33,6 +33,9 @@ from pedidos.views import (
     _validar_carrito,
     _validar_seleccion_producto,
     CarritoInvalido,
+    suscripcion_activa,
+    _renovar_suscripcion_30_dias,
+    _procesar_pago_wompi_aprobado,
 )
 
 from pedidos.tenant_context import (
@@ -53,6 +56,7 @@ from .models import (
     DetallePedido,
     EventoPagoWompi,
     EstadoPasarelaPago,
+    SuscripcionTenant,
 )
 
 
@@ -74,6 +78,15 @@ class FoodBackTestBase(TestCase):
             nombre="FoodBack Test",
             slug="rancheritos",
             habilitado=True,
+        )
+
+        cls.suscripcion = SuscripcionTenant.objects.create(
+            tenant=cls.tenant,
+            estado=SuscripcionTenant.Estado.ACTIVA,
+            fecha_vencimiento=(
+                date.today()
+                + timedelta(days=365)
+            ),
         )
 
         cls.sucursal = Sucursal.objects.create(
@@ -1314,9 +1327,7 @@ class PaymentHttpSecurityTests(FoodBackTestBase):
         pago_original = (
             PagoWompi.objects.create(
                 tipo="SUSCRIPCION",
-                configuracion_negocio=(
-                    self.config
-                ),
+                tenant=self.tenant,
                 referencia=(
                     "SUBS-TEST-PENDIENTE"
                 ),
@@ -1820,14 +1831,17 @@ class PaymentHttpSecurityTests(FoodBackTestBase):
             + timedelta(days=10)
         )
 
-        self.config.fecha_vencimiento = (
+        self.suscripcion.fecha_vencimiento = (
             fecha_inicial
         )
-        self.config.save()
+        self.suscripcion.estado = (
+            SuscripcionTenant.Estado.ACTIVA
+        )
+        self.suscripcion.save()
 
         pago = PagoWompi.objects.create(
             tipo="SUSCRIPCION",
-            configuracion_negocio=self.config,
+            tenant=self.tenant,
             referencia="SUBS-TEST-REPLAY",
             monto=Decimal("50.00"),
             estado="PENDIENTE",
@@ -1859,13 +1873,14 @@ class PaymentHttpSecurityTests(FoodBackTestBase):
             content_type="application/json",
         )
 
-        self.config.refresh_from_db()
+        self.suscripcion.refresh_from_db()
 
         self.assertEqual(
-            self.config.fecha_vencimiento,
+            self.suscripcion.fecha_vencimiento,
             fecha_inicial
             + timedelta(days=30),
         )
+
 
     @patch(
         "pedidos.views._validar_hash_webhook_wompi",
@@ -5978,3 +5993,109 @@ class CatalogTenantIsolationTests(
                 tenant=self.tenant,
             )
                 
+
+
+
+class TenantSubscriptionIsolationTests(
+    FoodBackTestBase
+):
+
+    def setUp(self):
+        self.tenant_b = Tenant.objects.create(
+            nombre="Restaurante B Suscripción",
+            slug="restaurante-b-suscripcion",
+            habilitado=True,
+        )
+
+        self.suscripcion_b = (
+            SuscripcionTenant.objects.create(
+                tenant=self.tenant_b,
+                estado=(
+                    SuscripcionTenant.Estado.ACTIVA
+                ),
+                fecha_vencimiento=(
+                    date.today()
+                    + timedelta(days=20)
+                ),
+            )
+        )
+
+    def test_tenant_vencido_no_bloquea_otro_tenant(
+        self,
+    ):
+        self.suscripcion.fecha_vencimiento = (
+            date.today()
+            - timedelta(days=1)
+        )
+        self.suscripcion.save()
+
+        self.assertFalse(
+            suscripcion_activa(
+                self.tenant
+            )
+        )
+
+        self.assertTrue(
+            suscripcion_activa(
+                self.tenant_b
+            )
+        )
+
+    def test_renovar_tenant_a_no_modifica_tenant_b(
+        self,
+    ):
+        vencimiento_b = (
+            self.suscripcion_b.fecha_vencimiento
+        )
+
+        _renovar_suscripcion_30_dias(
+            self.suscripcion
+        )
+
+        self.suscripcion_b.refresh_from_db()
+
+        self.assertEqual(
+            self.suscripcion_b.fecha_vencimiento,
+            vencimiento_b,
+        )
+
+    def test_pago_suscripcion_a_no_renueva_b(
+        self,
+    ):
+        vencimiento_a = (
+            self.suscripcion.fecha_vencimiento
+        )
+
+        vencimiento_b = (
+            self.suscripcion_b.fecha_vencimiento
+        )
+
+        pago = PagoWompi.objects.create(
+            tenant=self.tenant,
+            tipo="SUSCRIPCION",
+            referencia="SUBS-TENANT-A-TEST",
+            monto=Decimal("50.00"),
+            estado="PENDIENTE",
+        )
+
+        ok, _ = _procesar_pago_wompi_aprobado(
+            pago.referencia,
+            id_transaccion="TX-SUB-TENANT-A",
+            monto="50.00",
+        )
+
+        self.assertTrue(ok)
+
+        self.suscripcion.refresh_from_db()
+        self.suscripcion_b.refresh_from_db()
+
+        self.assertEqual(
+            self.suscripcion.fecha_vencimiento,
+            vencimiento_a
+            + timedelta(days=30),
+        )
+
+        self.assertEqual(
+            self.suscripcion_b.fecha_vencimiento,
+            vencimiento_b,
+        )

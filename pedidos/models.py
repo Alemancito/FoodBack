@@ -70,6 +70,59 @@ class Tenant(models.Model):
         verbose_name = "Tenant"
         verbose_name_plural = "Tenants"
         ordering = ["nombre"]
+        
+        
+class SuscripcionTenant(models.Model):
+
+    class Estado(models.TextChoices):
+        ACTIVA = "ACTIVA", "Activa"
+        GRACIA = "GRACIA", "Período de gracia"
+        SUSPENDIDA = "SUSPENDIDA", "Suspendida"
+        CANCELADA = "CANCELADA", "Cancelada"
+
+    tenant = models.OneToOneField(
+        "Tenant",
+        on_delete=models.PROTECT,
+        related_name="suscripcion",
+    )
+
+    estado = models.CharField(
+        max_length=20,
+        choices=Estado.choices,
+        default=Estado.ACTIVA,
+        db_index=True,
+    )
+
+    fecha_vencimiento = models.DateField(
+        default=fecha_vencimiento_por_defecto,
+    )
+
+    # Preparado para el período de gracia.
+    # Todavía no activaremos automáticamente
+    # esa lógica hasta diseñar el lifecycle completo.
+    gracia_hasta = models.DateField(
+        null=True,
+        blank=True,
+    )
+
+    creado_en = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    actualizado_en = models.DateTimeField(
+        auto_now=True,
+    )
+
+    def __str__(self):
+        return (
+            f"{self.tenant.nombre} - "
+            f"{self.estado} - "
+            f"{self.fecha_vencimiento}"
+        )
+
+    class Meta:
+        verbose_name = "Suscripción de Tenant"
+        verbose_name_plural = "Suscripciones de Tenant"
 
 
 class Sucursal(models.Model):
@@ -247,6 +300,9 @@ class Extra(models.Model):
         default=True
     )
 
+    def __str__(self):
+        return f"{self.nombre} (+${self.precio})"
+
 
 class Categoria(models.Model):
     tenant = models.ForeignKey(
@@ -342,8 +398,10 @@ class ConfiguracionNegocio(models.Model):
         help_text="Mensaje gracioso que verá el cliente cuando esté cerrado."
     )
 
-    # --- NUEVO CAMPO DE SUSCRIPCIÓN ---
-    # Por defecto damos 30 días de gracia al crear la BD
+    # LEGACY TEMPORAL:
+    # La fuente de verdad de la suscripción ya es SuscripcionTenant.
+    # Este campo se conserva durante la transición y se retirará
+    # únicamente cuando las migraciones/tests legacy hayan sido actualizados.
     fecha_vencimiento = models.DateField(
         default=fecha_vencimiento_por_defecto,
         verbose_name="Vencimiento Suscripción",
@@ -568,6 +626,14 @@ class PagoWompi(models.Model):
     ]
 
     tipo = models.CharField(max_length=20, choices=TIPO_CHOICES)
+    tenant = models.ForeignKey(
+        "Tenant",
+        on_delete=models.PROTECT,
+        related_name="pagos_wompi",
+        null=True,
+        blank=True,
+        db_index=True,
+    )
     pedido = models.ForeignKey(
         Pedido,
         on_delete=models.SET_NULL,

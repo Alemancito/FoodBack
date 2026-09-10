@@ -365,8 +365,6 @@ class Cliente(models.Model):
         "Tenant",
         on_delete=models.PROTECT,
         related_name="clientes",
-        null=True,
-        blank=True,
         db_index=True,
     )
 

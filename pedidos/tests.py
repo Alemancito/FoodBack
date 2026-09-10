@@ -217,7 +217,10 @@ class FoodBackTestBase(TestCase):
         """
 
         if telefono is None:
-            telefono = f"71{Cliente.objects.count():06d}"
+            telefono = (
+                f"71"
+                f"{Cliente.objects.filter(tenant=self.tenant).count():06d}"
+            )
 
         cliente = Cliente.objects.create(
             tenant=self.tenant,
@@ -6132,13 +6135,12 @@ class MetricsAndProfileSucursalIsolationTests(
 
         self.pedido_a.save()
 
-        cliente_b = (
-            Cliente.objects.create(
-                telefono="79990002",
-                nombre="Cliente",
-                apellido="Sucursal B",
-                direccion_ultima="San Miguel",
-            )
+        cliente_b = Cliente.objects.create(
+            tenant=self.tenant,
+            telefono="79990002",
+            nombre="Cliente",
+            apellido="Sucursal B",
+            direccion_ultima="San Miguel",
         )
 
         self.pedido_b = (
@@ -6286,6 +6288,19 @@ class ClienteTenantIsolationTests(
             ).count(),
             2,
         )
+        
+    def test_base_datos_impide_cliente_sin_tenant(
+        self,
+    ):
+        with self.assertRaises(
+            IntegrityError
+        ):
+            with transaction.atomic():
+                Cliente.objects.create(
+                    telefono="79998884",
+                    nombre="Sin",
+                    apellido="Tenant",
+                )
 
     def test_mismo_telefono_no_puede_duplicarse_en_mismo_tenant(
         self,

@@ -983,7 +983,9 @@ def checkout_view(request):
         if metodo_pago == 'TARJETA':
 
             estado_global = (
-                _estado_bloqueo_pasarela_global()
+                _estado_bloqueo_pasarela_tenant(
+                    request.tenant
+                )
             )
 
             if estado_global[
@@ -1281,7 +1283,9 @@ def checkout_view(request):
     )
     
     estado_pasarela_global = (
-        _estado_bloqueo_pasarela_global()
+        _estado_bloqueo_pasarela_tenant(
+            request.tenant
+        )
     )
 
     context = {
@@ -1408,6 +1412,33 @@ def _registrar_evento_pago(
     Si clave_evento ya existe, devolvemos el evento anterior
     y NO incrementamos futuros contadores otra vez.
     """
+    
+    tenant = None
+
+    if pago:
+        if pago.tenant_id:
+            tenant = pago.tenant
+
+        elif (
+            pago.pedido
+            and pago.pedido.sucursal
+        ):
+            tenant = (
+                pago.pedido
+                .sucursal
+                .tenant
+            )
+
+        elif (
+            pago.configuracion_negocio
+            and
+            pago.configuracion_negocio.sucursal
+        ):
+            tenant = (
+                pago.configuracion_negocio
+                .sucursal
+                .tenant
+            )
 
     defaults = {
         'pago':
@@ -1452,6 +1483,8 @@ def _registrar_evento_pago(
 
         'metadata':
             metadata or {},
+        
+        "tenant": tenant,
     }
 
     if clave_evento:
@@ -1545,9 +1578,8 @@ def _estado_bloqueo_tarjeta_cliente(request):
     eventos = list(
         EventoPagoWompi.objects
         .filter(
-            cliente_token_hash=(
-                cliente_token_hash
-            ),
+            tenant=request.tenant,
+            cliente_token_hash=cliente_token_hash,
             cuenta_para_cliente=True,
             fecha__gte=inicio_ventana,
         )
@@ -1603,22 +1635,37 @@ def _estado_bloqueo_tarjeta_cliente(request):
     }
     
     
-def _estado_bloqueo_pasarela_global():
+def _estado_bloqueo_pasarela_tenant(
+    tenant,
+):
     """
-    Circuit breaker global de Wompi para la configuración
-    de negocio actual.
+    Circuit breaker Wompi aislado por Tenant.
 
-    Se activa cuando coinciden:
-    - suficientes errores técnicos recientes;
-    - suficientes clientes/navegadores distintos.
-
-    Los rechazos bancarios normales NO cuentan.
+    Los errores de un restaurante pueden bloquear
+    temporalmente tarjeta para todas sus sucursales,
+    pero nunca afectan a otro Tenant.
     """
+
+    estado_vacio = {
+        "bloqueada": False,
+        "bloqueo_manual": False,
+        "bloqueado_hasta": None,
+        "codigo_motivo": "",
+        "errores_recientes": 0,
+        "clientes_distintos": 0,
+    }
+
+    if not tenant:
+        return {
+            **estado_vacio,
+            "bloqueada": True,
+            "codigo_motivo": "TENANT_NO_RESUELTO",
+        }
 
     try:
         limite_errores = int(
             config(
-                'WOMPI_GLOBAL_FAILURE_LIMIT',
+                "WOMPI_GLOBAL_FAILURE_LIMIT",
                 default=5,
             )
         )
@@ -1628,7 +1675,7 @@ def _estado_bloqueo_pasarela_global():
     try:
         minimo_clientes = int(
             config(
-                'WOMPI_GLOBAL_MIN_DISTINCT_CLIENTS',
+                "WOMPI_GLOBAL_MIN_DISTINCT_CLIENTS",
                 default=3,
             )
         )
@@ -1638,7 +1685,7 @@ def _estado_bloqueo_pasarela_global():
     try:
         ventana_minutos = int(
             config(
-                'WOMPI_GLOBAL_FAILURE_WINDOW_MINUTES',
+                "WOMPI_GLOBAL_FAILURE_WINDOW_MINUTES",
                 default=10,
             )
         )
@@ -1648,7 +1695,7 @@ def _estado_bloqueo_pasarela_global():
     try:
         cooldown_minutos = int(
             config(
-                'WOMPI_GLOBAL_COOLDOWN_MINUTES',
+                "WOMPI_GLOBAL_COOLDOWN_MINUTES",
                 default=15,
             )
         )
@@ -1675,53 +1722,30 @@ def _estado_bloqueo_pasarela_global():
         1,
     )
 
-    config_negocio = (
-        ConfiguracionNegocio.objects.first()
-    )
-
-    if not config_negocio:
-        return {
-            'bloqueada': False,
-            'bloqueo_manual': False,
-            'bloqueado_hasta': None,
-            'codigo_motivo': '',
-            'errores_recientes': 0,
-            'clientes_distintos': 0,
-        }
-
     estado = (
         EstadoPasarelaPago.objects
         .filter(
-            configuracion_negocio=
-                config_negocio
+            tenant=tenant
         )
         .first()
     )
-
-    # ------------------------------------------
-    # BLOQUEO MANUAL DEL OWNER
-    # ------------------------------------------
 
     if (
         estado
         and estado.bloqueo_manual
     ):
         return {
-            'bloqueada': True,
-            'bloqueo_manual': True,
-            'bloqueado_hasta':
+            "bloqueada": True,
+            "bloqueo_manual": True,
+            "bloqueado_hasta":
                 estado.bloqueado_hasta,
-            'codigo_motivo':
+            "codigo_motivo":
                 estado.codigo_motivo,
-            'errores_recientes': 0,
-            'clientes_distintos': 0,
+            "errores_recientes": 0,
+            "clientes_distintos": 0,
         }
 
     ahora = timezone.now()
-
-    # ------------------------------------------
-    # BREAKER AUTOMÁTICO YA ACTIVO
-    # ------------------------------------------
 
     if (
         estado
@@ -1729,19 +1753,15 @@ def _estado_bloqueo_pasarela_global():
         and estado.bloqueado_hasta > ahora
     ):
         return {
-            'bloqueada': True,
-            'bloqueo_manual': False,
-            'bloqueado_hasta':
+            "bloqueada": True,
+            "bloqueo_manual": False,
+            "bloqueado_hasta":
                 estado.bloqueado_hasta,
-            'codigo_motivo':
+            "codigo_motivo":
                 estado.codigo_motivo,
-            'errores_recientes': 0,
-            'clientes_distintos': 0,
+            "errores_recientes": 0,
+            "clientes_distintos": 0,
         }
-
-    # ------------------------------------------
-    # ANALIZAR TELEMETRÍA RECIENTE
-    # ------------------------------------------
 
     inicio_ventana = (
         ahora
@@ -1753,8 +1773,9 @@ def _estado_bloqueo_pasarela_global():
     errores = (
         EventoPagoWompi.objects
         .filter(
+            tenant=tenant,
             cuenta_para_global=True,
-            categoria='ERROR_TECNICO',
+            categoria="ERROR_TECNICO",
             fecha__gte=inicio_ventana,
         )
     )
@@ -1766,23 +1787,24 @@ def _estado_bloqueo_pasarela_global():
     clientes_distintos = (
         errores
         .exclude(
-            cliente_token_hash=''
+            cliente_token_hash=""
         )
         .values(
-            'cliente_token_hash'
+            "cliente_token_hash"
         )
         .distinct()
         .count()
     )
 
     debe_bloquear = (
-        cantidad_errores >= limite_errores
+        cantidad_errores
+        >= limite_errores
         and
-        clientes_distintos >= minimo_clientes
+        clientes_distintos
+        >= minimo_clientes
     )
 
     if debe_bloquear:
-
         bloqueado_hasta = (
             ahora
             + timedelta(
@@ -1793,51 +1815,47 @@ def _estado_bloqueo_pasarela_global():
         estado, _ = (
             EstadoPasarelaPago.objects
             .update_or_create(
-                configuracion_negocio=
-                    config_negocio,
-
+                tenant=tenant,
                 defaults={
-                    'bloqueo_manual':
+                    "bloqueo_manual":
                         False,
 
-                    'bloqueado_hasta':
+                    "bloqueado_hasta":
                         bloqueado_hasta,
 
-                    'codigo_motivo':
-                        'WOMPI_TECHNICAL_FAILURES',
+                    "codigo_motivo":
+                        "WOMPI_TECHNICAL_FAILURES",
 
-                    'motivo': (
-                        f'{cantidad_errores} errores '
-                        f'técnicos recientes de '
-                        f'{clientes_distintos} clientes.'
+                    "motivo": (
+                        f"{cantidad_errores} errores "
+                        f"técnicos recientes de "
+                        f"{clientes_distintos} clientes."
                     ),
                 },
             )
         )
 
         return {
-            'bloqueada': True,
-            'bloqueo_manual': False,
-            'bloqueado_hasta':
+            "bloqueada": True,
+            "bloqueo_manual": False,
+            "bloqueado_hasta":
                 bloqueado_hasta,
-            'codigo_motivo':
+            "codigo_motivo":
                 estado.codigo_motivo,
-            'errores_recientes':
+            "errores_recientes":
                 cantidad_errores,
-            'clientes_distintos':
+            "clientes_distintos":
                 clientes_distintos,
         }
 
-    # Si existía un breaker automático vencido,
-    # queda naturalmente reactivado.
     return {
-        'bloqueada': False,
-        'bloqueo_manual': False,
-        'bloqueado_hasta': None,
-        'codigo_motivo': '',
-        'errores_recientes':
+        "bloqueada": False,
+        "bloqueo_manual": False,
+        "bloqueado_hasta": None,
+        "codigo_motivo": "",
+        "errores_recientes":
             cantidad_errores,
-        'clientes_distintos':
+        "clientes_distintos":
             clientes_distintos,
     }
 
@@ -2631,7 +2649,9 @@ def _iniciar_pago_wompi_pedido(request, pedido):
         )
     
     estado_global = (
-        _estado_bloqueo_pasarela_global()
+        _estado_bloqueo_pasarela_tenant(
+            request.tenant
+        )
     )
 
     if estado_global[

@@ -771,6 +771,15 @@ class EventoPagoWompi(models.Model):
         blank=True,
         related_name='eventos_pago_wompi',
     )
+    
+    tenant = models.ForeignKey(
+        "Tenant",
+        on_delete=models.PROTECT,
+        related_name="eventos_pago_wompi",
+        null=True,
+        blank=True,
+        db_index=True,
+    )
 
     configuracion_negocio = models.ForeignKey(
         ConfiguracionNegocio,
@@ -850,16 +859,29 @@ class EventoPagoWompi(models.Model):
 
 class EstadoPasarelaPago(models.Model):
     """
-    Estado del circuit breaker.
+    Circuit breaker Wompi a nivel Tenant.
 
-    En el futuro este estado quedará naturalmente
-    asociado a cada tenant/sucursal.
+    Todas las sucursales del mismo Tenant comparten
+    el estado de su pasarela, pero un Tenant jamás
+    afecta a otro.
     """
 
+    tenant = models.OneToOneField(
+        "Tenant",
+        on_delete=models.PROTECT,
+        related_name="estado_pasarela_wompi",
+        null=True,
+        blank=True,
+    )
+
+    # LEGACY TEMPORAL.
+    # Se conserva mientras migramos registros históricos.
     configuracion_negocio = models.OneToOneField(
         ConfiguracionNegocio,
-        on_delete=models.CASCADE,
-        related_name='estado_pasarela',
+        on_delete=models.SET_NULL,
+        related_name="estado_pasarela",
+        null=True,
+        blank=True,
     )
 
     bloqueo_manual = models.BooleanField(
@@ -904,9 +926,14 @@ class EstadoPasarelaPago(models.Model):
             else "ACTIVA"
         )
 
+        tenant = (
+            self.tenant.nombre
+            if self.tenant
+            else "SIN TENANT"
+        )
+
         return (
-            f"Pasarela "
-            f"{self.configuracion_negocio_id}: "
+            f"Pasarela {tenant}: "
             f"{estado}"
         )
 

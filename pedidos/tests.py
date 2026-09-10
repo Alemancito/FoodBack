@@ -36,6 +36,7 @@ from pedidos.views import (
     suscripcion_activa,
     _renovar_suscripcion_30_dias,
     _procesar_pago_wompi_aprobado,
+    _estado_bloqueo_pasarela_tenant,
 )
 
 from pedidos.tenant_context import (
@@ -2945,6 +2946,7 @@ class PaymentUserCooldownSecurityTests(
 
             evento = (
                 EventoPagoWompi.objects.create(
+                    tenant=self.tenant,
                     cliente_token_hash=(
                         cliente_token_hash
                     ),
@@ -3524,8 +3526,13 @@ class PaymentGlobalCircuitBreakerTests(
         cliente_hash,
         numero,
         prefijo="GLOBAL",
+        tenant=None,
     ):
+        if tenant is None:
+            tenant = self.tenant
+
         return EventoPagoWompi.objects.create(
+            tenant=tenant,
             cliente_token_hash=cliente_hash,
             categoria="ERROR_TECNICO",
             origen="INICIO",
@@ -3538,6 +3545,68 @@ class PaymentGlobalCircuitBreakerTests(
                 f"{cliente_hash}:"
                 f"{numero}"
             ),
+        )
+        
+    def test_errores_de_otro_tenant_no_bloquean_este_tenant(
+        self,
+    ):
+        tenant_b = Tenant.objects.create(
+            nombre="Restaurante B Breaker",
+            slug="restaurante-b-breaker",
+        )
+
+        for numero in range(5):
+            EventoPagoWompi.objects.create(
+                tenant=tenant_b,
+                cliente_token_hash=(
+                    f"{numero + 100:064x}"
+                ),
+                categoria="ERROR_TECNICO",
+                origen="INICIO",
+                codigo="WOMPI_CONNECTION_ERROR",
+                mensaje="Error Tenant B",
+                cuenta_para_cliente=False,
+                cuenta_para_global=True,
+                clave_evento=(
+                    f"TENANT-B-BREAKER:"
+                    f"{numero}"
+                ),
+            )
+
+        estado_a = (
+            _estado_bloqueo_pasarela_tenant(
+                self.tenant
+            )
+        )
+
+        estado_b = (
+            _estado_bloqueo_pasarela_tenant(
+                tenant_b
+            )
+        )
+
+        self.assertFalse(
+            estado_a["bloqueada"]
+        )
+
+        self.assertTrue(
+            estado_b["bloqueada"]
+        )
+
+        self.assertFalse(
+            EstadoPasarelaPago.objects
+            .filter(
+                tenant=self.tenant
+            )
+            .exists()
+        )
+
+        self.assertTrue(
+            EstadoPasarelaPago.objects
+            .filter(
+                tenant=tenant_b
+            )
+            .exists()
         )
 
     def crear_errores_distintos(
@@ -3673,8 +3742,7 @@ class PaymentGlobalCircuitBreakerTests(
         estado = (
             EstadoPasarelaPago.objects
             .get(
-                configuracion_negocio=
-                    self.config
+                tenant=self.tenant
             )
         )
 
@@ -3752,6 +3820,7 @@ class PaymentGlobalCircuitBreakerTests(
                     f"RECHAZO-GLOBAL:"
                     f"{numero}"
                 ),
+                tenant=self.tenant,
             )
 
         pedido = self.crear_pedido_tarjeta(
@@ -3778,7 +3847,7 @@ class PaymentGlobalCircuitBreakerTests(
         self
     ):
         EstadoPasarelaPago.objects.create(
-            configuracion_negocio=self.config,
+            tenant=self.tenant,
             bloqueado_hasta=(
                 timezone.now()
                 + timedelta(minutes=15)
@@ -3848,7 +3917,7 @@ class PaymentGlobalCircuitBreakerTests(
         mock_wompi,
     ):
         EstadoPasarelaPago.objects.create(
-            configuracion_negocio=self.config,
+            tenant=self.tenant,
             bloqueado_hasta=(
                 timezone.now()
                 + timedelta(minutes=15)
@@ -3943,7 +4012,7 @@ class PaymentGlobalCircuitBreakerTests(
         mock_wompi,
     ):
         EstadoPasarelaPago.objects.create(
-            configuracion_negocio=self.config,
+            tenant=self.tenant,
             bloqueo_manual=True,
             bloqueado_hasta=None,
             codigo_motivo="OWNER_MANUAL",

@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import hashlib
 
-from datetime import date, timedelta
+from datetime import date, timedelta, time
 from decimal import Decimal
 
 from django.contrib.auth.models import Group, User
@@ -14,6 +14,26 @@ from django.db import IntegrityError, transaction
 
 from django.utils import timezone
 
+from django.contrib.auth import get_user_model
+from django.test import RequestFactory
+from pedidos.models import Tenant, Membership, Sucursal
+
+from django.contrib.sessions.backends.db import SessionStore
+
+from django.contrib.auth.models import AnonymousUser
+
+from django.test import override_settings
+
+from django.http import HttpResponse
+
+from pedidos.middleware import TenantContextMiddleware
+
+from pedidos.views import verificar_estado_negocio
+
+from pedidos.tenant_context import (
+    resolver_tenant,
+    resolver_sucursal,
+)
 
 from .models import (
     Categoria,
@@ -38,10 +58,37 @@ class FoodBackTestBase(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        # Mantener la suscripción activa durante las pruebas.
+        # ========================================================
+        # CONTEXTO MULTI-TENANT BASE
+        # ========================================================
+
+        # Debe coincidir con FOODBACK_DEFAULT_TENANT_SLUG
+        # para que las requests públicas de los tests puedan
+        # resolver el Tenant igual que localhost/desarrollo.
+        cls.tenant = Tenant.objects.create(
+            nombre="FoodBack Test",
+            slug="rancheritos",
+            habilitado=True,
+        )
+
+        cls.sucursal = Sucursal.objects.create(
+            tenant=cls.tenant,
+            nombre="Sucursal Test",
+            slug="principal",
+            estado=Sucursal.Estado.ACTIVA,
+        )
+
+        # ========================================================
+        # CONFIGURACION DE LA SUCURSAL
+        # ========================================================
+
         cls.config = ConfiguracionNegocio.objects.create(
+            sucursal=cls.sucursal,
             nombre_negocio="FoodBack Test",
-            fecha_vencimiento=date.today() + timedelta(days=365),
+            fecha_vencimiento=(
+                date.today()
+                + timedelta(days=365)
+            ),
             hora_apertura="00:00",
             hora_cierre="23:59",
             lunes_abierto=True,
@@ -53,6 +100,10 @@ class FoodBackTestBase(TestCase):
             domingo_abierto=True,
         )
 
+        # ========================================================
+        # CATALOGO
+        # ========================================================
+
         cls.categoria = Categoria.objects.create(
             nombre="Hamburguesas",
             orden=1,
@@ -61,10 +112,17 @@ class FoodBackTestBase(TestCase):
         cls.producto = Producto.objects.create(
             categoria=cls.categoria,
             nombre="Hamburguesa de prueba",
-            descripcion="Producto utilizado en las pruebas automáticas.",
+            descripcion=(
+                "Producto utilizado en "
+                "las pruebas automáticas."
+            ),
             precio=Decimal("5.00"),
             disponible=True,
         )
+
+        # ========================================================
+        # CLIENTE
+        # ========================================================
 
         cls.cliente_pedido = Cliente.objects.create(
             telefono="70000001",
@@ -72,6 +130,10 @@ class FoodBackTestBase(TestCase):
             apellido="Prueba",
             direccion_ultima="San Miguel",
         )
+
+        # ========================================================
+        # GRUPOS LEGACY
+        # ========================================================
 
         cls.grupo_admin = Group.objects.create(
             name="Administradores"
@@ -81,23 +143,47 @@ class FoodBackTestBase(TestCase):
             name="Repartidores"
         )
 
+        # ========================================================
+        # ADMIN
+        # ========================================================
+
         cls.admin_user = User.objects.create_user(
             username="admin_test",
             password="PasswordSeguro123!",
         )
-        cls.admin_user.groups.add(cls.grupo_admin)
+
+        cls.admin_user.groups.add(
+            cls.grupo_admin
+        )
+
+        Membership.objects.create(
+            tenant=cls.tenant,
+            usuario=cls.admin_user,
+            rol=Membership.ROLE_OWNER,
+            activo=True,
+        )
+
+        # ========================================================
+        # DELIVERY
+        # ========================================================
 
         cls.delivery_1 = User.objects.create_user(
             username="delivery_test_1",
             password="PasswordSeguro123!",
         )
-        cls.delivery_1.groups.add(cls.grupo_delivery)
+
+        cls.delivery_1.groups.add(
+            cls.grupo_delivery
+        )
 
         cls.delivery_2 = User.objects.create_user(
             username="delivery_test_2",
             password="PasswordSeguro123!",
         )
-        cls.delivery_2.groups.add(cls.grupo_delivery)
+
+        cls.delivery_2.groups.add(
+            cls.grupo_delivery
+        )
 
     def crear_pedido(
         self,
@@ -121,6 +207,7 @@ class FoodBackTestBase(TestCase):
         )
 
         return Pedido.objects.create(
+            sucursal=self.sucursal,
             cliente=cliente,
             direccion_entrega="Dirección de prueba",
             latitud="13.4800",
@@ -778,6 +865,7 @@ class HttpMethodSecurityTests(FoodBackTestBase):
 
     def test_get_no_debe_eliminar_excepcion_admin(self):
         excepcion = DiaEspecial.objects.create(
+            sucursal=self.sucursal,
             fecha=date.today() + timedelta(days=5),
             abierto=False,
             motivo="Prueba de seguridad",
@@ -834,6 +922,7 @@ class HttpMethodSecurityTests(FoodBackTestBase):
 
         excepcion_pasada = (
             DiaEspecial.objects.create(
+                sucursal=self.sucursal,
                 fecha=date.today()
                 - timedelta(days=1),
                 abierto=False,
@@ -944,6 +1033,7 @@ class HttpMethodSecurityTests(FoodBackTestBase):
 
     def test_post_si_debe_eliminar_excepcion_admin(self):
         excepcion = DiaEspecial.objects.create(
+            sucursal=self.sucursal,
             fecha=date.today() + timedelta(days=5),
             abierto=False,
             motivo="Eliminar mediante POST",
@@ -4818,3 +4908,788 @@ class MultipleActiveOrdersVisibilityTests(
             len(activos),
             2,
         )
+        
+class TenantContextResolverTests(TestCase):
+
+    def setUp(self):
+        self.factory = RequestFactory()
+
+        User = get_user_model()
+
+        self.user = User.objects.create_user(
+            username="owner_tenant_test",
+            password="test12345",
+        )
+
+        self.tenant = Tenant.objects.create(
+            nombre="Restaurante Test",
+            slug="restaurante-test",
+            habilitado=True,
+        )
+
+        Membership.objects.create(
+            tenant=self.tenant,
+            usuario=self.user,
+            rol=Membership.ROLE_OWNER,
+            activo=True,
+        )
+
+    def test_usuario_autenticado_resuelve_tenant_por_membership(self):
+        request = self.factory.get(
+            "/dashboard/"
+        )
+
+        request.user = self.user
+        request.session = {}
+
+        tenant = resolver_tenant(
+            request
+        )
+
+        self.assertEqual(
+            tenant,
+            self.tenant,
+        )
+        
+    def test_usuario_no_puede_forzar_otro_tenant_desde_sesion(self):
+        tenant_ajeno = Tenant.objects.create(
+            nombre="Restaurante Ajeno",
+            slug="restaurante-ajeno",
+            habilitado=True,
+        )
+
+        request = self.factory.get(
+            "/dashboard/"
+        )
+
+        request.user = self.user
+        request.session = SessionStore()
+
+        # Simulamos que alguien manipuló su sesión
+        # para intentar seleccionar otro Tenant.
+        request.session[
+            "tenant_activo_public_id"
+        ] = str(tenant_ajeno.public_id)
+
+        tenant = resolver_tenant(
+            request
+        )
+
+        # Debe ignorar el Tenant ajeno y volver
+        # al único Tenant autorizado del usuario.
+        self.assertEqual(
+            tenant,
+            self.tenant,
+        )
+
+        # Además debe limpiar la selección inválida.
+        self.assertNotIn(
+            "tenant_activo_public_id",
+            request.session,
+        )
+        
+    def test_usuario_anonimo_resuelve_tenant_por_subdominio(self):
+        request = self.factory.get(
+            "/",
+            HTTP_HOST="restaurante-test.foodbacksv.com",
+        )
+
+        request.user = AnonymousUser()
+        request.session = {}
+
+        tenant = resolver_tenant(
+            request
+        )
+
+        self.assertEqual(
+            tenant,
+            self.tenant,
+        )
+        
+    def test_usuario_no_puede_forzar_sucursal_de_otro_tenant(self):
+        sucursal_valida = Sucursal.objects.create(
+            tenant=self.tenant,
+            nombre="Sucursal Principal",
+            slug="principal",
+            estado=Sucursal.Estado.ACTIVA,
+        )
+
+        tenant_ajeno = Tenant.objects.create(
+            nombre="Tenant Ajeno",
+            slug="tenant-ajeno",
+            habilitado=True,
+        )
+
+        sucursal_ajena = Sucursal.objects.create(
+            tenant=tenant_ajeno,
+            nombre="Sucursal Ajena",
+            slug="ajena",
+            estado=Sucursal.Estado.ACTIVA,
+        )
+
+        request = self.factory.get(
+            "/dashboard/"
+        )
+
+        request.user = self.user
+        request.session = SessionStore()
+
+        request.session[
+            "sucursal_activa_public_id"
+        ] = str(
+            sucursal_ajena.public_id
+        )
+
+        sucursal = resolver_sucursal(
+            request,
+            self.tenant,
+        )
+
+        self.assertEqual(
+            sucursal,
+            sucursal_valida,
+        )
+
+        self.assertNotIn(
+            "sucursal_activa_public_id",
+            request.session,
+        )
+        
+    def test_sucursal_archivada_no_puede_quedar_activa_en_sesion(self):
+        sucursal_activa = Sucursal.objects.create(
+            tenant=self.tenant,
+            nombre="Sucursal Activa",
+            slug="activa",
+            estado=Sucursal.Estado.ACTIVA,
+        )
+
+        sucursal_archivada = Sucursal.objects.create(
+            tenant=self.tenant,
+            nombre="Sucursal Archivada",
+            slug="archivada",
+            estado=Sucursal.Estado.ARCHIVADA,
+        )
+
+        request = self.factory.get(
+            "/dashboard/"
+        )
+
+        request.user = self.user
+        request.session = SessionStore()
+
+        # Simulamos una selección antigua o manipulada.
+        request.session[
+            "sucursal_activa_public_id"
+        ] = str(
+            sucursal_archivada.public_id
+        )
+
+        sucursal = resolver_sucursal(
+            request,
+            self.tenant,
+        )
+
+        # FoodBack debe ignorar la archivada.
+        self.assertEqual(
+            sucursal,
+            sucursal_activa,
+        )
+
+        # Y limpiar la selección inválida de sesión.
+        self.assertNotIn(
+            "sucursal_activa_public_id",
+            request.session,
+        )
+        
+    def test_usuario_puede_seleccionar_sucursal_activa_de_su_tenant(self):
+        sucursal_principal = Sucursal.objects.create(
+            tenant=self.tenant,
+            nombre="Sucursal Principal",
+            slug="principal",
+            estado=Sucursal.Estado.ACTIVA,
+        )
+
+        sucursal_secundaria = Sucursal.objects.create(
+            tenant=self.tenant,
+            nombre="Sucursal Secundaria",
+            slug="secundaria",
+            estado=Sucursal.Estado.ACTIVA,
+        )
+
+        request = self.factory.get(
+            "/dashboard/"
+        )
+
+        request.user = self.user
+        request.session = SessionStore()
+
+        request.session[
+            "sucursal_activa_public_id"
+        ] = str(
+            sucursal_secundaria.public_id
+        )
+
+        sucursal = resolver_sucursal(
+            request,
+            self.tenant,
+        )
+
+        self.assertEqual(
+            sucursal,
+            sucursal_secundaria,
+        )
+
+        self.assertNotEqual(
+            sucursal,
+            sucursal_principal,
+        )
+
+        self.assertEqual(
+            request.session[
+                "sucursal_activa_public_id"
+            ],
+            str(
+                sucursal_secundaria.public_id
+            ),
+        )
+        
+    @override_settings(
+        FOODBACK_DEFAULT_TENANT_SLUG="restaurante-test",
+    )
+    def test_desarrollo_resuelve_tenant_por_slug_configurado(self):
+        request = self.factory.get(
+            "/",
+            HTTP_HOST="127.0.0.1:8000",
+        )
+
+        request.user = AnonymousUser()
+        request.session = SessionStore()
+
+        tenant = resolver_tenant(
+            request
+        )
+
+        self.assertEqual(
+            tenant,
+            self.tenant,
+        )
+        
+    def test_middleware_agrega_tenant_y_sucursal_al_request(self):
+        sucursal = Sucursal.objects.create(
+            tenant=self.tenant,
+            nombre="Sucursal Principal",
+            slug="principal",
+            estado=Sucursal.Estado.ACTIVA,
+        )
+
+        request = self.factory.get(
+            "/dashboard/"
+        )
+
+        request.user = self.user
+        request.session = SessionStore()
+
+        contexto_capturado = {}
+
+        def vista_falsa(req):
+            contexto_capturado["tenant"] = req.tenant
+            contexto_capturado["sucursal"] = req.sucursal
+
+            return HttpResponse("OK")
+
+        middleware = TenantContextMiddleware(
+            vista_falsa
+        )
+
+        response = middleware(
+            request
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.assertEqual(
+            contexto_capturado["tenant"],
+            self.tenant,
+        )
+
+        self.assertEqual(
+            contexto_capturado["sucursal"],
+            sucursal,
+        )
+        
+    @override_settings(
+    FOODBACK_DEFAULT_TENANT_SLUG=""
+)
+    def test_middleware_deja_contexto_none_si_no_hay_tenant_valido(self):
+        request = self.factory.get(
+            "/",
+            HTTP_HOST="127.0.0.1:8000",
+        )
+
+        request.user = AnonymousUser()
+        request.session = SessionStore()
+
+        contexto_capturado = {}
+
+        def vista_falsa(req):
+            contexto_capturado["tenant"] = req.tenant
+            contexto_capturado["sucursal"] = req.sucursal
+
+            return HttpResponse("OK")
+
+        middleware = TenantContextMiddleware(
+            vista_falsa
+        )
+
+        response = middleware(
+            request
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.assertIsNone(
+            contexto_capturado["tenant"]
+        )
+
+        self.assertIsNone(
+            contexto_capturado["sucursal"]
+        )
+        
+        
+class SucursalBusinessStateIsolationTests(TestCase):
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(
+            nombre="Restaurante Multi",
+            slug="restaurante-multi",
+        )
+
+        self.sucursal_a = Sucursal.objects.create(
+            tenant=self.tenant,
+            nombre="Sucursal A",
+            slug="sucursal-a",
+            estado=Sucursal.Estado.ACTIVA,
+        )
+
+        self.sucursal_b = Sucursal.objects.create(
+            tenant=self.tenant,
+            nombre="Sucursal B",
+            slug="sucursal-b",
+            estado=Sucursal.Estado.ACTIVA,
+        )
+
+        datos_config = {
+            "hora_apertura": time(0, 0),
+            "hora_cierre": time(23, 59),
+            "lunes_abierto": True,
+            "martes_abierto": True,
+            "miercoles_abierto": True,
+            "jueves_abierto": True,
+            "viernes_abierto": True,
+            "sabado_abierto": True,
+            "domingo_abierto": True,
+        }
+
+        ConfiguracionNegocio.objects.create(
+            sucursal=self.sucursal_a,
+            **datos_config,
+        )
+
+        ConfiguracionNegocio.objects.create(
+            sucursal=self.sucursal_b,
+            **datos_config,
+        )
+
+    def test_dia_especial_de_una_sucursal_no_afecta_otra(self):
+        DiaEspecial.objects.create(
+            sucursal=self.sucursal_a,
+            fecha=date.today(),
+            abierto=False,
+            motivo="Evento privado",
+        )
+
+        abierto_a, _ = verificar_estado_negocio(
+            self.sucursal_a
+        )
+
+        abierto_b, _ = verificar_estado_negocio(
+            self.sucursal_b
+        )
+
+        self.assertFalse(
+            abierto_a
+        )
+
+        self.assertTrue(
+            abierto_b
+        )
+
+    def test_misma_fecha_puede_existir_en_dos_sucursales(self):
+        DiaEspecial.objects.create(
+            sucursal=self.sucursal_a,
+            fecha=date.today(),
+            abierto=False,
+        )
+
+        DiaEspecial.objects.create(
+            sucursal=self.sucursal_b,
+            fecha=date.today(),
+            abierto=True,
+            hora_apertura=time(0, 0),
+            hora_cierre=time(23, 59),
+        )
+
+        self.assertEqual(
+            DiaEspecial.objects.filter(
+                fecha=date.today()
+            ).count(),
+            2,
+        )
+        
+
+class AdminSettingsSucursalIsolationTests(
+    TestCase
+):
+
+    def setUp(self):
+        User = get_user_model()
+
+        self.admin = (
+            User.objects.create_superuser(
+                username="admin-settings-test",
+                password="test12345",
+                email="admin@test.com",
+            )
+        )
+
+        self.tenant = Tenant.objects.create(
+            nombre="Restaurante Settings",
+            slug="restaurante-settings",
+        )
+
+        Membership.objects.create(
+            tenant=self.tenant,
+            usuario=self.admin,
+            rol=Membership.ROLE_OWNER,
+            activo=True,
+        )
+
+        self.sucursal_a = (
+            Sucursal.objects.create(
+                tenant=self.tenant,
+                nombre="Sucursal A",
+                slug="sucursal-a-settings",
+                estado=Sucursal.Estado.ACTIVA,
+            )
+        )
+
+        self.sucursal_b = (
+            Sucursal.objects.create(
+                tenant=self.tenant,
+                nombre="Sucursal B",
+                slug="sucursal-b-settings",
+                estado=Sucursal.Estado.ACTIVA,
+            )
+        )
+
+        self.config_a = (
+            ConfiguracionNegocio.objects.create(
+                sucursal=self.sucursal_a,
+            )
+        )
+
+        self.config_b = (
+            ConfiguracionNegocio.objects.create(
+                sucursal=self.sucursal_b,
+            )
+        )
+
+        self.client.force_login(
+            self.admin
+        )
+
+        session = self.client.session
+
+        session[
+            "sucursal_activa_public_id"
+        ] = str(
+            self.sucursal_a.public_id
+        )
+
+        session.save()
+
+    @patch(
+        "pedidos.views.suscripcion_activa",
+        return_value=True,
+    )
+    def test_configuracion_global_solo_modifica_sucursal_activa(
+        self,
+        mock_suscripcion,
+    ):
+        response = self.client.post(
+            reverse("admin_settings"),
+            {
+                "tipo_accion": "global",
+                "hora_apertura": "08:00",
+                "hora_cierre": "21:00",
+                "mensaje_cierre": (
+                    "Sucursal A cerrada"
+                ),
+                "lunes_abierto": "on",
+                "martes_abierto": "on",
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        self.config_a.refresh_from_db()
+        self.config_b.refresh_from_db()
+
+        self.assertEqual(
+            self.config_a.mensaje_cierre,
+            "Sucursal A cerrada",
+        )
+
+        self.assertNotEqual(
+            self.config_b.mensaje_cierre,
+            "Sucursal A cerrada",
+        )
+
+    @patch(
+        "pedidos.views.suscripcion_activa",
+        return_value=True,
+    )
+    def test_excepcion_se_crea_solo_en_sucursal_activa(
+        self,
+        mock_suscripcion,
+    ):
+        fecha = (
+            date.today()
+            + timedelta(days=2)
+        )
+
+        response = self.client.post(
+            reverse("admin_settings"),
+            {
+                "tipo_accion":
+                    "dia_especifico",
+                "fecha_target":
+                    fecha.strftime(
+                        "%Y-%m-%d"
+                    ),
+                "motivo":
+                    "Evento sucursal A",
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        self.assertTrue(
+            DiaEspecial.objects.filter(
+                sucursal=self.sucursal_a,
+                fecha=fecha,
+            ).exists()
+        )
+
+        self.assertFalse(
+            DiaEspecial.objects.filter(
+                sucursal=self.sucursal_b,
+                fecha=fecha,
+            ).exists()
+        )
+
+    @patch(
+        "pedidos.views.suscripcion_activa",
+        return_value=True,
+    )
+    def test_no_puede_eliminar_excepcion_de_otra_sucursal(
+        self,
+        mock_suscripcion,
+    ):
+        excepcion_b = (
+            DiaEspecial.objects.create(
+                sucursal=self.sucursal_b,
+                fecha=(
+                    date.today()
+                    + timedelta(days=3)
+                ),
+                abierto=False,
+                motivo="Solo B",
+            )
+        )
+
+        response = self.client.post(
+            reverse(
+                "eliminar_excepcion",
+                args=[
+                    excepcion_b.id
+                ],
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            404,
+        )
+
+        self.assertTrue(
+            DiaEspecial.objects.filter(
+                id=excepcion_b.id
+            ).exists()
+        )
+        
+        
+class AdminDashboardSucursalIsolationTests(
+    FoodBackTestBase
+):
+
+    def setUp(self):
+        self.client.force_login(
+            self.admin_user
+        )
+
+        session = self.client.session
+
+        session[
+            "sucursal_activa_public_id"
+        ] = str(
+            self.sucursal.public_id
+        )
+
+        session.save()
+
+        self.sucursal_b = (
+            Sucursal.objects.create(
+                tenant=self.tenant,
+                nombre="Sucursal B",
+                slug="sucursal-b-dashboard",
+                estado=(
+                    Sucursal.Estado.ACTIVA
+                ),
+            )
+        )
+
+        self.config_b = (
+            ConfiguracionNegocio.objects.create(
+                sucursal=self.sucursal_b,
+                fecha_vencimiento=(
+                    date.today()
+                    + timedelta(days=365)
+                ),
+            )
+        )
+
+        self.pedido_a = (
+            Pedido.objects.create(
+                sucursal=self.sucursal,
+                cliente=self.cliente_pedido,
+                estado="RECIBIDO",
+                metodo_pago="EFECTIVO",
+            )
+        )
+
+        self.pedido_b = (
+            Pedido.objects.create(
+                sucursal=self.sucursal_b,
+                cliente=self.cliente_pedido,
+                estado="RECIBIDO",
+                metodo_pago="EFECTIVO",
+            )
+        )
+
+    def test_dashboard_solo_muestra_pedidos_de_sucursal_activa(
+        self,
+    ):
+        response = self.client.get(
+            reverse(
+                "dashboard_admin"
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        pedidos_ids = {
+            pedido.id
+            for pedido
+            in response.context[
+                "pedidos"
+            ]
+        }
+
+        self.assertIn(
+            self.pedido_a.id,
+            pedidos_ids,
+        )
+
+        self.assertNotIn(
+            self.pedido_b.id,
+            pedidos_ids,
+        )
+
+    def test_admin_no_puede_modificar_pedido_de_otra_sucursal(
+        self,
+    ):
+        response = self.client.post(
+            reverse(
+                "dashboard_admin"
+            ),
+            {
+                "pedido_id": (
+                    self.pedido_b.id
+                ),
+                "accion": "cocina",
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            404,
+        )
+
+        self.pedido_b.refresh_from_db()
+
+        self.assertEqual(
+            self.pedido_b.estado,
+            "RECIBIDO",
+        )
+
+    def test_polling_admin_cuenta_solo_sucursal_activa(
+        self,
+    ):
+        response = self.client.get(
+            reverse(
+                "api_dashboard_admin_sync"
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        data = response.json()
+
+        self.assertTrue(
+            data["changed"]
+        )
+
+        self.assertEqual(
+            data["nuevos_count"],
+            1,
+        )
+                

@@ -18,7 +18,7 @@ from django.views.decorators.http import require_POST
 from django.views.decorators.csrf import csrf_exempt  # IMPORTANTE PARA EL WEBHOOK
 from django.contrib.auth.views import LoginView
 from django.contrib.auth import logout
-from django.http import JsonResponse, HttpResponseBadRequest
+from django.http import JsonResponse, HttpResponseBadRequest, HttpResponseForbidden
 from django.template.loader import render_to_string
 from django.db.models import Sum, Count, F, Q, Max, Prefetch
 from django.core.exceptions import PermissionDenied
@@ -91,55 +91,120 @@ def _limpiar_pedidos_pendientes_vencidos():
     return 0
 
 
-def verificar_estado_negocio():
+def verificar_estado_negocio(sucursal):
+    """
+    Determina si una sucursal específica está abierta.
+
+    Esta función NO decide el estado de la suscripción.
+    La suscripción pertenece conceptualmente al Tenant
+    y se valida por separado.
+    """
+
+    if not sucursal:
+        return False, "Sucursal no disponible."
+
+    config = (
+        ConfiguracionNegocio.objects
+        .filter(sucursal=sucursal)
+        .first()
+    )
+
+    if not config:
+        return (
+            False,
+            "Sucursal sin configuración operativa."
+        )
+
     ahora = datetime.now()
     fecha_hoy = ahora.date()
     hora_actual = ahora.time()
     dia_semana = ahora.weekday()
-
-    config = ConfiguracionNegocio.objects.first()
-    if not config:
-        config = ConfiguracionNegocio.objects.create()
-
-    # KILL SWITCH INTERNO
-    if not suscripcion_activa():
-        return False, "Servicio en mantenimiento administrativo."
 
     apertura_efectiva = config.hora_apertura
     cierre_efectivo = config.hora_cierre
     mensaje_base = config.mensaje_cierre
 
     dias_globales = [
-        config.lunes_abierto, config.martes_abierto, config.miercoles_abierto,
-        config.jueves_abierto, config.viernes_abierto, config.sabado_abierto,
-        config.domingo_abierto
+        config.lunes_abierto,
+        config.martes_abierto,
+        config.miercoles_abierto,
+        config.jueves_abierto,
+        config.viernes_abierto,
+        config.sabado_abierto,
+        config.domingo_abierto,
     ]
-    esta_habilitado = dias_globales[dia_semana]
 
-    excepcion = DiaEspecial.objects.filter(fecha=fecha_hoy).first()
+    esta_habilitado = dias_globales[
+        dia_semana
+    ]
+
+    excepcion = (
+        DiaEspecial.objects
+        .filter(
+            sucursal=sucursal,
+            fecha=fecha_hoy,
+        )
+        .first()
+    )
 
     if excepcion:
         if excepcion.abierto:
             esta_habilitado = True
+
             if excepcion.hora_apertura:
-                apertura_efectiva = excepcion.hora_apertura
+                apertura_efectiva = (
+                    excepcion.hora_apertura
+                )
+
             if excepcion.hora_cierre:
-                cierre_efectivo = excepcion.hora_cierre
+                cierre_efectivo = (
+                    excepcion.hora_cierre
+                )
+
         else:
             motivo = excepcion.motivo or ""
-            return False, f"{mensaje_base} ({motivo})"
+
+            if motivo:
+                return (
+                    False,
+                    f"{mensaje_base} ({motivo})"
+                )
+
+            return False, mensaje_base
 
     if esta_habilitado:
+        # Horario normal:
+        # 10:00 -> 22:00
         if apertura_efectiva < cierre_efectivo:
-            if apertura_efectiva <= hora_actual <= cierre_efectivo:
-                return True, ""
-        else:
-            if hora_actual >= apertura_efectiva or hora_actual <= cierre_efectivo:
+            if (
+                apertura_efectiva
+                <= hora_actual
+                <= cierre_efectivo
+            ):
                 return True, ""
 
-        ap_str = apertura_efectiva.strftime('%I:%M %p').lower()
-        ci_str = cierre_efectivo.strftime('%I:%M %p').lower()
-        return False, f"{mensaje_base} (Hoy: {ap_str} - {ci_str})"
+        # Horario que cruza medianoche:
+        # 18:00 -> 02:00
+        else:
+            if (
+                hora_actual >= apertura_efectiva
+                or hora_actual <= cierre_efectivo
+            ):
+                return True, ""
+
+        ap_str = apertura_efectiva.strftime(
+            "%I:%M %p"
+        ).lower()
+
+        ci_str = cierre_efectivo.strftime(
+            "%I:%M %p"
+        ).lower()
+
+        return (
+            False,
+            f"{mensaje_base} "
+            f"(Hoy: {ap_str} - {ci_str})"
+        )
 
     return False, mensaje_base
 
@@ -386,7 +451,9 @@ def menu_view(request):
     )
 
     abierto, mensaje_estado = (
-        verificar_estado_negocio()
+        verificar_estado_negocio(
+            request.sucursal
+        )
     )
 
     ids_historial = _pedidos_sesion(
@@ -682,7 +749,11 @@ def checkout_view(request):
             'pedidos/suspendido.html'
         )
 
-    abierto, mensaje = verificar_estado_negocio()
+    abierto, mensaje = (
+        verificar_estado_negocio(
+            request.sucursal
+        )
+    )
 
     if not abierto:
         messages.error(
@@ -856,6 +927,7 @@ def checkout_view(request):
                 )
 
                 pedido = Pedido.objects.create(
+                    sucursal=request.sucursal,
                     cliente=cliente,
                     direccion_entrega=direccion,
                     metodo_pago=metodo_pago,
@@ -2700,12 +2772,28 @@ def _parse_last_update(value):
     return dt
 
 
-def _ultimo_cambio_pedidos():
+def _ultimo_cambio_pedidos(sucursal=None):
     """
-    Devuelve la última fecha en que cambió cualquier pedido.
-    Esto evita renderizar HTML completo si nada cambió.
+    Devuelve la última modificación de pedidos.
+
+    Si se proporciona una sucursal, la consulta queda
+    completamente aislada a esa sucursal.
+
+    El parámetro opcional se mantiene temporalmente porque
+    Delivery todavía usa este helper y será migrado en el
+    siguiente bloque multi-tenant.
     """
-    return Pedido.objects.aggregate(ultimo=Max('actualizado_en'))['ultimo']
+
+    queryset = Pedido.objects.all()
+
+    if sucursal is not None:
+        queryset = queryset.filter(
+            sucursal=sucursal
+        )
+
+    return queryset.aggregate(
+        ultimo=Max("actualizado_en")
+    )["ultimo"]
 
 
 def _query_detalles_optimizada():
@@ -2717,46 +2805,89 @@ def _query_detalles_optimizada():
     )
 
 
-def _query_pedidos_admin():
-    return Pedido.objects.exclude(
-        estado__in=['ENTREGADO', 'CANCELADO']
-    ).select_related(
-        'cliente',
-        'repartidor'
-    ).prefetch_related(
-        Prefetch('detalles', queryset=_query_detalles_optimizada())
-    ).order_by('-id')
+def _query_pedidos_admin(sucursal):
+    """
+    Pedidos operativos visibles para una sucursal.
+
+    Fail closed: sin sucursal no devuelve ningún pedido.
+    """
+
+    if not sucursal:
+        return Pedido.objects.none()
+
+    return (
+        Pedido.objects
+        .filter(
+            sucursal=sucursal
+        )
+        .exclude(
+            estado__in=[
+                "ENTREGADO",
+                "CANCELADO",
+            ]
+        )
+        .select_related(
+            "cliente",
+            "repartidor",
+        )
+        .prefetch_related(
+            Prefetch(
+                "detalles",
+                queryset=(
+                    _query_detalles_optimizada()
+                ),
+            )
+        )
+        .order_by("-id")
+    )
 
 
-def _contexto_admin_pedidos():
-    pedidos = list(_query_pedidos_admin())
+def _contexto_admin_pedidos(sucursal):
+    pedidos = list(
+        _query_pedidos_admin(
+            sucursal
+        )
+    )
 
     pedidos_nuevos = [
-        p for p in pedidos
-        if p.estado == 'RECIBIDO' or not p.estado
+        pedido
+        for pedido in pedidos
+        if (
+            pedido.estado == "RECIBIDO"
+            or not pedido.estado
+        )
     ]
 
     pedidos_cocina = [
-        p for p in pedidos
-        if p.estado == 'COCINA'
+        pedido
+        for pedido in pedidos
+        if pedido.estado == "COCINA"
     ]
 
     pedidos_ruta = [
-        p for p in pedidos
-        if p.estado == 'RUTA'
+        pedido
+        for pedido in pedidos
+        if pedido.estado == "RUTA"
     ]
 
     pedidos_problema = [
-        p for p in pedidos
-        if p.estado == 'PROBLEMA'
+        pedido
+        for pedido in pedidos
+        if pedido.estado == "PROBLEMA"
     ]
 
     return {
-        'pedidos': pedidos,
-        'pedidos_nuevos': pedidos_nuevos,
-        'pedidos_cocina': pedidos_cocina,
-        'pedidos_ruta': pedidos_ruta,
-        'pedidos_problema': pedidos_problema,
+        "pedidos": pedidos,
+        "pedidos_nuevos": (
+            pedidos_nuevos
+        ),
+        "pedidos_cocina": (
+            pedidos_cocina
+        ),
+        "pedidos_ruta": pedidos_ruta,
+        "pedidos_problema": (
+            pedidos_problema
+        ),
     }
 
 
@@ -2826,107 +2957,275 @@ def _pedidos_sesion(request):
 def dashboard_admin_view(request):
     _limpiar_pedidos_pendientes_vencidos()
 
-    config_negocio = ConfiguracionNegocio.objects.first()
+    sucursal = getattr(
+        request,
+        "sucursal",
+        None,
+    )
+
+    # Seguridad:
+    # un dashboard operativo nunca debe caer
+    # accidentalmente a consultas globales.
+    if not sucursal:
+        return HttpResponseForbidden(
+            "No hay una sucursal activa."
+        )
+
+    config_negocio = (
+        ConfiguracionNegocio.objects
+        .filter(
+            sucursal=sucursal
+        )
+        .first()
+    )
+
     dias_restantes = 30
     bloqueado = False
 
-    if config_negocio and config_negocio.fecha_vencimiento:
-        dias_restantes = (config_negocio.fecha_vencimiento - date.today()).days
+    if (
+        config_negocio
+        and config_negocio.fecha_vencimiento
+    ):
+        dias_restantes = (
+            config_negocio.fecha_vencimiento
+            - date.today()
+        ).days
 
         if dias_restantes < 0:
             bloqueado = True
 
-    if bloqueado and request.method == 'POST':
-        messages.error(request, "⛔ Acción denegada. Suscripción vencida.")
+    if (
+        bloqueado
+        and request.method == "POST"
+    ):
+        messages.error(
+            request,
+            (
+                "⛔ Acción denegada. "
+                "Suscripción vencida."
+            ),
+        )
 
-    elif request.method == 'POST':
-        pedido = get_object_or_404(Pedido, id=request.POST.get('pedido_id'))
-        accion = request.POST.get('accion')
+    elif request.method == "POST":
+        pedido = get_object_or_404(
+            Pedido,
+            id=request.POST.get(
+                "pedido_id"
+            ),
+            sucursal=sucursal,
+        )
 
-        if accion == 'cocina':
-            pedido.estado = 'COCINA'
-            messages.success(request, f"Orden #{pedido.id} enviada a Cocina 🔥")
+        accion = request.POST.get(
+            "accion"
+        )
 
-        elif accion == 'ruta':
-            pedido.estado = 'RUTA'
-            messages.success(request, f"Orden #{pedido.id} lista para Ruta 🛵")
+        if accion == "cocina":
+            pedido.estado = "COCINA"
 
-        elif accion == 'reintentar':
-            pedido.estado = 'RUTA'
-            messages.info(request, f"Reintentando Orden #{pedido.id} 🔄")
+            messages.success(
+                request,
+                (
+                    f"Orden #{pedido.id} "
+                    "enviada a Cocina 🔥"
+                ),
+            )
 
-        elif accion == 'cancelar':
-            pedido.estado = 'CANCELADO'
-            messages.error(request, f"Orden #{pedido.id} cancelada ❌")
+        elif accion == "ruta":
+            pedido.estado = "RUTA"
+
+            messages.success(
+                request,
+                (
+                    f"Orden #{pedido.id} "
+                    "lista para Ruta 🛵"
+                ),
+            )
+
+        elif accion == "reintentar":
+            pedido.estado = "RUTA"
+
+            messages.info(
+                request,
+                (
+                    f"Reintentando Orden "
+                    f"#{pedido.id} 🔄"
+                ),
+            )
+
+        elif accion == "cancelar":
+            pedido.estado = "CANCELADO"
+
+            messages.error(
+                request,
+                (
+                    f"Orden #{pedido.id} "
+                    "cancelada ❌"
+                ),
+            )
+
+        else:
+            messages.error(
+                request,
+                "Acción no válida."
+            )
+
+            return redirect(
+                "dashboard_admin"
+            )
 
         pedido.save()
-        return redirect('dashboard_admin')
 
-    context = _contexto_admin_pedidos()
+        return redirect(
+            "dashboard_admin"
+        )
+
+    context = (
+        _contexto_admin_pedidos(
+            sucursal
+        )
+    )
+
     context.update({
-        'dias_restantes': dias_restantes,
-        'last_update': _iso_datetime(_ultimo_cambio_pedidos()),
+        "dias_restantes": (
+            dias_restantes
+        ),
+        "last_update": _iso_datetime(
+            _ultimo_cambio_pedidos(
+                sucursal
+            )
+        ),
+        "sucursal": sucursal,
     })
 
-    return render(request, 'pedidos/dashboard_admin.html', context)
+    return render(
+        request,
+        "pedidos/dashboard_admin.html",
+        context,
+    )
 
 
 @never_cache
 @login_required(login_url='login_custom')
 @user_passes_test(es_admin, login_url='login_custom')
 def api_dashboard_admin_sync(request):
-    ultimo_servidor = _ultimo_cambio_pedidos()
-    ultimo_cliente_raw = request.GET.get('last_update', 'none')
-    ultimo_cliente = _parse_last_update(ultimo_cliente_raw)
+    sucursal = getattr(
+        request,
+        "sucursal",
+        None,
+    )
 
-    if ultimo_servidor is None and ultimo_cliente_raw == "none":
+    if not sucursal:
+        return JsonResponse(
+            {
+                "detail": (
+                    "No hay una "
+                    "sucursal activa."
+                )
+            },
+            status=403,
+        )
+
+    ultimo_servidor = (
+        _ultimo_cambio_pedidos(
+            sucursal
+        )
+    )
+
+    ultimo_cliente_raw = (
+        request.GET.get(
+            "last_update",
+            "none",
+        )
+    )
+
+    ultimo_cliente = (
+        _parse_last_update(
+            ultimo_cliente_raw
+        )
+    )
+
+    if (
+        ultimo_servidor is None
+        and ultimo_cliente_raw == "none"
+    ):
         return JsonResponse({
-            'changed': False,
-            'last_update': "none",
+            "changed": False,
+            "last_update": "none",
         })
 
-    if ultimo_servidor and ultimo_cliente and ultimo_servidor <= ultimo_cliente:
+    if (
+        ultimo_servidor
+        and ultimo_cliente
+        and (
+            ultimo_servidor
+            <= ultimo_cliente
+        )
+    ):
         return JsonResponse({
-            'changed': False,
-            'last_update': _iso_datetime(ultimo_servidor),
+            "changed": False,
+            "last_update": (
+                _iso_datetime(
+                    ultimo_servidor
+                )
+            ),
         })
 
-    context = _contexto_admin_pedidos()
+    context = (
+        _contexto_admin_pedidos(
+            sucursal
+        )
+    )
 
     html_nuevos = render_to_string(
-        'pedidos/partials/admin_nuevos.html',
+        "pedidos/partials/admin_nuevos.html",
         context,
-        request=request
+        request=request,
     )
 
     html_cocina = render_to_string(
-        'pedidos/partials/admin_cocina.html',
+        "pedidos/partials/admin_cocina.html",
         context,
-        request=request
+        request=request,
     )
 
     html_ruta = render_to_string(
-        'pedidos/partials/admin_ruta.html',
+        "pedidos/partials/admin_ruta.html",
         context,
-        request=request
+        request=request,
     )
 
     html_problema = render_to_string(
-        'pedidos/partials/admin_problema.html',
+        "pedidos/partials/admin_problema.html",
         context,
-        request=request
+        request=request,
     )
 
     return JsonResponse({
-        'changed': True,
-        'last_update': _iso_datetime(ultimo_servidor),
-        'nuevos_count': len(context['pedidos_nuevos']),
-        'html': {
-            'pills-nuevos': html_nuevos,
-            'pills-cocina': html_cocina,
-            'pills-ruta': html_ruta,
-            'pills-problema': html_problema,
-        }
+        "changed": True,
+        "last_update": (
+            _iso_datetime(
+                ultimo_servidor
+            )
+        ),
+        "nuevos_count": len(
+            context[
+                "pedidos_nuevos"
+            ]
+        ),
+        "html": {
+            "pills-nuevos": (
+                html_nuevos
+            ),
+            "pills-cocina": (
+                html_cocina
+            ),
+            "pills-ruta": (
+                html_ruta
+            ),
+            "pills-problema": (
+                html_problema
+            ),
+        },
     })
 
 
@@ -2936,113 +3235,344 @@ def api_dashboard_admin_sync(request):
 def admin_settings_view(request):
     if not suscripcion_activa():
         messages.error(
-            request, "⛔ Acceso denegado a Configuración. Suscripción vencida.")
-        return redirect('dashboard_admin')
+            request,
+            "⛔ Acceso denegado a Configuración. Suscripción vencida."
+        )
+        return redirect("dashboard_admin")
 
-    config_negocio = ConfiguracionNegocio.objects.first()
-    if not config_negocio:
-        config_negocio = ConfiguracionNegocio.objects.create()
+    sucursal = getattr(
+        request,
+        "sucursal",
+        None,
+    )
 
-    if request.method == 'POST':
-        tipo_accion = request.POST.get('tipo_accion')
+    if not sucursal:
+        messages.error(
+            request,
+            "No fue posible determinar la sucursal activa."
+        )
+        return redirect("dashboard_admin")
 
-        if tipo_accion == 'global':
-            config_negocio.hora_apertura = request.POST.get('hora_apertura')
-            config_negocio.hora_cierre = request.POST.get('hora_cierre')
-            config_negocio.mensaje_cierre = request.POST.get('mensaje_cierre')
+    config_negocio, _ = (
+        ConfiguracionNegocio.objects
+        .get_or_create(
+            sucursal=sucursal
+        )
+    )
 
-            dias_map = ['lunes', 'martes', 'miercoles',
-                        'jueves', 'viernes', 'sabado', 'domingo']
-            for d in dias_map:
-                valor = request.POST.get(f'{d}_abierto') == 'on'
-                setattr(config_negocio, f'{d}_abierto', valor)
+    if request.method == "POST":
+        tipo_accion = request.POST.get(
+            "tipo_accion"
+        )
+
+        if tipo_accion == "global":
+            config_negocio.hora_apertura = (
+                request.POST.get(
+                    "hora_apertura"
+                )
+            )
+
+            config_negocio.hora_cierre = (
+                request.POST.get(
+                    "hora_cierre"
+                )
+            )
+
+            config_negocio.mensaje_cierre = (
+                request.POST.get(
+                    "mensaje_cierre"
+                )
+            )
+
+            dias_map = [
+                "lunes",
+                "martes",
+                "miercoles",
+                "jueves",
+                "viernes",
+                "sabado",
+                "domingo",
+            ]
+
+            for dia in dias_map:
+                valor = (
+                    request.POST.get(
+                        f"{dia}_abierto"
+                    )
+                    == "on"
+                )
+
+                setattr(
+                    config_negocio,
+                    f"{dia}_abierto",
+                    valor,
+                )
 
             config_negocio.save()
-            messages.success(
-                request, "Configuración global actualizada (Excepciones mantenidas) ⚙️")
-            return redirect('admin_settings')
 
-        elif tipo_accion == 'dia_especifico':
-            fecha_str = request.POST.get('fecha_target')
+            messages.success(
+                request,
+                "Configuración de la sucursal actualizada ⚙️"
+            )
+
+            return redirect(
+                "admin_settings"
+            )
+
+        elif tipo_accion == "dia_especifico":
+            fecha_str = request.POST.get(
+                "fecha_target"
+            )
+
             if not fecha_str:
-                messages.error(request, "Error: No se recibió la fecha.")
-                return redirect('admin_settings')
+                messages.error(
+                    request,
+                    "Error: No se recibió la fecha."
+                )
 
-            fecha_dt = datetime.strptime(fecha_str, '%Y-%m-%d').date()
-            excepcion, created = DiaEspecial.objects.get_or_create(
-                fecha=fecha_dt)
-            excepcion.abierto = request.POST.get('estado_dia') == 'on'
-            h_ap = request.POST.get('hora_apertura_dia')
-            h_ci = request.POST.get('hora_cierre_dia')
-            excepcion.hora_apertura = h_ap if h_ap else None
-            excepcion.hora_cierre = h_ci if h_ci else None
-            excepcion.motivo = request.POST.get('motivo')
+                return redirect(
+                    "admin_settings"
+                )
+
+            try:
+                fecha_dt = datetime.strptime(
+                    fecha_str,
+                    "%Y-%m-%d",
+                ).date()
+
+            except ValueError:
+                messages.error(
+                    request,
+                    "La fecha recibida no es válida."
+                )
+
+                return redirect(
+                    "admin_settings"
+                )
+
+            excepcion, _ = (
+                DiaEspecial.objects
+                .get_or_create(
+                    sucursal=sucursal,
+                    fecha=fecha_dt,
+                )
+            )
+
+            excepcion.abierto = (
+                request.POST.get(
+                    "estado_dia"
+                )
+                == "on"
+            )
+
+            h_ap = request.POST.get(
+                "hora_apertura_dia"
+            )
+
+            h_ci = request.POST.get(
+                "hora_cierre_dia"
+            )
+
+            excepcion.hora_apertura = (
+                h_ap if h_ap else None
+            )
+
+            excepcion.hora_cierre = (
+                h_ci if h_ci else None
+            )
+
+            excepcion.motivo = (
+                request.POST.get(
+                    "motivo"
+                )
+            )
+
             excepcion.save()
+
             messages.success(
-                request, f"Horario para {fecha_str} actualizado ✅")
-            return redirect('admin_settings')
+                request,
+                (
+                    f"Horario para "
+                    f"{fecha_str} "
+                    f"actualizado ✅"
+                ),
+            )
+
+            return redirect(
+                "admin_settings"
+            )
 
     agenda = []
+
     hoy = date.today()
-    nombres_dias = ['Lunes', 'Martes', 'Miércoles',
-                    'Jueves', 'Viernes', 'Sábado', 'Domingo']
-    defaults_globales = [
-        config_negocio.lunes_abierto, config_negocio.martes_abierto,
-        config_negocio.miercoles_abierto, config_negocio.jueves_abierto,
-        config_negocio.viernes_abierto, config_negocio.sabado_abierto,
-        config_negocio.domingo_abierto
+
+    nombres_dias = [
+        "Lunes",
+        "Martes",
+        "Miércoles",
+        "Jueves",
+        "Viernes",
+        "Sábado",
+        "Domingo",
     ]
 
+    defaults_globales = [
+        config_negocio.lunes_abierto,
+        config_negocio.martes_abierto,
+        config_negocio.miercoles_abierto,
+        config_negocio.jueves_abierto,
+        config_negocio.viernes_abierto,
+        config_negocio.sabado_abierto,
+        config_negocio.domingo_abierto,
+    ]
+
+    excepciones = {
+        excepcion.fecha: excepcion
+        for excepcion in (
+            DiaEspecial.objects
+            .filter(
+                sucursal=sucursal,
+                fecha__range=(
+                    hoy,
+                    hoy + timedelta(days=6),
+                ),
+            )
+        )
+    }
+
     for i in range(7):
-        fecha_iter = hoy + timedelta(days=i)
+        fecha_iter = (
+            hoy
+            + timedelta(days=i)
+        )
+
         idx = fecha_iter.weekday()
-        es_abierto = defaults_globales[idx]
-        h_inicio = config_negocio.hora_apertura
-        h_fin = config_negocio.hora_cierre
+
+        es_abierto = (
+            defaults_globales[idx]
+        )
+
+        h_inicio = (
+            config_negocio.hora_apertura
+        )
+
+        h_fin = (
+            config_negocio.hora_cierre
+        )
+
         motivo = ""
         es_excepcion = False
-        excepcion = DiaEspecial.objects.filter(fecha=fecha_iter).first()
         id_db = None
+
+        excepcion = (
+            excepciones.get(
+                fecha_iter
+            )
+        )
+
         if excepcion:
-            es_abierto = excepcion.abierto
-            motivo = excepcion.motivo
+            es_abierto = (
+                excepcion.abierto
+            )
+
+            motivo = (
+                excepcion.motivo
+                or ""
+            )
+
             if excepcion.hora_apertura:
-                h_inicio = excepcion.hora_apertura
+                h_inicio = (
+                    excepcion.hora_apertura
+                )
+
             if excepcion.hora_cierre:
-                h_fin = excepcion.hora_cierre
+                h_fin = (
+                    excepcion.hora_cierre
+                )
+
             es_excepcion = True
             id_db = excepcion.id
 
         agenda.append({
-            'fecha_str': fecha_iter.strftime("%Y-%m-%d"),
-            'nombre_dia': "HOY" if i == 0 else ("MAÑANA" if i == 1 else nombres_dias[idx]),
-            'fecha_fmt': fecha_iter.strftime("%d/%m"),
-            'abierto': es_abierto,
-            'hora_ini': h_inicio,
-            'hora_fin': h_fin,
-            'motivo': motivo,
-            'id_db': id_db,
-            'es_excepcion': es_excepcion
+            "fecha_str": (
+                fecha_iter.strftime(
+                    "%Y-%m-%d"
+                )
+            ),
+            "nombre_dia": (
+                "HOY"
+                if i == 0
+                else (
+                    "MAÑANA"
+                    if i == 1
+                    else nombres_dias[idx]
+                )
+            ),
+            "fecha_fmt": (
+                fecha_iter.strftime(
+                    "%d/%m"
+                )
+            ),
+            "abierto": es_abierto,
+            "hora_ini": h_inicio,
+            "hora_fin": h_fin,
+            "motivo": motivo,
+            "id_db": id_db,
+            "es_excepcion": (
+                es_excepcion
+            ),
         })
 
-    return render(request, 'pedidos/admin_settings.html', {'config': config_negocio, 'agenda': agenda})
+    return render(
+        request,
+        "pedidos/admin_settings.html",
+        {
+            "config": config_negocio,
+            "agenda": agenda,
+            "sucursal": sucursal,
+        },
+    )
 
 
 @login_required(login_url='login_custom')
 @user_passes_test(es_admin, login_url='login_custom')
 @require_POST
-def eliminar_excepcion_view(request, excepcion_id):
+def eliminar_excepcion_view(
+    request,
+    excepcion_id,
+):
     if not suscripcion_activa():
         messages.error(
             request,
             "Acción denegada. Suscripción vencida."
         )
-        return redirect('dashboard_admin')
+
+        return redirect(
+            "dashboard_admin"
+        )
+
+    sucursal = getattr(
+        request,
+        "sucursal",
+        None,
+    )
+
+    if not sucursal:
+        messages.error(
+            request,
+            "No fue posible determinar la sucursal activa."
+        )
+
+        return redirect(
+            "dashboard_admin"
+        )
 
     excepcion = get_object_or_404(
         DiaEspecial,
-        id=excepcion_id
+        id=excepcion_id,
+        sucursal=sucursal,
     )
+
     excepcion.delete()
 
     messages.info(
@@ -3050,7 +3580,9 @@ def eliminar_excepcion_view(request, excepcion_id):
         "Excepción eliminada 🗑️"
     )
 
-    return redirect('admin_settings')
+    return redirect(
+        "admin_settings"
+    )
 
 
 @never_cache

@@ -8,6 +8,7 @@ from pathlib import Path
 import os
 import dj_database_url
 from dotenv import load_dotenv
+from decouple import config
 
 # ===============================
 # BASE
@@ -40,6 +41,17 @@ SECURE_PROXY_SSL_HEADER = (
     'https'
 )
 
+
+FOODBACK_BASE_DOMAIN = config(
+    "FOODBACK_BASE_DOMAIN",
+    default="foodbacksv.com",
+)
+
+FOODBACK_DEFAULT_TENANT_SLUG = config(
+    "FOODBACK_DEFAULT_TENANT_SLUG",
+    default="rancheritos",
+)
+
 # ===============================
 # APLICACIONES
 # ===============================
@@ -69,6 +81,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'pedidos.middleware.TenantContextMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]

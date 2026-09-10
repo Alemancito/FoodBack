@@ -10,6 +10,223 @@ from django.utils import timezone
 from decimal import Decimal
 
 
+
+# ============================================================
+# MULTI-TENANT FOUNDATION
+# ============================================================
+
+
+def fecha_vencimiento_por_defecto():
+    return date.today() + timedelta(days=30)
+
+class Tenant(models.Model):
+    """
+    Representa a una empresa/restaurante cliente de FoodBack.
+
+    Un Tenant puede tener una o varias sucursales y varios
+    usuarios asociados mediante Membership.
+    """
+
+    public_id = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True,
+    )
+
+    nombre = models.CharField(
+        max_length=150,
+    )
+
+    slug = models.SlugField(
+        max_length=100,
+        unique=True,
+        help_text=(
+            "Identificador único del negocio. "
+            "Más adelante podrá utilizarse para subdominios."
+        ),
+    )
+
+    habilitado = models.BooleanField(
+        default=True,
+        help_text=(
+            "Control administrativo de plataforma. "
+            "No representa el estado de la suscripción."
+        ),
+    )
+
+    fecha_creacion = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    actualizado_en = models.DateTimeField(
+        auto_now=True,
+    )
+
+    def __str__(self):
+        return self.nombre
+
+    class Meta:
+        verbose_name = "Tenant"
+        verbose_name_plural = "Tenants"
+        ordering = ["nombre"]
+
+
+class Sucursal(models.Model):
+    """
+    Una ubicación física perteneciente a un Tenant.
+
+    Por ahora solo contiene su identidad básica.
+    Horarios, coordenadas, cobertura, etc. se migrarán
+    posteriormente desde ConfiguracionNegocio.
+    """
+
+    public_id = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True,
+    )
+
+    tenant = models.ForeignKey(
+        Tenant,
+        on_delete=models.PROTECT,
+        related_name="sucursales",
+    )
+
+    nombre = models.CharField(
+        max_length=150,
+    )
+
+    slug = models.SlugField(
+        max_length=100,
+    )
+
+    class Estado(models.TextChoices):
+        ACTIVA = "ACTIVA", "Activa"
+        ARCHIVADA = "ARCHIVADA", "Archivada"
+
+
+    estado = models.CharField(
+        max_length=20,
+        choices=Estado.choices,
+        default=Estado.ACTIVA,
+        db_index=True,
+    )
+
+    fecha_creacion = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    actualizado_en = models.DateTimeField(
+        auto_now=True,
+    )
+
+    def __str__(self):
+        return f"{self.tenant.nombre} - {self.nombre}"
+
+    class Meta:
+        verbose_name = "Sucursal"
+        verbose_name_plural = "Sucursales"
+
+        constraints = [
+            models.UniqueConstraint(
+                fields=[
+                    "tenant",
+                    "slug",
+                ],
+                name="unique_sucursal_slug_por_tenant",
+            ),
+        ]
+
+        ordering = [
+            "tenant",
+            "nombre",
+        ]
+
+
+class Membership(models.Model):
+    """
+    Relación segura entre un usuario de Django y un Tenant.
+
+    No dependeremos de is_staff/is_superuser para decidir
+    quién es dueño o gerente de un restaurante.
+    """
+
+    ROLE_OWNER = "OWNER"
+    ROLE_MANAGER = "MANAGER"
+
+    ROLE_CHOICES = [
+        (
+            ROLE_OWNER,
+            "Dueño",
+        ),
+        (
+            ROLE_MANAGER,
+            "Gerente",
+        ),
+    ]
+
+    tenant = models.ForeignKey(
+        Tenant,
+        on_delete=models.PROTECT,
+        related_name="memberships",
+    )
+
+    usuario = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name="foodback_memberships",
+    )
+
+    rol = models.CharField(
+        max_length=20,
+        choices=ROLE_CHOICES,
+    )
+
+    activo = models.BooleanField(
+        default=True,
+    )
+
+    fecha_creacion = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    actualizado_en = models.DateTimeField(
+        auto_now=True,
+    )
+
+    def __str__(self):
+        return (
+            f"{self.usuario.username} - "
+            f"{self.tenant.nombre} ({self.rol})"
+        )
+
+    class Meta:
+        verbose_name = "Membership"
+        verbose_name_plural = "Memberships"
+
+        constraints = [
+            models.UniqueConstraint(
+                fields=[
+                    "tenant",
+                    "usuario",
+                ],
+                name="unique_usuario_por_tenant",
+            ),
+        ]
+
+        indexes = [
+            models.Index(
+                fields=[
+                    "tenant",
+                    "rol",
+                ],
+                name="membership_tenant_role_idx",
+            ),
+        ]
+
+
 # --- NUEVO MODELO DE EXTRAS (Papas, Queso, Jalapeños...) ---
 class Extra(models.Model):
     nombre = models.CharField(max_length=100)
@@ -72,6 +289,15 @@ class Cliente(models.Model):
 
 
 class ConfiguracionNegocio(models.Model):
+    
+    sucursal = models.OneToOneField(
+        "Sucursal",
+        on_delete=models.PROTECT,
+        related_name="configuracion",
+        null=True,
+        blank=True,
+    )
+    
     nombre_negocio = models.CharField(max_length=100, default="FoodBack")
     hora_apertura = models.TimeField(default="08:00")
     hora_cierre = models.TimeField(default="22:00")
@@ -91,8 +317,10 @@ class ConfiguracionNegocio(models.Model):
 
     # --- NUEVO CAMPO DE SUSCRIPCIÓN ---
     # Por defecto damos 30 días de gracia al crear la BD
-    fecha_vencimiento = models.DateField(default=date.today(
-    ) + timedelta(days=30), verbose_name="Vencimiento Suscripción")
+    fecha_vencimiento = models.DateField(
+        default=fecha_vencimiento_por_defecto,
+        verbose_name="Vencimiento Suscripción",
+    )
 
     def __str__(self): return f"Configuración de {self.nombre_negocio}"
 
@@ -101,18 +329,91 @@ class ConfiguracionNegocio(models.Model):
 
 
 class DiaEspecial(models.Model):
-    fecha = models.DateField(unique=True)
-    abierto = models.BooleanField(default=False)
-    hora_apertura = models.TimeField(blank=True, null=True)
-    hora_cierre = models.TimeField(blank=True, null=True)
-    motivo = models.CharField(max_length=100, blank=True, null=True)
+    sucursal = models.ForeignKey(
+        "Sucursal",
+        on_delete=models.PROTECT,
+        related_name="dias_especiales",
+        null=True,
+        blank=True,
+        help_text=(
+            "Sucursal a la que pertenece esta excepción "
+            "de horario."
+        ),
+    )
+
+    fecha = models.DateField()
+
+    abierto = models.BooleanField(
+        default=False
+    )
+
+    hora_apertura = models.TimeField(
+        blank=True,
+        null=True
+    )
+
+    hora_cierre = models.TimeField(
+        blank=True,
+        null=True
+    )
+
+    motivo = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True
+    )
 
     def __str__(self):
-        estado = "ABIERTO" if self.abierto else "CERRADO"
-        return f"{self.fecha} - {estado} ({self.motivo})"
+        estado = (
+            "ABIERTO"
+            if self.abierto
+            else "CERRADO"
+        )
+
+        sucursal = (
+            self.sucursal.nombre
+            if self.sucursal
+            else "Sin sucursal"
+        )
+
+        return (
+            f"{sucursal} - "
+            f"{self.fecha} - "
+            f"{estado} "
+            f"({self.motivo or ''})"
+        )
 
     class Meta:
-        verbose_name = "📅 Día Especial / Feriado"
+        verbose_name = (
+            "📅 Día Especial / Feriado"
+        )
+
+        verbose_name_plural = (
+            "📅 Días Especiales / Feriados"
+        )
+
+        constraints = [
+            models.UniqueConstraint(
+                fields=[
+                    "sucursal",
+                    "fecha",
+                ],
+                name=(
+                    "unique_dia_especial_"
+                    "por_sucursal"
+                ),
+            ),
+        ]
+
+        indexes = [
+            models.Index(
+                fields=[
+                    "sucursal",
+                    "fecha",
+                ],
+                name="diaesp_sucursal_fecha_idx",
+            ),
+        ]
 
 
 class Pedido(models.Model):
@@ -131,9 +432,21 @@ class Pedido(models.Model):
         ('EFECTIVO', 'Efectivo'),
         ('TARJETA', 'Tarjeta (Wompi)'),
     ]
+    
+    sucursal = models.ForeignKey(
+        "Sucursal",
+        on_delete=models.PROTECT,
+        related_name="pedidos",
+        null=True,
+        blank=True,
+        db_index=True,
+    )
 
     cliente = models.ForeignKey(
-        Cliente, on_delete=models.PROTECT, related_name='pedidos')
+        Cliente,
+        on_delete=models.PROTECT,
+        related_name="pedidos",
+    )
 
     fecha_creacion = models.DateTimeField(auto_now_add=True)
 

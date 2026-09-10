@@ -229,18 +229,45 @@ class Membership(models.Model):
 
 # --- NUEVO MODELO DE EXTRAS (Papas, Queso, Jalapeños...) ---
 class Extra(models.Model):
-    nombre = models.CharField(max_length=100)
-    precio = models.DecimalField(max_digits=6, decimal_places=2)
-    disponible = models.BooleanField(default=True)
+    tenant = models.ForeignKey(
+        "Tenant",
+        on_delete=models.PROTECT,
+        related_name="extras_catalogo",
+        null=True,
+        blank=True,
+        db_index=True,
+    )
 
-    def __str__(self):
-        return f"{self.nombre} (+${self.precio})"
+    nombre = models.CharField(max_length=100)
+    precio = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+    )
+    disponible = models.BooleanField(
+        default=True
+    )
 
 
 class Categoria(models.Model):
-    nombre = models.CharField(max_length=100)
-    orden = models.IntegerField(default=0)
-    def __str__(self): return self.nombre
+    tenant = models.ForeignKey(
+        "Tenant",
+        on_delete=models.PROTECT,
+        related_name="categorias",
+        null=True,
+        blank=True,
+        db_index=True,
+    )
+
+    nombre = models.CharField(
+        max_length=100
+    )
+
+    orden = models.IntegerField(
+        default=0
+    )
+
+    def __str__(self):
+        return self.nombre
 
     class Meta:
         verbose_name_plural = "Categorías"

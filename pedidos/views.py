@@ -246,26 +246,38 @@ def _validar_seleccion_producto(
     producto,
     opcion_id=None,
     extras_ids=None,
+    tenant=None,
 ):
     """
-    Verifica que:
+    Valida producto, opción y extras dentro del Tenant activo.
 
-    - la opción exista;
-    - pertenezca realmente al producto;
-    - esté disponible;
-    - los extras existan;
-    - estén autorizados para ese producto;
-    - estén disponibles.
-
-    Devuelve objetos obtenidos exclusivamente desde la BD.
+    Ningún ID enviado por navegador/sesión se considera
+    autorizado simplemente porque exista en la BD.
     """
+
+    if not tenant:
+        raise CarritoInvalido(
+            "No existe un restaurante activo."
+        )
+
+    if producto.categoria.tenant_id != tenant.id:
+        raise CarritoInvalido(
+            "El producto no pertenece al restaurante activo."
+        )
 
     opcion = None
 
-    if opcion_id not in [None, "", "0", 0]:
-        opcion_id_limpio = _entero_positivo(
-            opcion_id,
-            "opcion_id",
+    if opcion_id not in [
+        None,
+        "",
+        "0",
+        0,
+    ]:
+        opcion_id_limpio = (
+            _entero_positivo(
+                opcion_id,
+                "opcion_id",
+            )
         )
 
         opcion = (
@@ -273,6 +285,7 @@ def _validar_seleccion_producto(
             .filter(
                 id=opcion_id_limpio,
                 producto=producto,
+                producto__categoria__tenant=tenant,
                 disponible=True,
             )
             .first()
@@ -280,20 +293,31 @@ def _validar_seleccion_producto(
 
         if not opcion:
             raise CarritoInvalido(
-                "La opción seleccionada no es válida para este producto."
+                (
+                    "La opción seleccionada "
+                    "no es válida para este producto."
+                )
             )
 
     extras_ids = extras_ids or []
+
     extras_ids_limpios = []
 
     for extra_id in extras_ids:
-        extra_id_limpio = _entero_positivo(
-            extra_id,
-            "extra_id",
+        extra_id_limpio = (
+            _entero_positivo(
+                extra_id,
+                "extra_id",
+            )
         )
 
-        if extra_id_limpio not in extras_ids_limpios:
-            extras_ids_limpios.append(extra_id_limpio)
+        if (
+            extra_id_limpio
+            not in extras_ids_limpios
+        ):
+            extras_ids_limpios.append(
+                extra_id_limpio
+            )
 
     extras = []
 
@@ -301,6 +325,7 @@ def _validar_seleccion_producto(
         extras = list(
             producto.extras.filter(
                 id__in=extras_ids_limpios,
+                tenant=tenant,
                 disponible=True,
             ).order_by("id")
         )
@@ -310,9 +335,16 @@ def _validar_seleccion_producto(
             for extra in extras
         }
 
-        if ids_encontrados != set(extras_ids_limpios):
+        if (
+            ids_encontrados
+            != set(extras_ids_limpios)
+        ):
             raise CarritoInvalido(
-                "Uno o más extras no son válidos para este producto."
+                (
+                    "Uno o más extras "
+                    "no son válidos para "
+                    "este producto."
+                )
             )
 
     return opcion, extras
@@ -352,13 +384,19 @@ def _descomponer_clave_carrito(key):
     return producto_id, opcion_id, extras_ids
 
 
-def _validar_carrito(cart):
+def _validar_carrito(
+    cart,
+    tenant,
+):
     """
-    Reconstruye TODO el carrito desde la base de datos.
+    Reconstruye el carrito desde la BD y lo limita
+    estrictamente al Tenant activo.
+    """
 
-    No confía en precios, relaciones ni IDs almacenados
-    previamente en la sesión.
-    """
+    if not tenant:
+        raise CarritoInvalido(
+            "No existe un restaurante activo."
+        )
 
     if not isinstance(cart, dict):
         raise CarritoInvalido(
@@ -378,12 +416,18 @@ def _validar_carrito(cart):
             producto_id,
             opcion_id,
             extras_ids,
-        ) = _descomponer_clave_carrito(key)
+        ) = _descomponer_clave_carrito(
+            key
+        )
 
         producto = (
             Producto.objects
+            .select_related(
+                "categoria"
+            )
             .filter(
                 id=producto_id,
+                categoria__tenant=tenant,
                 disponible=True,
             )
             .first()
@@ -391,31 +435,46 @@ def _validar_carrito(cart):
 
         if not producto:
             raise CarritoInvalido(
-                "El producto ya no está disponible."
+                (
+                    "El producto ya no está "
+                    "disponible para este restaurante."
+                )
             )
 
-        opcion, extras = _validar_seleccion_producto(
-            producto=producto,
-            opcion_id=opcion_id,
-            extras_ids=extras_ids,
+        opcion, extras = (
+            _validar_seleccion_producto(
+                producto=producto,
+                opcion_id=opcion_id,
+                extras_ids=extras_ids,
+                tenant=tenant,
+            )
         )
 
         precio_item = producto.precio
 
         if opcion:
-            precio_item += opcion.precio_extra
+            precio_item += (
+                opcion.precio_extra
+            )
 
         for extra in extras:
             precio_item += extra.precio
 
-        subtotal = precio_item * cantidad
+        subtotal = (
+            precio_item
+            * cantidad
+        )
 
         items_validados.append({
             "key": key,
             "producto": producto,
             "cantidad": cantidad,
             "opcion": opcion,
-            "nombre_opcion": opcion.nombre if opcion else "",
+            "nombre_opcion": (
+                opcion.nombre
+                if opcion
+                else ""
+            ),
             "lista_extras": extras,
             "precio_item": precio_item,
             "subtotal": subtotal,
@@ -435,11 +494,18 @@ def menu_view(request):
             'pedidos/suspendido.html'
         )
 
-    categorias = (
-        Categoria.objects
-        .all()
-        .order_by('orden')
+    if request.tenant:
+        categorias = (
+            Categoria.objects
+            .filter(
+                tenant=request.tenant
+            )
+            .order_by("orden")
     )
+    else:
+        categorias = (
+            Categoria.objects.none()
+        )
 
     cart = request.session.get(
         'cart',
@@ -467,19 +533,25 @@ def menu_view(request):
         )
     )
 
-    candidatos = (
-        Pedido.objects
-        .filter(
-            id__in=ids_historial
-        )
-        .exclude(
-            estado__in=[
-                'ENTREGADO',
-                'CANCELADO',
-            ]
-        )
-        .order_by('-id')
+    if request.sucursal:
+        candidatos = (
+            Pedido.objects
+            .filter(
+                id__in=ids_historial,
+                sucursal=request.sucursal,
+            )
+            .exclude(
+                estado__in=[
+                    "ENTREGADO",
+                    "CANCELADO",
+                ]
+            )
+            .order_by("-id")
     )
+    else:
+        candidatos = (
+            Pedido.objects.none()
+        )
 
     pedidos_activos = []
 
@@ -576,6 +648,7 @@ def cart_add(request, producto_id):
             producto=producto,
             opcion_id=opcion_id,
             extras_ids=extras_ids,
+            tenant=request.tenant,
         )
 
     except CarritoInvalido:
@@ -652,57 +725,82 @@ def cart_clear(request):
 
 
 @require_POST
-def eliminar_item_carrito(request, producto_id):
-    cart = request.session.get('cart', {})
-    key_to_delete = str(producto_id)
+def eliminar_item_carrito(
+    request,
+    producto_id,
+):
+    cart = request.session.get(
+        "cart",
+        {},
+    )
+
+    key_to_delete = str(
+        producto_id
+    )
 
     if key_to_delete in cart:
         del cart[key_to_delete]
-        request.session['cart'] = cart
+
+        request.session[
+            "cart"
+        ] = cart
+
         request.session.modified = True
 
-    if request.headers.get('x-requested-with') == 'XMLHttpRequest':
-        productos_en_carrito = []
-        total_productos = 0
+    if (
+        request.headers.get(
+            "x-requested-with"
+        )
+        == "XMLHttpRequest"
+    ):
+        try:
+            items = _validar_carrito(
+                cart,
+                request.tenant,
+            )
 
-        for key, cantidad in cart.items():
-            parts = key.split('-')
-            prod_id = parts[0]
-            opc_id = parts[1] if len(parts) > 1 else "0"
-            extras_str = parts[2] if len(parts) > 2 else "0"
+        except CarritoInvalido:
+            return JsonResponse(
+                {
+                    "status": "error",
+                    "detail": (
+                        "El carrito contiene "
+                        "datos no válidos."
+                    ),
+                },
+                status=400,
+            )
 
-            producto = get_object_or_404(Producto, id=prod_id)
-            precio_item = producto.precio
+        total_productos = sum(
+            item["subtotal"]
+            for item in items
+        )
 
-            opcion = None
-            if opc_id != "0":
-                opcion = OpcionProducto.objects.filter(id=opc_id).first()
-                if opcion:
-                    precio_item += opcion.precio_extra
+        html = render_to_string(
+            "pedidos/partials/cart_summary.html",
+            {
+                "items": items,
+                "total_productos": (
+                    total_productos
+                ),
+            },
+            request=request,
+        )
 
-            if extras_str != "0":
-                ids_ext = extras_str.split(',')
-                extras_objs = Extra.objects.filter(id__in=ids_ext)
-                for ex in extras_objs:
-                    precio_item += ex.precio
-
-            subtotal = precio_item * cantidad
-            total_productos += subtotal
-
-            productos_en_carrito.append({
-                'producto': producto,
-                'cantidad': cantidad,
-                'subtotal': subtotal,
-                'opcion': opcion,
-                'key': key
-            })
-
-        html = render_to_string('pedidos/partials/cart_summary.html', {
-            'items': productos_en_carrito, 'total_productos': total_productos
+        return JsonResponse({
+            "status": "ok",
+            "html": html,
+            "total": float(
+                total_productos
+            ),
+            "vacio": (
+                len(cart) == 0
+            ),
         })
-        return JsonResponse({'status': 'ok', 'html': html, 'total': float(total_productos), 'vacio': len(cart) == 0})
 
-    return redirect('checkout')
+    return redirect(
+        "checkout"
+    )
 
 
 def _obtener_pedido_pendiente_recuperable(request):
@@ -788,7 +886,8 @@ def checkout_view(request):
     if cart:
         try:
             items_validados = _validar_carrito(
-                cart
+                cart,
+                request.tenant,
             )
 
         except CarritoInvalido:
@@ -2891,33 +2990,64 @@ def _contexto_admin_pedidos(sucursal):
     }
 
 
-def _query_pedidos_delivery_base():
-    return Pedido.objects.select_related(
-        'cliente',
-        'repartidor'
-    ).prefetch_related(
-        Prefetch('detalles', queryset=_query_detalles_optimizada())
+def _query_pedidos_delivery_base(sucursal):
+    """
+    Query base para Delivery limitada a una sucursal.
+
+    Fail closed:
+    si no existe una sucursal válida, no devuelve pedidos.
+    """
+
+    if not sucursal:
+        return Pedido.objects.none()
+
+    return (
+        Pedido.objects
+        .filter(
+            sucursal=sucursal
+        )
+        .select_related(
+            "cliente",
+            "repartidor",
+        )
+        .prefetch_related(
+            Prefetch(
+                "detalles",
+                queryset=(
+                    _query_detalles_optimizada()
+                ),
+            )
+        )
     )
 
 
-def _contexto_delivery_pedidos(user):
+def _contexto_delivery_pedidos(
+    user,
+    sucursal,
+):
+    queryset = (
+        _query_pedidos_delivery_base(
+            sucursal
+        )
+    )
+
     disponibles = list(
-        _query_pedidos_delivery_base().filter(
-            estado='RUTA',
-            repartidor=None
-        ).order_by('id')
+        queryset.filter(
+            estado="RUTA",
+            repartidor=None,
+        ).order_by("id")
     )
 
     mis_pedidos = list(
-        _query_pedidos_delivery_base().filter(
-            estado='RUTA',
-            repartidor=user
-        ).order_by('id')
+        queryset.filter(
+            estado="RUTA",
+            repartidor=user,
+        ).order_by("id")
     )
 
     return {
-        'disponibles': disponibles,
-        'mis_pedidos': mis_pedidos,
+        "disponibles": disponibles,
+        "mis_pedidos": mis_pedidos,
     }
     
 def _pedidos_sesion(request):
@@ -3591,88 +3721,187 @@ def eliminar_excepcion_view(
 def dashboard_delivery_view(request):
     _limpiar_pedidos_pendientes_vencidos()
 
+    sucursal = getattr(
+        request,
+        "sucursal",
+        None,
+    )
+
+    if not sucursal:
+        return HttpResponseForbidden(
+            "No hay una sucursal activa."
+        )
+
     if not suscripcion_activa():
         return render(
             request,
-            'pedidos/suspendido.html'
+            "pedidos/suspendido.html",
         )
 
-    if request.method == 'POST':
+    if request.method == "POST":
         pedido = get_object_or_404(
             Pedido,
-            id=request.POST.get('pedido_id')
+            id=request.POST.get(
+                "pedido_id"
+            ),
+            sucursal=sucursal,
         )
-        accion = request.POST.get('accion')
 
-        if accion == 'tomar':
-            if pedido.estado == 'RUTA' and pedido.repartidor is None:
-                pedido.repartidor = request.user
+        accion = request.POST.get(
+            "accion"
+        )
+
+        if accion == "tomar":
+            if (
+                pedido.estado == "RUTA"
+                and pedido.repartidor is None
+            ):
+                pedido.repartidor = (
+                    request.user
+                )
+
                 pedido.save()
+
                 messages.success(
                     request,
-                    f"Pedido #{pedido.id} tomado 🛵"
+                    (
+                        f"Pedido #{pedido.id} "
+                        "tomado 🛵"
+                    ),
                 )
+
             else:
                 messages.warning(
                     request,
-                    "Ese pedido ya fue tomado por otro repartidor."
+                    (
+                        "Ese pedido ya fue "
+                        "tomado por otro "
+                        "repartidor."
+                    ),
                 )
 
-        elif accion == 'entregado':
-            if pedido.repartidor == request.user:
-                pedido.estado = 'ENTREGADO'
+        elif accion == "entregado":
+            if (
+                pedido.repartidor
+                == request.user
+            ):
+                pedido.estado = (
+                    "ENTREGADO"
+                )
+
                 pedido.save()
+
                 messages.success(
                     request,
-                    f"Pedido #{pedido.id} entregado ✅"
+                    (
+                        f"Pedido #{pedido.id} "
+                        "entregado ✅"
+                    ),
                 )
+
             else:
                 messages.error(
                     request,
-                    "No puedes entregar un pedido que no está en tu mochila."
+                    (
+                        "No puedes entregar "
+                        "un pedido que no está "
+                        "en tu mochila."
+                    ),
                 )
 
-        elif accion == 'soltar':
-            if pedido.estado == 'RUTA' and pedido.repartidor == request.user:
+        elif accion == "soltar":
+            if (
+                pedido.estado == "RUTA"
+                and pedido.repartidor
+                == request.user
+            ):
                 pedido.repartidor = None
+
                 pedido.save()
+
                 messages.info(
                     request,
-                    f"Pedido #{pedido.id} devuelto a disponibles 🔄"
+                    (
+                        f"Pedido #{pedido.id} "
+                        "devuelto a disponibles 🔄"
+                    ),
                 )
+
             else:
                 messages.error(
                     request,
-                    "No puedes quitar de tu mochila un pedido que no tienes asignado."
+                    (
+                        "No puedes quitar de "
+                        "tu mochila un pedido "
+                        "que no tienes asignado."
+                    ),
                 )
 
-        elif accion == 'problema':
-            if pedido.repartidor == request.user:
-                pedido.estado = 'PROBLEMA'
+        elif accion == "problema":
+            if (
+                pedido.repartidor
+                == request.user
+            ):
+                pedido.estado = (
+                    "PROBLEMA"
+                )
+
                 pedido.repartidor = None
+
                 pedido.save()
+
                 messages.warning(
                     request,
-                    f"Problema reportado en pedido #{pedido.id}"
+                    (
+                        "Problema reportado "
+                        f"en pedido #{pedido.id}"
+                    ),
                 )
+
             else:
                 messages.error(
                     request,
-                    "No puedes reportar un pedido que no está en tu mochila."
+                    (
+                        "No puedes reportar "
+                        "un pedido que no está "
+                        "en tu mochila."
+                    ),
                 )
 
-        return redirect('dashboard_delivery')
+        else:
+            messages.error(
+                request,
+                "Acción no válida.",
+            )
 
-    context = _contexto_delivery_pedidos(request.user)
+        return redirect(
+            "dashboard_delivery"
+        )
+
+    context = (
+        _contexto_delivery_pedidos(
+            request.user,
+            sucursal,
+        )
+    )
+
     context.update({
-        'GOOGLE_MAPS_API_KEY': config('GOOGLE_MAPS_API_KEY', default=''),
-        'last_update': _iso_datetime(_ultimo_cambio_pedidos()),
+        "GOOGLE_MAPS_API_KEY": config(
+            "GOOGLE_MAPS_API_KEY",
+            default="",
+        ),
+        "last_update": _iso_datetime(
+            _ultimo_cambio_pedidos(
+                sucursal
+            )
+        ),
+        "sucursal": sucursal,
     })
 
     return render(
         request,
-        'pedidos/dashboard_delivery.html',
-        context
+        "pedidos/dashboard_delivery.html",
+        context,
     )
 
 
@@ -3680,44 +3909,105 @@ def dashboard_delivery_view(request):
 @login_required(login_url='login_custom')
 @user_passes_test(es_repartidor, login_url='login_custom')
 def api_delivery_sync(request):
-    ultimo_servidor = _ultimo_cambio_pedidos()
-    ultimo_cliente_raw = request.GET.get('last_update', 'none')
-    ultimo_cliente = _parse_last_update(ultimo_cliente_raw)
+    sucursal = getattr(
+        request,
+        "sucursal",
+        None,
+    )
 
-    if ultimo_servidor is None and ultimo_cliente_raw == "none":
+    if not sucursal:
+        return JsonResponse(
+            {
+                "detail": (
+                    "No hay una "
+                    "sucursal activa."
+                )
+            },
+            status=403,
+        )
+
+    ultimo_servidor = (
+        _ultimo_cambio_pedidos(
+            sucursal
+        )
+    )
+
+    ultimo_cliente_raw = (
+        request.GET.get(
+            "last_update",
+            "none",
+        )
+    )
+
+    ultimo_cliente = (
+        _parse_last_update(
+            ultimo_cliente_raw
+        )
+    )
+
+    if (
+        ultimo_servidor is None
+        and ultimo_cliente_raw == "none"
+    ):
         return JsonResponse({
-            'changed': False,
-            'last_update': "none",
+            "changed": False,
+            "last_update": "none",
         })
 
-    if ultimo_servidor and ultimo_cliente and ultimo_servidor <= ultimo_cliente:
+    if (
+        ultimo_servidor
+        and ultimo_cliente
+        and (
+            ultimo_servidor
+            <= ultimo_cliente
+        )
+    ):
         return JsonResponse({
-            'changed': False,
-            'last_update': _iso_datetime(ultimo_servidor),
+            "changed": False,
+            "last_update": (
+                _iso_datetime(
+                    ultimo_servidor
+                )
+            ),
         })
 
-    context = _contexto_delivery_pedidos(request.user)
+    context = (
+        _contexto_delivery_pedidos(
+            request.user,
+            sucursal,
+        )
+    )
 
     html_mochila = render_to_string(
-        'pedidos/partials/delivery_mochila.html',
+        "pedidos/partials/delivery_mochila.html",
         context,
-        request=request
+        request=request,
     )
 
     html_pool = render_to_string(
-        'pedidos/partials/delivery_pool.html',
+        "pedidos/partials/delivery_pool.html",
         context,
-        request=request
+        request=request,
     )
 
     return JsonResponse({
-        'changed': True,
-        'last_update': _iso_datetime(ultimo_servidor),
-        'pool_count': len(context['disponibles']),
-        'html': {
-            'zona-mochila': html_mochila,
-            'zona-pool': html_pool,
-        }
+        "changed": True,
+        "last_update": (
+            _iso_datetime(
+                ultimo_servidor
+            )
+        ),
+        "pool_count": len(
+            context["disponibles"]
+        ),
+        "html": {
+            "zona-mochila": (
+                html_mochila
+            ),
+            "zona-pool": (
+                html_pool
+            ),
+        },
     })
 
 

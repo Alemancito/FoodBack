@@ -28,7 +28,12 @@ from django.http import HttpResponse
 
 from pedidos.middleware import TenantContextMiddleware
 
-from pedidos.views import verificar_estado_negocio
+from pedidos.views import (
+    verificar_estado_negocio,
+    _validar_carrito,
+    _validar_seleccion_producto,
+    CarritoInvalido,
+)
 
 from pedidos.tenant_context import (
     resolver_tenant,
@@ -105,6 +110,7 @@ class FoodBackTestBase(TestCase):
         # ========================================================
 
         cls.categoria = Categoria.objects.create(
+            tenant=cls.tenant,
             nombre="Hamburguesas",
             orden=1,
         )
@@ -606,6 +612,7 @@ class CartIntegritySecurityTests(FoodBackTestBase):
 
         # Extra válido del producto principal.
         cls.extra_valido = Extra.objects.create(
+            tenant=cls.tenant,
             nombre="Queso extra",
             precio=Decimal("1.00"),
             disponible=True,
@@ -614,6 +621,7 @@ class CartIntegritySecurityTests(FoodBackTestBase):
 
         # Extra válido, pero solamente para producto B.
         cls.extra_otro_producto = Extra.objects.create(
+            tenant=cls.tenant,
             nombre="Extra exclusivo pizza",
             precio=Decimal("2.00"),
             disponible=True,
@@ -622,6 +630,7 @@ class CartIntegritySecurityTests(FoodBackTestBase):
 
         # Extra perteneciente al producto, pero deshabilitado.
         cls.extra_no_disponible = Extra.objects.create(
+            tenant=cls.tenant,
             nombre="Extra desactivado",
             precio=Decimal("1.50"),
             disponible=False,
@@ -5692,4 +5701,280 @@ class AdminDashboardSucursalIsolationTests(
             data["nuevos_count"],
             1,
         )
+        
+        
+class DeliverySucursalIsolationTests(
+    FoodBackTestBase
+):
+
+    def setUp(self):
+        self.client.force_login(
+            self.delivery_1
+        )
+
+        session = self.client.session
+
+        session[
+            "sucursal_activa_public_id"
+        ] = str(
+            self.sucursal.public_id
+        )
+
+        session.save()
+
+        self.sucursal_b = (
+            Sucursal.objects.create(
+                tenant=self.tenant,
+                nombre="Sucursal B Delivery",
+                slug="sucursal-b-delivery",
+                estado=(
+                    Sucursal.Estado.ACTIVA
+                ),
+            )
+        )
+
+        self.pedido_a = (
+            Pedido.objects.create(
+                sucursal=self.sucursal,
+                cliente=self.cliente_pedido,
+                estado="RUTA",
+                metodo_pago="EFECTIVO",
+            )
+        )
+
+        self.pedido_b = (
+            Pedido.objects.create(
+                sucursal=self.sucursal_b,
+                cliente=self.cliente_pedido,
+                estado="RUTA",
+                metodo_pago="EFECTIVO",
+            )
+        )
+
+    @patch(
+        "pedidos.views.suscripcion_activa",
+        return_value=True,
+    )
+    def test_delivery_solo_ve_pedidos_de_sucursal_activa(
+        self,
+        mock_suscripcion,
+    ):
+        response = self.client.get(
+            reverse(
+                "dashboard_delivery"
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        disponibles_ids = {
+            pedido.id
+            for pedido
+            in response.context[
+                "disponibles"
+            ]
+        }
+
+        self.assertIn(
+            self.pedido_a.id,
+            disponibles_ids,
+        )
+
+        self.assertNotIn(
+            self.pedido_b.id,
+            disponibles_ids,
+        )
+
+    @patch(
+        "pedidos.views.suscripcion_activa",
+        return_value=True,
+    )
+    def test_delivery_no_puede_tomar_pedido_de_otra_sucursal(
+        self,
+        mock_suscripcion,
+    ):
+        response = self.client.post(
+            reverse(
+                "dashboard_delivery"
+            ),
+            {
+                "pedido_id": (
+                    self.pedido_b.id
+                ),
+                "accion": "tomar",
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            404,
+        )
+
+        self.pedido_b.refresh_from_db()
+
+        self.assertIsNone(
+            self.pedido_b.repartidor
+        )
+
+    def test_polling_delivery_solo_cuenta_sucursal_activa(
+        self,
+    ):
+        response = self.client.get(
+            reverse(
+                "api_delivery_sync"
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        data = response.json()
+
+        self.assertTrue(
+            data["changed"]
+        )
+
+        self.assertEqual(
+            data["pool_count"],
+            1,
+        )
+        
+class CatalogTenantIsolationTests(
+    FoodBackTestBase
+):
+
+    def setUp(self):
+        self.tenant_b = (
+            Tenant.objects.create(
+                nombre="Restaurante B",
+                slug="restaurante-b",
+            )
+        )
+
+        self.categoria_b = (
+            Categoria.objects.create(
+                tenant=self.tenant_b,
+                nombre="Categoria B",
+                orden=1,
+            )
+        )
+
+        self.producto_b = (
+            Producto.objects.create(
+                categoria=self.categoria_b,
+                nombre="Producto B",
+                descripcion="Otro Tenant",
+                precio=Decimal("9.00"),
+                disponible=True,
+            )
+        )
+
+        self.opcion_b = (
+            OpcionProducto.objects.create(
+                producto=self.producto_b,
+                nombre="Opcion B",
+                precio_extra=Decimal(
+                    "1.00"
+                ),
+                disponible=True,
+            )
+        )
+
+        self.extra_b = (
+            Extra.objects.create(
+                tenant=self.tenant_b,
+                nombre="Extra B",
+                precio=Decimal("2.00"),
+                disponible=True,
+            )
+        )
+
+        self.producto_b.extras.add(
+            self.extra_b
+        )
+
+    def test_menu_no_muestra_catalogo_de_otro_tenant(
+        self,
+    ):
+        response = self.client.get(
+            reverse("menu")
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        ids = {
+            categoria.id
+            for categoria
+            in response.context[
+                "categorias"
+            ]
+        }
+
+        self.assertIn(
+            self.categoria.id,
+            ids,
+        )
+
+        self.assertNotIn(
+            self.categoria_b.id,
+            ids,
+        )
+
+    def test_carrito_rechaza_producto_de_otro_tenant(
+        self,
+    ):
+        cart = {
+            str(
+                self.producto_b.id
+            ): 1,
+        }
+
+        with self.assertRaises(
+            CarritoInvalido
+        ):
+            _validar_carrito(
+                cart,
+                self.tenant,
+            )
+
+    def test_opcion_de_otro_tenant_no_puede_inyectarse(
+        self,
+    ):
+        with self.assertRaises(
+            CarritoInvalido
+        ):
+            _validar_seleccion_producto(
+                producto=self.producto,
+                opcion_id=self.opcion_b.id,
+                extras_ids=[],
+                tenant=self.tenant,
+            )
+
+    def test_extra_de_otro_tenant_no_puede_inyectarse(
+        self,
+    ):
+        # Simulamos incluso una relación M2M corrupta/mal creada.
+        self.producto.extras.add(
+            self.extra_b
+        )
+
+        with self.assertRaises(
+            CarritoInvalido
+        ):
+            _validar_seleccion_producto(
+                producto=self.producto,
+                opcion_id=None,
+                extras_ids=[
+                    self.extra_b.id
+                ],
+                tenant=self.tenant,
+            )
                 

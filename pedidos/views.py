@@ -5180,7 +5180,6 @@ def perfil_usuario_view(request):
 @login_required(login_url='login_custom')
 @require_tenant_roles(
     Membership.ROLE_OWNER,
-    Membership.ROLE_MANAGER,
 )
 @require_POST
 def pagar_suscripcion_view(request):
@@ -5464,7 +5463,6 @@ def pagar_suscripcion_view(request):
 @login_required(login_url="login_custom")
 @require_tenant_roles(
     Membership.ROLE_OWNER,
-    Membership.ROLE_MANAGER,
 )
 def wompi_suscripcion_respuesta_view(request):
     referencia = (

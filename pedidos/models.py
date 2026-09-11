@@ -286,8 +286,6 @@ class Extra(models.Model):
         "Tenant",
         on_delete=models.PROTECT,
         related_name="extras_catalogo",
-        null=True,
-        blank=True,
         db_index=True,
     )
 
@@ -309,8 +307,6 @@ class Categoria(models.Model):
         "Tenant",
         on_delete=models.PROTECT,
         related_name="categorias",
-        null=True,
-        blank=True,
         db_index=True,
     )
 
@@ -415,8 +411,6 @@ class ConfiguracionNegocio(models.Model):
         "Sucursal",
         on_delete=models.PROTECT,
         related_name="configuracion",
-        null=True,
-        blank=True,
     )
     
     nombre_negocio = models.CharField(max_length=100, default="FoodBack")
@@ -456,8 +450,6 @@ class DiaEspecial(models.Model):
         "Sucursal",
         on_delete=models.PROTECT,
         related_name="dias_especiales",
-        null=True,
-        blank=True,
         help_text=(
             "Sucursal a la que pertenece esta excepción "
             "de horario."
@@ -560,8 +552,6 @@ class Pedido(models.Model):
         "Sucursal",
         on_delete=models.PROTECT,
         related_name="pedidos",
-        null=True,
-        blank=True,
         db_index=True,
     )
 
@@ -668,8 +658,6 @@ class PagoWompi(models.Model):
         "Tenant",
         on_delete=models.PROTECT,
         related_name="pagos_wompi",
-        null=True,
-        blank=True,
         db_index=True,
     )
     pedido = models.ForeignKey(

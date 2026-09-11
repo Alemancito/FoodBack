@@ -2691,6 +2691,7 @@ class PaymentResilienceLoggingTests(
 
         return PagoWompi.objects.create(
             tipo="PEDIDO",
+            tenant=pedido.sucursal.tenant,
             pedido=pedido,
             referencia=referencia,
             monto=pedido.total_final,
@@ -3154,6 +3155,7 @@ class PaymentUserCooldownSecurityTests(
         pago = (
             PagoWompi.objects.create(
                 tipo="PEDIDO",
+                tenant=pedido.sucursal.tenant,
                 pedido=pedido,
                 referencia=referencia,
                 monto=pedido.total_final,
@@ -4454,6 +4456,7 @@ class PaymentPendingCancellationTests(
 
         PagoWompi.objects.create(
             tipo="PEDIDO",
+            tenant=pedido.sucursal.tenant,
             pedido=pedido,
             referencia=(
                 f"ORDEN-{pedido.id}-CANCELTEST"
@@ -4516,6 +4519,7 @@ class PaymentPendingCancellationTests(
 
         PagoWompi.objects.create(
             tipo="PEDIDO",
+            tenant=pedido.sucursal.tenant,
             pedido=pedido,
             referencia=(
                 f"ORDEN-{pedido.id}-ACTIVO"
@@ -4644,6 +4648,7 @@ class PaymentPendingHideTests(
 
         pago = PagoWompi.objects.create(
             tipo="PEDIDO",
+            tenant=pedido.sucursal.tenant,
             pedido=pedido,
             referencia=(
                 f"ORDEN-{pedido.id}-HIDE"
@@ -4944,6 +4949,7 @@ class MultipleActiveOrdersVisibilityTests(
 
         PagoWompi.objects.create(
             tipo="PEDIDO",
+            tenant=pedido_39.sucursal.tenant,
             pedido=pedido_39,
             referencia=(
                 f"ORDEN-{pedido_39.id}-MULTI"

@@ -14,8 +14,10 @@ from django.contrib import messages
 from decouple import config
 from django.contrib.auth.decorators import login_required, user_passes_test
 from .authz import (
+    obtener_membership_activo,
     require_tenant_roles,
 )
+from django.urls import reverse
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_POST
 from django.views.decorators.csrf import csrf_exempt  # IMPORTANTE PARA EL WEBHOOK
@@ -33,28 +35,45 @@ from .models import Membership
 
 
 class CustomLoginView(LoginView):
-    template_name = 'registration/login.html'
+    template_name = "registration/login.html"
     redirect_authenticated_user = True
 
     def get_success_url(self):
         user = self.request.user
-        if user.groups.filter(name='Administradores').exists() or user.is_superuser:
-            return '/dashboard/'
-        elif user.groups.filter(name='Repartidores').exists():
-            return '/reparto/'
-        else:
-            return '/'
+
+        membership = obtener_membership_activo(
+            self.request,
+            roles=[
+                Membership.ROLE_OWNER,
+                Membership.ROLE_MANAGER,
+            ],
+        )
+
+        # OWNER / MANAGER reales del Tenant actual.
+        if membership:
+            return reverse(
+                "dashboard_admin"
+            )
+
+        # DELIVERY sigue legacy temporalmente.
+        if user.groups.filter(
+            name="Repartidores"
+        ).exists():
+            return reverse(
+                "dashboard_delivery"
+            )
+
+        # Usuario autenticado pero sin rol FoodBack
+        # válido para este Tenant.
+        return reverse(
+            "menu"
+        )
 
 
 @require_POST
 def logout_view(request):
     logout(request)
     return redirect('login_custom')
-
-
-def es_admin(user):
-    return user.groups.filter(name='Administradores').exists() or user.is_superuser
-
 
 def es_repartidor(user):
     return user.groups.filter(name='Repartidores').exists()

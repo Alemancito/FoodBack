@@ -6697,3 +6697,141 @@ class TenantMembershipAuthorizationTests(
             response.status_code,
             403,
         )
+        
+class LoginMembershipRoutingTests(
+    FoodBackTestBase
+):
+
+    def test_owner_sin_group_admin_va_dashboard(
+        self,
+    ):
+        owner = User.objects.create_user(
+            username="owner_login",
+            password="PasswordSeguro123!",
+        )
+
+        Membership.objects.create(
+            tenant=self.tenant,
+            usuario=owner,
+            rol=Membership.ROLE_OWNER,
+            activo=True,
+        )
+
+        response = self.client.post(
+            reverse("login_custom"),
+            {
+                "username": "owner_login",
+                "password": "PasswordSeguro123!",
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("dashboard_admin"),
+            fetch_redirect_response=False,
+        )
+
+
+    def test_manager_sin_group_admin_va_dashboard(
+        self,
+    ):
+        manager = User.objects.create_user(
+            username="manager_login",
+            password="PasswordSeguro123!",
+        )
+
+        Membership.objects.create(
+            tenant=self.tenant,
+            usuario=manager,
+            rol=Membership.ROLE_MANAGER,
+            activo=True,
+        )
+
+        response = self.client.post(
+            reverse("login_custom"),
+            {
+                "username": "manager_login",
+                "password": "PasswordSeguro123!",
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("dashboard_admin"),
+            fetch_redirect_response=False,
+        )
+
+
+    def test_group_admin_sin_membership_no_va_dashboard(
+        self,
+    ):
+        legacy = User.objects.create_user(
+            username="legacy_login",
+            password="PasswordSeguro123!",
+        )
+
+        legacy.groups.add(
+            self.grupo_admin
+        )
+
+        response = self.client.post(
+            reverse("login_custom"),
+            {
+                "username": "legacy_login",
+                "password": "PasswordSeguro123!",
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("menu"),
+            fetch_redirect_response=False,
+        )
+
+
+    def test_superuser_sin_membership_no_va_dashboard_restaurante(
+        self,
+    ):
+        superuser = User.objects.create_superuser(
+            username="platform_superuser",
+            password="PasswordSeguro123!",
+            email="platform@test.com",
+        )
+
+        response = self.client.post(
+            reverse("login_custom"),
+            {
+                "username":
+                    "platform_superuser",
+
+                "password":
+                    "PasswordSeguro123!",
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("menu"),
+            fetch_redirect_response=False,
+        )
+
+
+    def test_repartidor_sigue_yendo_delivery_temporalmente(
+        self,
+    ):
+        response = self.client.post(
+            reverse("login_custom"),
+            {
+                "username":
+                    self.delivery_1.username,
+
+                "password":
+                    "PasswordSeguro123!",
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("dashboard_delivery"),
+            fetch_redirect_response=False,
+        )

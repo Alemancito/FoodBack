@@ -6834,14 +6834,25 @@ class LoginMembershipRoutingTests(
         )
 
 
-    def test_repartidor_sigue_yendo_delivery_temporalmente(
+    def test_repartidor_sin_group_va_delivery(
         self,
     ):
+        repartidor = User.objects.create_user(
+            username="delivery_login_real",
+            password="PasswordSeguro123!",
+        )
+
+        RepartidorSucursal.objects.create(
+            usuario=repartidor,
+            sucursal=self.sucursal,
+            activo=True,
+        )
+
         response = self.client.post(
             reverse("login_custom"),
             {
                 "username":
-                    self.delivery_1.username,
+                    "delivery_login_real",
 
                 "password":
                     "PasswordSeguro123!",
@@ -6854,7 +6865,36 @@ class LoginMembershipRoutingTests(
             fetch_redirect_response=False,
         )
         
-        
+    
+    def test_group_repartidores_sin_asignacion_no_va_delivery(
+        self,
+    ):
+        legacy = User.objects.create_user(
+            username="delivery_group_only",
+            password="PasswordSeguro123!",
+        )
+
+        legacy.groups.add(
+            self.grupo_delivery
+        )
+
+        response = self.client.post(
+            reverse("login_custom"),
+            {
+                "username":
+                    "delivery_group_only",
+
+                "password":
+                    "PasswordSeguro123!",
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("menu"),
+            fetch_redirect_response=False,
+        )
+
 class DeliveryAssignmentAuthorizationTests(
     FoodBackTestBase
 ):

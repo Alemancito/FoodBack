@@ -12,9 +12,11 @@ from .models import Categoria, Producto, Pedido, DetallePedido, Cliente, Configu
 from django.db import transaction
 from django.contrib import messages
 from decouple import config
-from django.contrib.auth.decorators import login_required, user_passes_test
+from django.contrib.auth.decorators import login_required
 from .authz import (
+    obtener_asignacion_repartidor_activa,
     obtener_membership_activo,
+    require_delivery_assignment,
     require_tenant_roles,
 )
 from django.urls import reverse
@@ -61,10 +63,13 @@ class CustomLoginView(LoginView):
                 "dashboard_admin"
             )
 
-        # DELIVERY sigue legacy temporalmente.
-        if user.groups.filter(
-            name="Repartidores"
-        ).exists():
+        asignacion_delivery = (
+            obtener_asignacion_repartidor_activa(
+                self.request
+            )
+        )
+
+        if asignacion_delivery:
             return reverse(
                 "dashboard_delivery"
             )
@@ -80,9 +85,6 @@ class CustomLoginView(LoginView):
 def logout_view(request):
     logout(request)
     return redirect('login_custom')
-
-def es_repartidor(user):
-    return user.groups.filter(name='Repartidores').exists()
 
 # --- VALIDACIÓN DE SUSCRIPCIÓN (EL GUARDIA DE SEGURIDAD) ---
 

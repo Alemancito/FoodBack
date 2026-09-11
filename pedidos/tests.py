@@ -7411,6 +7411,82 @@ class BranchSwitchAuthorizationTests(
             ),
         )
 
+    def test_owner_dashboard_muestra_todas_sus_sucursales(
+        self,
+    ):
+        self.client.force_login(
+            self.admin_user
+        )
+
+        response = self.client.get(
+            reverse(
+                "dashboard_admin"
+            )
+        )
+
+        sucursales = list(
+            response.context[
+                "sucursales_disponibles"
+            ]
+        )
+
+        self.assertIn(
+            self.sucursal,
+            sucursales,
+        )
+
+        self.assertIn(
+            self.sucursal_b,
+            sucursales,
+        )
+
+
+    def test_manager_dashboard_no_expone_sucursal_no_asignada(
+        self,
+    ):
+        manager = User.objects.create_user(
+            username="manager_branch_visibility",
+            password="PasswordSeguro123!",
+        )
+
+        membership = Membership.objects.create(
+            tenant=self.tenant,
+            usuario=manager,
+            rol=Membership.ROLE_MANAGER,
+            activo=True,
+        )
+
+        MembershipSucursal.objects.create(
+            membership=membership,
+            sucursal=self.sucursal,
+            activo=True,
+        )
+
+        self.client.force_login(
+            manager
+        )
+
+        response = self.client.get(
+            reverse(
+                "dashboard_admin"
+            )
+        )
+
+        sucursales = list(
+            response.context[
+                "sucursales_disponibles"
+            ]
+        )
+
+        self.assertIn(
+            self.sucursal,
+            sucursales,
+        )
+
+        self.assertNotIn(
+            self.sucursal_b,
+            sucursales,
+        )
 
     def test_manager_puede_cambiar_a_sucursal_asignada(
         self,

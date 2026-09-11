@@ -3568,6 +3568,16 @@ def dashboard_admin_view(request):
     context = _contexto_admin_pedidos(
         sucursal
     )
+    
+    #---
+    sucursales_disponibles = list(
+        _sucursales_accesibles_usuario(
+            request,
+            tenant,
+        ).order_by(
+            "nombre"
+        )
+    )
 
     context.update({
         "dias_restantes": dias_restantes,
@@ -3578,6 +3588,8 @@ def dashboard_admin_view(request):
         ),
         "tenant": tenant,
         "sucursal": sucursal,
+        "sucursales_disponibles":
+            sucursales_disponibles,
         "suscripcion": suscripcion,
     })
 

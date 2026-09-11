@@ -1,485 +1,2968 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
     <title>Centro de Control | FoodBack</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
-    
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <link
+        href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet"
+    >
+
+    <link
+        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+        rel="stylesheet"
+    >
+
+    <link
+        rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css"
+    >
+
     <style>
-        :root { --color-bg: #F0F2F5; --card-radius: 20px; --color-accent: #D35400; --color-accent-glow: rgba(211, 84, 0, 0.5); }
-        body { background-color: var(--color-bg); font-family: 'Poppins', sans-serif; padding-bottom: 100px; overflow-x: hidden; }
+        :root {
+            --color-bg: #F0F2F5;
+            --card-radius: 20px;
+            --color-accent: #D35400;
+            --color-accent-glow: rgba(211, 84, 0, 0.5);
+        }
 
-        /* HEADER */
-        .admin-header { background: white; padding: 15px 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.03); position: sticky; top: 0; z-index: 1000; display: flex; justify-content: space-between; align-items: center; }
+        body {
+            background-color: var(--color-bg);
+            font-family: 'Poppins', sans-serif;
+            padding-bottom: 100px;
+            overflow-x: hidden;
+        }
 
-        /* TABS (SCROLL) */
-        .status-scroll-wrapper { background: white; border-bottom: 1px solid #eee; margin-bottom: 25px; }
-        .status-scroll-container { display: flex; flex-wrap: nowrap; overflow-x: auto; gap: 15px; padding: 25px 20px; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
-        .status-scroll-container::-webkit-scrollbar { display: none; }
+        /* =========================================================
+           HEADER
+           ========================================================= */
 
-        .status-tab { flex: 0 0 auto; min-width: 125px; padding: 12px; background: #fff; border: 1px solid #e0e0e0; border-radius: 18px; display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); color: #6c757d; position: relative; }
-        .status-tab.active { background-color: #fff; color: #D35400; border-color: #D35400; transform: translateY(-10px); box-shadow: 0 15px 30px rgba(211, 84, 0, 0.15); z-index: 10; }
-        .status-tab.active .icon-circle { background-color: #D35400; color: white; }
-        
-        #tab-problema.active { color: #dc3545; border-color: #dc3545; box-shadow: 0 15px 30px rgba(220, 53, 69, 0.15); }
-        #tab-problema.active .icon-circle { background-color: #dc3545; color: white !important; }
-        #tab-problema.active .icon-circle i { color: white !important; }
+        .admin-header {
+            background: #ffffff;
 
-        .icon-circle { width: 42px; height: 42px; background-color: #f1f3f5; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 8px; transition: all 0.3s; font-size: 1.3rem; }
-        .status-name { font-weight: 700; font-size: 0.85rem; letter-spacing: 0.5px; }
+            position: sticky;
+            top: 0;
+            z-index: 1000;
 
-        /* TARJETAS ORIGINALES */
-        .order-card { background: white; border-radius: var(--card-radius); box-shadow: 0 8px 30px rgba(0,0,0,0.04); margin-bottom: 20px; overflow: hidden; border: 1px solid white; position: relative; }
-        .card-top { padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #f0f0f0; background: #fff; }
-        .order-id { font-weight: 800; font-size: 1.1rem; color: #1a1a1a; }
-        .time-badge { background: #f8f9fa; padding: 4px 10px; border-radius: 10px; font-size: 0.8rem; color: #666; font-weight: 600; }
-        .card-content { padding: 20px; }
+            padding: 14px 20px;
 
-        /* BORDES DE ESTADO */
-        .card-new { border-left: 5px solid #E74C3C; }
-        .card-route { border-left: 5px solid #3498DB; opacity: 0.9; }
-        .card-problem { border-left: 5px solid #000; border: 2px solid #ffebee; }
-        
-        /* TICKET COCINA */
+            box-shadow:
+                0 4px 24px
+                rgba(28, 39, 49, 0.06);
+
+            border-bottom:
+                1px solid rgba(0, 0, 0, 0.03);
+        }
+
+        .admin-header-main {
+            width: 100%;
+
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+
+            gap: 20px;
+        }
+
+        .admin-brand {
+            display: flex;
+            align-items: center;
+
+            min-width: max-content;
+        }
+
+        .admin-brand-title {
+            margin: 0;
+
+            font-size: 1.35rem;
+            font-weight: 800;
+
+            color: #20252b;
+
+            letter-spacing: -0.5px;
+        }
+
+        .admin-brand-accent {
+            color: var(--color-accent);
+        }
+
+        .admin-header-actions {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+
+            gap: 14px;
+
+            min-width: 0;
+        }
+
+        /* =========================================================
+           SELECTOR DE SUCURSAL
+           ========================================================= */
+
+        .branch-area {
+            display: flex;
+            align-items: center;
+
+            gap: 9px;
+
+            min-width: 0;
+        }
+
+        .branch-label {
+            margin: 0;
+
+            color: #939aa1;
+
+            font-size: 0.67rem;
+            font-weight: 800;
+
+            text-transform: uppercase;
+
+            letter-spacing: 0.9px;
+
+            white-space: nowrap;
+        }
+
+        .branch-dropdown-button {
+            height: 44px;
+
+            min-width: 225px;
+            max-width: 275px;
+
+            display: flex;
+            align-items: center;
+
+            gap: 10px;
+
+            padding:
+                7px
+                11px
+                7px
+                10px;
+
+            background: #ffffff;
+
+            border:
+                1.5px solid
+                #e3e6e8;
+
+            border-radius: 14px;
+
+            color: #2c3742;
+
+            box-shadow:
+                0 3px 12px
+                rgba(29, 39, 49, 0.04);
+
+            transition:
+                border-color 0.2s ease,
+                box-shadow 0.2s ease,
+                transform 0.15s ease;
+
+            cursor: pointer;
+        }
+
+        .branch-dropdown-button:hover,
+        .branch-dropdown-button:focus,
+        .branch-dropdown-button.show {
+            background: #ffffff;
+
+            color: #2c3742;
+
+            border-color:
+                var(--color-accent);
+
+            box-shadow:
+                0 0 0 3px
+                rgba(211, 84, 0, 0.08),
+                0 5px 16px
+                rgba(29, 39, 49, 0.06);
+        }
+
+        .branch-dropdown-button:active {
+            transform: scale(0.99);
+        }
+
+        .branch-dropdown-button::after {
+            display: none;
+        }
+
+        .branch-icon-box {
+            width: 30px;
+            height: 30px;
+
+            flex: 0 0 30px;
+
+            display: flex;
+            align-items: center;
+            justify-content: center;
+
+            background:
+                rgba(211, 84, 0, 0.09);
+
+            border-radius: 9px;
+
+            color:
+                var(--color-accent);
+
+            font-size: 0.95rem;
+        }
+
+        .branch-button-name {
+            flex: 1;
+
+            overflow: hidden;
+
+            text-overflow: ellipsis;
+
+            white-space: nowrap;
+
+            text-align: left;
+
+            font-size: 0.82rem;
+            font-weight: 700;
+        }
+
+        .branch-chevron {
+            flex: 0 0 auto;
+
+            color: #99a0a6;
+
+            font-size: 0.75rem;
+
+            transition:
+                transform 0.2s ease;
+        }
+
+        .branch-dropdown-button.show
+        .branch-chevron {
+            transform: rotate(180deg);
+        }
+
+        /* =========================================================
+           MENÚ DESPLEGABLE DE SUCURSALES
+           ========================================================= */
+
+        .branch-dropdown-menu {
+            width: 275px;
+
+            margin-top: 9px !important;
+
+            padding: 8px;
+
+            border: 0;
+
+            border-radius: 16px;
+
+            background: #ffffff;
+
+            box-shadow:
+                0 18px 45px
+                rgba(24, 32, 40, 0.16);
+
+            overflow: hidden;
+        }
+
+        .branch-dropdown-title {
+            padding:
+                8px
+                10px
+                7px;
+
+            color: #a0a6ac;
+
+            font-size: 0.65rem;
+            font-weight: 800;
+
+            letter-spacing: 0.9px;
+
+            text-transform: uppercase;
+        }
+
+        .branch-option {
+            width: 100%;
+
+            display: flex;
+            align-items: center;
+
+            gap: 10px;
+
+            padding:
+                10px
+                11px;
+
+            border: none;
+
+            border-radius: 11px;
+
+            background:
+                transparent;
+
+            color: #38434d;
+
+            text-align: left;
+
+            transition:
+                background-color 0.15s ease,
+                color 0.15s ease;
+
+            cursor: pointer;
+        }
+
+        .branch-option:hover {
+            background:
+                #f7f8f9;
+
+            color: #222b32;
+        }
+
+        .branch-option.active {
+            background:
+                rgba(211, 84, 0, 0.08);
+
+            color:
+                var(--color-accent);
+        }
+
+        .branch-option:disabled {
+            opacity: 0.65;
+            cursor: wait;
+        }
+
+        .branch-option-icon {
+            width: 32px;
+            height: 32px;
+
+            flex: 0 0 32px;
+
+            display: flex;
+            align-items: center;
+            justify-content: center;
+
+            border-radius: 9px;
+
+            background: #f1f3f5;
+
+            color: #737c84;
+        }
+
+        .branch-option.active
+        .branch-option-icon {
+            background:
+                rgba(211, 84, 0, 0.12);
+
+            color:
+                var(--color-accent);
+        }
+
+        .branch-option-info {
+            flex: 1;
+
+            min-width: 0;
+        }
+
+        .branch-option-name {
+            display: block;
+
+            overflow: hidden;
+
+            text-overflow: ellipsis;
+
+            white-space: nowrap;
+
+            font-size: 0.82rem;
+            font-weight: 700;
+        }
+
+        .branch-option-state {
+            display: block;
+
+            margin-top: 1px;
+
+            color: #a0a6ac;
+
+            font-size: 0.66rem;
+            font-weight: 500;
+        }
+
+        .branch-option-check {
+            color:
+                var(--color-accent);
+
+            font-size: 1rem;
+        }
+
+        /* =========================================================
+           UNA SOLA SUCURSAL
+           ========================================================= */
+
+        .branch-single {
+            height: 44px;
+
+            max-width: 260px;
+
+            display: flex;
+            align-items: center;
+
+            gap: 10px;
+
+            padding:
+                7px
+                13px
+                7px
+                10px;
+
+            background: #f8f9fa;
+
+            border:
+                1px solid #e7e9eb;
+
+            border-radius: 14px;
+
+            color: #34404b;
+        }
+
+        .branch-single-name {
+            overflow: hidden;
+
+            text-overflow: ellipsis;
+
+            white-space: nowrap;
+
+            font-size: 0.82rem;
+            font-weight: 700;
+        }
+
+        /* =========================================================
+           BOTÓN MENÚ ADMIN
+           ========================================================= */
+
+        .admin-menu-button {
+            width: 44px;
+            height: 44px;
+
+            display: flex;
+            align-items: center;
+            justify-content: center;
+
+            padding: 0;
+
+            border: none;
+
+            border-radius: 12px;
+
+            background: transparent;
+
+            color: #20252b;
+
+            font-size: 1.8rem;
+
+            transition:
+                background-color 0.15s ease;
+        }
+
+        .admin-menu-button:hover {
+            background: #f4f5f6;
+        }
+
+        /* =========================================================
+           TABS
+           ========================================================= */
+
+        .status-scroll-wrapper {
+            background: white;
+            border-bottom: 1px solid #eee;
+            margin-bottom: 25px;
+        }
+
+        .status-scroll-container {
+            display: flex;
+            flex-wrap: nowrap;
+
+            overflow-x: auto;
+
+            gap: 15px;
+
+            padding: 25px 20px;
+
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: none;
+        }
+
+        .status-scroll-container::-webkit-scrollbar {
+            display: none;
+        }
+
+        .status-tab {
+            flex: 0 0 auto;
+
+            min-width: 125px;
+
+            padding: 12px;
+
+            background: #fff;
+
+            border: 1px solid #e0e0e0;
+            border-radius: 18px;
+
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+
+            cursor: pointer;
+
+            transition:
+                all
+                0.3s
+                cubic-bezier(
+                    0.25,
+                    0.8,
+                    0.25,
+                    1
+                );
+
+            color: #6c757d;
+
+            position: relative;
+        }
+
+        .status-tab.active {
+            background-color: #fff;
+
+            color: #D35400;
+
+            border-color: #D35400;
+
+            transform: translateY(-10px);
+
+            box-shadow:
+                0 15px 30px
+                rgba(211, 84, 0, 0.15);
+
+            z-index: 10;
+        }
+
+        .status-tab.active .icon-circle {
+            background-color: #D35400;
+            color: white;
+        }
+
+        #tab-problema.active {
+            color: #dc3545;
+
+            border-color: #dc3545;
+
+            box-shadow:
+                0 15px 30px
+                rgba(220, 53, 69, 0.15);
+        }
+
+        #tab-problema.active .icon-circle {
+            background-color: #dc3545;
+            color: white !important;
+        }
+
+        #tab-problema.active .icon-circle i {
+            color: white !important;
+        }
+
+        .icon-circle {
+            width: 42px;
+            height: 42px;
+
+            background-color: #f1f3f5;
+
+            border-radius: 50%;
+
+            display: flex;
+            align-items: center;
+            justify-content: center;
+
+            margin-bottom: 8px;
+
+            transition: all 0.3s;
+
+            font-size: 1.3rem;
+        }
+
+        .status-name {
+            font-weight: 700;
+            font-size: 0.85rem;
+            letter-spacing: 0.5px;
+        }
+
+        /* =========================================================
+           TARJETAS DE PEDIDO
+           ========================================================= */
+
+        .order-card {
+            background: white;
+
+            border-radius: var(--card-radius);
+
+            box-shadow:
+                0 8px 30px
+                rgba(0, 0, 0, 0.04);
+
+            margin-bottom: 20px;
+
+            overflow: hidden;
+
+            border: 1px solid white;
+
+            position: relative;
+        }
+
+        .card-top {
+            padding: 15px 20px;
+
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+
+            border-bottom: 1px solid #f0f0f0;
+
+            background: #fff;
+        }
+
+        .order-id {
+            font-weight: 800;
+            font-size: 1.1rem;
+            color: #1a1a1a;
+        }
+
+        .time-badge {
+            background: #f8f9fa;
+
+            padding: 4px 10px;
+
+            border-radius: 10px;
+
+            font-size: 0.8rem;
+
+            color: #666;
+
+            font-weight: 600;
+        }
+
+        .card-content {
+            padding: 20px;
+        }
+
+        /* =========================================================
+           BORDES DE ESTADO
+           ========================================================= */
+
+        .card-new {
+            border-left: 5px solid #E74C3C;
+        }
+
+        .card-route {
+            border-left: 5px solid #3498DB;
+            opacity: 0.9;
+        }
+
+        .card-problem {
+            border-left: 5px solid #000;
+            border: 2px solid #ffebee;
+        }
+
+        /* =========================================================
+           TICKET COCINA
+           ========================================================= */
+
         .kitchen-ticket {
-            background: #fff; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.06); margin-bottom: 25px; overflow: hidden;
-            border: 1px solid #eef0f2; position: relative;
+            background: #fff;
+
+            border-radius: 16px;
+
+            box-shadow:
+                0 10px 30px
+                rgba(0, 0, 0, 0.06);
+
+            margin-bottom: 25px;
+
+            overflow: hidden;
+
+            border: 1px solid #eef0f2;
+
+            position: relative;
         }
+
         .kitchen-ticket::before {
-            content: ''; position: absolute; top: 0; left: 0; right: 0; height: 6px; 
-            background: linear-gradient(90deg, #F39C12, #D35400);
+            content: '';
+
+            position: absolute;
+
+            top: 0;
+            left: 0;
+            right: 0;
+
+            height: 6px;
+
+            background:
+                linear-gradient(
+                    90deg,
+                    #F39C12,
+                    #D35400
+                );
         }
+
         .k-header {
-            padding: 20px 24px; border-bottom: 2px dashed #e0e0e0; display: flex; justify-content: space-between; align-items: center; background: #fff;
-        }
-        .k-body { padding: 20px 24px; background: #fff; }
-        .k-footer { padding: 15px 24px 20px 24px; background: #fafafa; border-top: 1px solid #f0f0f0; }
-        
-        .k-ticket-id { font-size: 1.6rem; font-weight: 800; color: #2c3e50; line-height: 1; letter-spacing: -1px; }
-        .k-ticket-label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; color: #adb5bd; letter-spacing: 1px; }
-        .k-client { font-weight: 600; font-size: 1.1rem; color: #34495e; }
-        
-        .k-row { display: flex; align-items: flex-start; margin-bottom: 12px; border-bottom: 1px solid #f8f9fa; padding-bottom: 12px; }
-        .k-row:last-child { border: none; margin: 0; padding: 0; }
-        .k-badge { 
-            background: #2c3e50; color: #fff; min-width: 34px; height: 34px; border-radius: 8px; 
-            display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1.1rem; margin-right: 12px; 
-        }
-        .k-prod { font-size: 1.05rem; font-weight: 500; color: #212529; line-height: 1.3; margin-top: 4px; }
+            padding: 20px 24px;
 
-        .chef-list { background-color: #f8f9fa; border-radius: 12px; padding: 12px; margin-top: 15px; margin-bottom: 15px; border: 1px dashed #dee2e6; }
-        .chef-item { display: flex; align-items: flex-start; margin-bottom: 6px; font-size: 0.95rem; color: #333; }
-        .chef-item:last-child { margin-bottom: 0; }
-        .qty-box { background: #2c3e50; color: white; padding: 1px 6px; border-radius: 4px; font-weight: 700; font-size: 0.8rem; margin-right: 8px; min-width: 24px; text-align: center; margin-top: 2px; }
-        
-        .problem-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 6px; background: #e53935; }
+            border-bottom:
+                2px dashed #e0e0e0;
 
-        .btn-action-wrapper { padding: 0 20px 20px 20px; }
-        .btn-main { width: 100%; padding: 14px; border-radius: 14px; font-weight: 700; border: none; display: flex; align-items: center; justify-content: center; gap: 8px; color: white; transition: transform 0.2s; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-        .btn-main:active { transform: scale(0.98); }
-        .btn-accept { background: #2c3e50; } 
-        
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+
+            background: #fff;
+        }
+
+        .k-body {
+            padding: 20px 24px;
+            background: #fff;
+        }
+
+        .k-footer {
+            padding: 15px 24px 20px 24px;
+
+            background: #fafafa;
+
+            border-top:
+                1px solid #f0f0f0;
+        }
+
+        .k-ticket-id {
+            font-size: 1.6rem;
+            font-weight: 800;
+
+            color: #2c3e50;
+
+            line-height: 1;
+
+            letter-spacing: -1px;
+        }
+
+        .k-ticket-label {
+            font-size: 0.7rem;
+
+            font-weight: 700;
+
+            text-transform: uppercase;
+
+            color: #adb5bd;
+
+            letter-spacing: 1px;
+        }
+
+        .k-client {
+            font-weight: 600;
+            font-size: 1.1rem;
+            color: #34495e;
+        }
+
+        .k-row {
+            display: flex;
+            align-items: flex-start;
+
+            margin-bottom: 12px;
+
+            border-bottom:
+                1px solid #f8f9fa;
+
+            padding-bottom: 12px;
+        }
+
+        .k-row:last-child {
+            border: none;
+            margin: 0;
+            padding: 0;
+        }
+
+        .k-badge {
+            background: #2c3e50;
+            color: #fff;
+
+            min-width: 34px;
+            height: 34px;
+
+            border-radius: 8px;
+
+            display: flex;
+            align-items: center;
+            justify-content: center;
+
+            font-weight: 700;
+            font-size: 1.1rem;
+
+            margin-right: 12px;
+        }
+
+        .k-prod {
+            font-size: 1.05rem;
+
+            font-weight: 500;
+
+            color: #212529;
+
+            line-height: 1.3;
+
+            margin-top: 4px;
+        }
+
+        .chef-list {
+            background-color: #f8f9fa;
+
+            border-radius: 12px;
+
+            padding: 12px;
+
+            margin-top: 15px;
+            margin-bottom: 15px;
+
+            border:
+                1px dashed #dee2e6;
+        }
+
+        .chef-item {
+            display: flex;
+            align-items: flex-start;
+
+            margin-bottom: 6px;
+
+            font-size: 0.95rem;
+
+            color: #333;
+        }
+
+        .chef-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .qty-box {
+            background: #2c3e50;
+            color: white;
+
+            padding: 1px 6px;
+
+            border-radius: 4px;
+
+            font-weight: 700;
+            font-size: 0.8rem;
+
+            margin-right: 8px;
+
+            min-width: 24px;
+
+            text-align: center;
+
+            margin-top: 2px;
+        }
+
+        .problem-card::before {
+            content: '';
+
+            position: absolute;
+
+            left: 0;
+            top: 0;
+            bottom: 0;
+
+            width: 6px;
+
+            background: #e53935;
+        }
+
+        .btn-action-wrapper {
+            padding: 0 20px 20px 20px;
+        }
+
+        .btn-main {
+            width: 100%;
+
+            padding: 14px;
+
+            border-radius: 14px;
+
+            font-weight: 700;
+
+            border: none;
+
+            display: flex;
+            align-items: center;
+            justify-content: center;
+
+            gap: 8px;
+
+            color: white;
+
+            transition: transform 0.2s;
+
+            box-shadow:
+                0 4px 12px
+                rgba(0, 0, 0, 0.1);
+        }
+
+        .btn-main:active {
+            transform: scale(0.98);
+        }
+
+        .btn-accept {
+            background: #2c3e50;
+        }
+
         .btn-ticket-done {
-            background: linear-gradient(135deg, #e67e22, #d35400); color: white; width: 100%; padding: 15px; border-radius: 12px;
-            font-weight: 700; border: none; font-size: 1rem; display: flex; align-items: center; justify-content: center; gap: 10px;
-            box-shadow: 0 8px 20px rgba(230, 126, 34, 0.25); transition: all 0.2s;
+            background:
+                linear-gradient(
+                    135deg,
+                    #e67e22,
+                    #d35400
+                );
+
+            color: white;
+
+            width: 100%;
+
+            padding: 15px;
+
+            border-radius: 12px;
+
+            font-weight: 700;
+
+            border: none;
+
+            font-size: 1rem;
+
+            display: flex;
+            align-items: center;
+            justify-content: center;
+
+            gap: 10px;
+
+            box-shadow:
+                0 8px 20px
+                rgba(230, 126, 34, 0.25);
+
+            transition: all 0.2s;
         }
-        .btn-ticket-done:hover { box-shadow: 0 10px 25px rgba(230, 126, 34, 0.4); transform: translateY(-2px); }
 
-        .btn-wa-mini { display: inline-flex; align-items: center; gap: 4px; background-color: #25D366; color: white; padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 600; text-decoration: none; transition: 0.2s; margin-top: 4px; border: none; }
-        .btn-wa-mini:hover { background-color: #1ebc57; color: white; }
-        .btn-whatsapp { background-color: #25D366; color: white; border: none; width: 100%; padding: 12px; border-radius: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 10px; transition: transform 0.2s; text-decoration: none; }
+        .btn-ticket-done:hover {
+            box-shadow:
+                0 10px 25px
+                rgba(230, 126, 34, 0.4);
 
-        .price-big { font-size: 1.4rem; font-weight: 800; color: var(--color-accent); }
-        .pay-method { font-size: 0.75rem; text-transform: uppercase; color: #aaa; font-weight: 700; letter-spacing: 1px; }
+            transform: translateY(-2px);
+        }
 
-        .colored-toast.swal2-icon-success { background-color: #2ecc71 !important; }
-        .colored-toast.swal2-icon-error { background-color: #f27474 !important; }
-        .colored-toast.swal2-icon-warning { background-color: #f8bb86 !important; }
-        .colored-toast .swal2-title, .colored-toast .swal2-html-container { color: white; }
+        .btn-wa-mini {
+            display: inline-flex;
+            align-items: center;
 
-        .live-indicator { position: fixed; bottom: 20px; right: 20px; background: rgba(0,0,0,0.7); color: white; padding: 5px 12px; border-radius: 20px; font-size: 0.7rem; display: flex; align-items: center; gap: 5px; z-index: 9999; pointer-events: none; opacity: 0.5; }
-        .dot { width: 8px; height: 8px; background: #2ecc71; border-radius: 50%; animation: blink 1s infinite; }
-        @keyframes blink { 50% { opacity: 0.5; } }
-        
-        .dropdown-item:active { background-color: #f8f9fa; color: black; }
-        .dropdown-item:hover { background-color: #f1f1f1; }
+            gap: 4px;
+
+            background-color: #25D366;
+
+            color: white;
+
+            padding: 4px 12px;
+
+            border-radius: 20px;
+
+            font-size: 0.75rem;
+
+            font-weight: 600;
+
+            text-decoration: none;
+
+            transition: 0.2s;
+
+            margin-top: 4px;
+
+            border: none;
+        }
+
+        .btn-wa-mini:hover {
+            background-color: #1ebc57;
+            color: white;
+        }
+
+        .btn-whatsapp {
+            background-color: #25D366;
+
+            color: white;
+
+            border: none;
+
+            width: 100%;
+
+            padding: 12px;
+
+            border-radius: 12px;
+
+            font-weight: 700;
+
+            display: flex;
+            align-items: center;
+            justify-content: center;
+
+            gap: 8px;
+
+            margin-bottom: 10px;
+
+            transition: transform 0.2s;
+
+            text-decoration: none;
+        }
+
+        .price-big {
+            font-size: 1.4rem;
+            font-weight: 800;
+            color: var(--color-accent);
+        }
+
+        .pay-method {
+            font-size: 0.75rem;
+
+            text-transform: uppercase;
+
+            color: #aaa;
+
+            font-weight: 700;
+
+            letter-spacing: 1px;
+        }
+
+        /* =========================================================
+           SWEETALERT
+           ========================================================= */
+
+        .colored-toast.swal2-icon-success {
+            background-color:
+                #2ecc71 !important;
+        }
+
+        .colored-toast.swal2-icon-error {
+            background-color:
+                #f27474 !important;
+        }
+
+        .colored-toast.swal2-icon-warning {
+            background-color:
+                #f8bb86 !important;
+        }
+
+        .colored-toast .swal2-title,
+        .colored-toast .swal2-html-container {
+            color: white;
+        }
+
+        /* =========================================================
+           INDICADOR EN VIVO
+           ========================================================= */
+
+        .live-indicator {
+            position: fixed;
+
+            bottom: 20px;
+            right: 20px;
+
+            background:
+                rgba(0, 0, 0, 0.7);
+
+            color: white;
+
+            padding: 5px 12px;
+
+            border-radius: 20px;
+
+            font-size: 0.7rem;
+
+            display: flex;
+            align-items: center;
+
+            gap: 5px;
+
+            z-index: 9999;
+
+            pointer-events: none;
+
+            opacity: 0.5;
+        }
+
+        .dot {
+            width: 8px;
+            height: 8px;
+
+            background: #2ecc71;
+
+            border-radius: 50%;
+
+            animation:
+                blink 1s infinite;
+        }
+
+        @keyframes blink {
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        /* =========================================================
+           DROPDOWN GENERAL
+           ========================================================= */
+
+        .dropdown-item:active {
+            background-color: #f8f9fa;
+            color: black;
+        }
+
+        .dropdown-item:hover {
+            background-color: #f1f1f1;
+        }
+
+        /* =========================================================
+           TABLET
+           ========================================================= */
+
+        @media (max-width: 768px) {
+
+            .admin-header {
+                padding:
+                    12px
+                    14px;
+            }
+
+            .admin-header-main {
+                gap: 12px;
+            }
+
+            .branch-label {
+                display: none;
+            }
+
+            .branch-dropdown-button {
+                min-width: 175px;
+                max-width: 205px;
+            }
+
+            .branch-dropdown-menu {
+                width: 260px;
+            }
+
+            .branch-single {
+                max-width: 190px;
+            }
+        }
+
+        /* =========================================================
+           MÓVIL
+           ========================================================= */
+
+        @media (max-width: 576px) {
+
+            .admin-header {
+                padding:
+                    13px
+                    12px
+                    12px;
+            }
+
+            .admin-header-main {
+                display: grid;
+
+                grid-template-columns:
+                    1fr auto;
+
+                grid-template-areas:
+                    "brand menu"
+                    "branch branch";
+
+                gap:
+                    10px
+                    12px;
+            }
+
+            .admin-brand {
+                grid-area: brand;
+            }
+
+            .admin-brand-title {
+                font-size: 1rem;
+            }
+
+            .admin-brand-accent {
+                display: none;
+            }
+
+            .admin-header-actions {
+                display: contents;
+            }
+
+            .branch-area {
+                grid-area: branch;
+
+                width: 100%;
+
+                display: block;
+            }
+
+            .branch-label {
+                display: block;
+
+                margin:
+                    0
+                    0
+                    5px
+                    3px;
+
+                font-size: 0.61rem;
+            }
+
+            .branch-dropdown {
+                width: 100%;
+            }
+
+            #branchSwitcherForm {
+                width: 100%;
+            }
+
+            .branch-dropdown-button {
+                width: 100%;
+
+                min-width: 0;
+                max-width: none;
+
+                height: 46px;
+
+                border-radius: 13px;
+            }
+
+            .branch-dropdown-menu {
+                width: 100%;
+                min-width: 100%;
+
+                margin-top: 6px !important;
+
+                border-radius: 14px;
+            }
+
+            .branch-single {
+                width: 100%;
+                max-width: none;
+
+                height: 46px;
+            }
+
+            .admin-menu-wrapper {
+                grid-area: menu;
+            }
+
+            .admin-menu-button {
+                width: 40px;
+                height: 40px;
+
+                font-size: 1.7rem;
+            }
+        }
     </style>
 </head>
+
+
 <body>
 
-    <div class="live-indicator"><div class="dot"></div> En vivo</div>
+    <!-- =========================================================
+         INDICADOR EN VIVO
+         ========================================================= -->
+
+    <div class="live-indicator">
+        <div class="dot"></div>
+        En vivo
+    </div>
+
+
+    <!-- =========================================================
+         MENSAJES DJANGO
+         ========================================================= -->
 
     {% if messages %}
-    <div id="django-messages-data" style="display:none;" 
-         data-messages='[
-            {% for message in messages %}
-                {"tag": "{{ message.tags }}", "text": "{{ message|escapejs }}"}{% if not forloop.last %},{% endif %}
-            {% endfor %}
-         ]'>
-    </div>
+
+        <div
+            id="django-messages-data"
+            style="display:none;"
+            data-messages='[
+                {% for message in messages %}
+                    {
+                        "tag": "{{ message.tags }}",
+                        "text": "{{ message|escapejs }}"
+                    }{% if not forloop.last %},{% endif %}
+                {% endfor %}
+            ]'
+        >
+        </div>
+
     {% endif %}
+
+
+    <!-- =========================================================
+         HEADER
+         ========================================================= -->
 
     <header class="admin-header">
-        <div class="d-flex align-items-center">
-            <h4 class="m-0 fw-bold text-dark">FoodBack<span style="color:#D35400"> .Admin</span></h4>
-        </div>
-        
-        <div class="dropdown">
-            <button class="btn btn-link text-dark p-0 border-0" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                <i class="bi bi-list fs-1" style="color: #1A1A1A;"></i>
-            </button>
-            <ul class="dropdown-menu dropdown-menu-end shadow-lg border-0 rounded-4 p-2" style="min-width: 220px;">
-                <li><h6 class="dropdown-header text-uppercase small fw-bold opacity-50 mb-1">Cuenta</h6></li>
-                <li>
-                    <a class="dropdown-item d-flex align-items-center gap-3 py-2 rounded-3" href="{% url 'dashboard_metrics' %}">
-                        <div class="rounded-circle bg-success-subtle d-flex align-items-center justify-content-center" style="width:32px; height:32px;">
-                            <i class="bi bi-graph-up-arrow text-success"></i>
-                        </div>
-                        <span class="fw-semibold">Finanzas</span>
-                    </a>
-                </li>
-                <li>
-                    <a class="dropdown-item d-flex align-items-center gap-3 py-2 rounded-3" href="{% url 'admin_settings' %}">
-                        <div class="rounded-circle bg-light d-flex align-items-center justify-content-center" style="width:32px; height:32px;">
-                            <i class="bi bi-gear-fill text-dark"></i>
-                        </div>
-                        <span class="fw-semibold">Configuración</span>
-                    </a>
-                </li>
-                <li><hr class="dropdown-divider my-2 opacity-10"></li>
-                <li>
-                    <form method="POST" action="{% url 'logout' %}">
-                        {% csrf_token %}
 
-                        <button
-                            type="submit"
-                            class="dropdown-item d-flex align-items-center gap-3 py-2 rounded-3 text-danger border-0 bg-transparent w-100"
-                        >
-                            <div class="rounded-circle bg-danger-subtle d-flex align-items-center justify-content-center"
-                                style="width:32px; height:32px;">
-                                <i class="bi bi-box-arrow-right text-danger"></i>
+        <div class="admin-header-main">
+
+            <!-- Marca -->
+
+            <div class="admin-brand">
+
+                <h4 class="admin-brand-title">
+
+                    FoodBack
+
+                    <span class="admin-brand-accent">
+                        .Admin
+                    </span>
+
+                </h4>
+
+            </div>
+
+
+            <!-- Acciones -->
+
+            <div class="admin-header-actions">
+
+
+                <!-- =============================================
+                     SUCURSAL
+                     ============================================= -->
+
+                {% if sucursales_disponibles %}
+
+                    <div class="branch-area">
+
+                        <div class="branch-label">
+                            Sucursal
+                        </div>
+
+
+                        {% if sucursales_disponibles|length > 1 %}
+
+                            <form
+                                method="POST"
+                                action="{% url 'cambiar_sucursal' %}"
+                                id="branchSwitcherForm"
+                            >
+
+                                {% csrf_token %}
+
+                                <input
+                                    type="hidden"
+                                    name="sucursal_public_id"
+                                    id="branchPublicIdInput"
+                                    value="{{ sucursal.public_id }}"
+                                >
+
+
+                                <div
+                                    class="
+                                        dropdown
+                                        branch-dropdown
+                                    "
+                                >
+
+                                    <button
+                                        class="
+                                            branch-dropdown-button
+                                            dropdown-toggle
+                                        "
+                                        type="button"
+                                        id="branchDropdownButton"
+                                        data-bs-toggle="dropdown"
+                                        data-bs-auto-close="true"
+                                        aria-expanded="false"
+                                    >
+
+                                        <span class="branch-icon-box">
+
+                                            <i
+                                                class="bi bi-shop"
+                                                aria-hidden="true"
+                                            ></i>
+
+                                        </span>
+
+
+                                        <span class="branch-button-name">
+
+                                            {{ sucursal.nombre }}
+
+                                        </span>
+
+
+                                        <i
+                                            class="
+                                                bi
+                                                bi-chevron-down
+                                                branch-chevron
+                                            "
+                                            aria-hidden="true"
+                                        ></i>
+
+                                    </button>
+
+
+                                    <div
+                                        class="
+                                            dropdown-menu
+                                            dropdown-menu-end
+                                            branch-dropdown-menu
+                                        "
+                                        aria-labelledby="branchDropdownButton"
+                                    >
+
+                                        <div class="branch-dropdown-title">
+                                            Cambiar sucursal
+                                        </div>
+
+
+                                        {% for branch in sucursales_disponibles %}
+
+                                            <button
+                                                type="button"
+                                                class="
+                                                    branch-option
+                                                    {% if branch.id == sucursal.id %}
+                                                        active
+                                                    {% endif %}
+                                                "
+                                                data-branch-id="{{ branch.public_id }}"
+                                            >
+
+                                                <span class="branch-option-icon">
+
+                                                    <i
+                                                        class="bi bi-shop"
+                                                        aria-hidden="true"
+                                                    ></i>
+
+                                                </span>
+
+
+                                                <span class="branch-option-info">
+
+                                                    <span class="branch-option-name">
+                                                        {{ branch.nombre }}
+                                                    </span>
+
+
+                                                    {% if branch.id == sucursal.id %}
+
+                                                        <span class="branch-option-state">
+                                                            Sucursal actual
+                                                        </span>
+
+                                                    {% else %}
+
+                                                        <span class="branch-option-state">
+                                                            Cambiar a esta sucursal
+                                                        </span>
+
+                                                    {% endif %}
+
+                                                </span>
+
+
+                                                {% if branch.id == sucursal.id %}
+
+                                                    <i
+                                                        class="
+                                                            bi
+                                                            bi-check-circle-fill
+                                                            branch-option-check
+                                                        "
+                                                        aria-hidden="true"
+                                                    ></i>
+
+                                                {% endif %}
+
+                                            </button>
+
+                                        {% endfor %}
+
+                                    </div>
+
+                                </div>
+
+                            </form>
+
+
+                        {% else %}
+
+                            <div class="branch-single">
+
+                                <span class="branch-icon-box">
+
+                                    <i
+                                        class="bi bi-shop"
+                                        aria-hidden="true"
+                                    ></i>
+
+                                </span>
+
+
+                                <span class="branch-single-name">
+
+                                    {{ sucursal.nombre }}
+
+                                </span>
+
                             </div>
 
-                            <span class="fw-bold">
-                                Cerrar Sesión
-                            </span>
-                        </button>
-                    </form>
-                </li>
-            </ul>
+                        {% endif %}
+
+                    </div>
+
+                {% endif %}
+
+
+                <!-- =============================================
+                     MENÚ ADMIN
+                     ============================================= -->
+
+                <div
+                    class="
+                        dropdown
+                        admin-menu-wrapper
+                    "
+                >
+
+                    <button
+                        class="admin-menu-button"
+                        type="button"
+                        data-bs-toggle="dropdown"
+                        aria-expanded="false"
+                        aria-label="Abrir menú administrativo"
+                    >
+
+                        <i
+                            class="bi bi-list"
+                            aria-hidden="true"
+                        ></i>
+
+                    </button>
+
+
+                    <ul
+                        class="
+                            dropdown-menu
+                            dropdown-menu-end
+                            shadow-lg
+                            border-0
+                            rounded-4
+                            p-2
+                        "
+                        style="min-width: 220px;"
+                    >
+
+                        <li>
+
+                            <h6
+                                class="
+                                    dropdown-header
+                                    text-uppercase
+                                    small
+                                    fw-bold
+                                    opacity-50
+                                    mb-1
+                                "
+                            >
+                                Cuenta
+                            </h6>
+
+                        </li>
+
+
+                        <li>
+
+                            <a
+                                class="
+                                    dropdown-item
+                                    d-flex
+                                    align-items-center
+                                    gap-3
+                                    py-2
+                                    rounded-3
+                                "
+                                href="{% url 'dashboard_metrics' %}"
+                            >
+
+                                <div
+                                    class="
+                                        rounded-circle
+                                        bg-success-subtle
+                                        d-flex
+                                        align-items-center
+                                        justify-content-center
+                                    "
+                                    style="
+                                        width:32px;
+                                        height:32px;
+                                    "
+                                >
+
+                                    <i
+                                        class="
+                                            bi
+                                            bi-graph-up-arrow
+                                            text-success
+                                        "
+                                    ></i>
+
+                                </div>
+
+
+                                <span class="fw-semibold">
+                                    Finanzas
+                                </span>
+
+                            </a>
+
+                        </li>
+
+
+                        <li>
+
+                            <a
+                                class="
+                                    dropdown-item
+                                    d-flex
+                                    align-items-center
+                                    gap-3
+                                    py-2
+                                    rounded-3
+                                "
+                                href="{% url 'admin_settings' %}"
+                            >
+
+                                <div
+                                    class="
+                                        rounded-circle
+                                        bg-light
+                                        d-flex
+                                        align-items-center
+                                        justify-content-center
+                                    "
+                                    style="
+                                        width:32px;
+                                        height:32px;
+                                    "
+                                >
+
+                                    <i
+                                        class="
+                                            bi
+                                            bi-gear-fill
+                                            text-dark
+                                        "
+                                    ></i>
+
+                                </div>
+
+
+                                <span class="fw-semibold">
+                                    Configuración
+                                </span>
+
+                            </a>
+
+                        </li>
+
+
+                        <li>
+
+                            <hr
+                                class="
+                                    dropdown-divider
+                                    my-2
+                                    opacity-10
+                                "
+                            >
+
+                        </li>
+
+
+                        <li>
+
+                            <form
+                                method="POST"
+                                action="{% url 'logout' %}"
+                            >
+
+                                {% csrf_token %}
+
+                                <button
+                                    type="submit"
+                                    class="
+                                        dropdown-item
+                                        d-flex
+                                        align-items-center
+                                        gap-3
+                                        py-2
+                                        rounded-3
+                                        text-danger
+                                        border-0
+                                        bg-transparent
+                                        w-100
+                                    "
+                                >
+
+                                    <div
+                                        class="
+                                            rounded-circle
+                                            bg-danger-subtle
+                                            d-flex
+                                            align-items-center
+                                            justify-content-center
+                                        "
+                                        style="
+                                            width:32px;
+                                            height:32px;
+                                        "
+                                    >
+
+                                        <i
+                                            class="
+                                                bi
+                                                bi-box-arrow-right
+                                                text-danger
+                                            "
+                                        ></i>
+
+                                    </div>
+
+
+                                    <span class="fw-bold">
+                                        Cerrar Sesión
+                                    </span>
+
+                                </button>
+
+                            </form>
+
+                        </li>
+
+                    </ul>
+
+                </div>
+
+            </div>
+
         </div>
+
     </header>
 
+
+    <!-- =========================================================
+         TABS
+         ========================================================= -->
+
     <div class="status-scroll-wrapper">
-        <div class="status-scroll-container nav nav-pills" id="pills-tab" role="tablist">
-            <div class="status-tab active" id="tab-nuevos" data-bs-toggle="pill" data-bs-target="#pills-nuevos" role="button" onclick="saveTab('pills-nuevos')">
-                <div class="icon-circle"><i class="bi bi-bell-fill"></i></div><span class="status-name">Nuevos</span>
+
+        <div
+            class="
+                status-scroll-container
+                nav
+                nav-pills
+            "
+            id="pills-tab"
+            role="tablist"
+        >
+
+            <div
+                class="status-tab active"
+                id="tab-nuevos"
+                data-bs-toggle="pill"
+                data-bs-target="#pills-nuevos"
+                role="button"
+                onclick="saveTab('pills-nuevos')"
+            >
+
+                <div class="icon-circle">
+
+                    <i class="bi bi-bell-fill"></i>
+
+                </div>
+
+
+                <span class="status-name">
+                    Nuevos
+                </span>
+
             </div>
-            <div class="status-tab" id="tab-cocina" data-bs-toggle="pill" data-bs-target="#pills-cocina" role="button" onclick="saveTab('pills-cocina')">
-                <div class="icon-circle"><i class="bi bi-fire"></i></div><span class="status-name">Cocina</span>
+
+
+            <div
+                class="status-tab"
+                id="tab-cocina"
+                data-bs-toggle="pill"
+                data-bs-target="#pills-cocina"
+                role="button"
+                onclick="saveTab('pills-cocina')"
+            >
+
+                <div class="icon-circle">
+
+                    <i class="bi bi-fire"></i>
+
+                </div>
+
+
+                <span class="status-name">
+                    Cocina
+                </span>
+
             </div>
-            <div class="status-tab" id="tab-ruta" data-bs-toggle="pill" data-bs-target="#pills-ruta" role="button" onclick="saveTab('pills-ruta')">
-                <div class="icon-circle"><i class="bi bi-bicycle"></i></div><span class="status-name">Ruta</span>
+
+
+            <div
+                class="status-tab"
+                id="tab-ruta"
+                data-bs-toggle="pill"
+                data-bs-target="#pills-ruta"
+                role="button"
+                onclick="saveTab('pills-ruta')"
+            >
+
+                <div class="icon-circle">
+
+                    <i class="bi bi-bicycle"></i>
+
+                </div>
+
+
+                <span class="status-name">
+                    Ruta
+                </span>
+
             </div>
-            <div class="status-tab" id="tab-problema" data-bs-toggle="pill" data-bs-target="#pills-problema" role="button" onclick="saveTab('pills-problema')">
-                <div class="icon-circle"><i class="bi bi-exclamation-triangle-fill"></i></div><span class="status-name">Alertas</span>
+
+
+            <div
+                class="status-tab"
+                id="tab-problema"
+                data-bs-toggle="pill"
+                data-bs-target="#pills-problema"
+                role="button"
+                onclick="saveTab('pills-problema')"
+            >
+
+                <div class="icon-circle">
+
+                    <i
+                        class="
+                            bi
+                            bi-exclamation-triangle-fill
+                        "
+                    ></i>
+
+                </div>
+
+
+                <span class="status-name">
+                    Alertas
+                </span>
+
             </div>
+
         </div>
+
     </div>
 
-    <div class="container tab-content" id="pills-tabContent">
 
-        <div class="tab-pane fade show active" id="pills-nuevos">
+    <!-- =========================================================
+         CONTENIDO DE TABS
+         ========================================================= -->
+
+    <div
+        class="container tab-content"
+        id="pills-tabContent"
+    >
+
+        <div
+            class="
+                tab-pane
+                fade
+                show
+                active
+            "
+            id="pills-nuevos"
+        >
+
             {% include 'pedidos/partials/admin_nuevos.html' %}
+
         </div>
 
-        <div class="tab-pane fade" id="pills-cocina">
+
+        <div
+            class="tab-pane fade"
+            id="pills-cocina"
+        >
+
             {% include 'pedidos/partials/admin_cocina.html' %}
+
         </div>
 
-        <div class="tab-pane fade" id="pills-ruta">
+
+        <div
+            class="tab-pane fade"
+            id="pills-ruta"
+        >
+
             {% include 'pedidos/partials/admin_ruta.html' %}
+
         </div>
 
-        <div class="tab-pane fade" id="pills-problema">
+
+        <div
+            class="tab-pane fade"
+            id="pills-problema"
+        >
+
             {% include 'pedidos/partials/admin_problema.html' %}
+
         </div>
 
     </div>
-    
+
+
+    <!-- =========================================================
+         ADVERTENCIA DE PAGO
+         ========================================================= -->
+
     {% if dias_restantes <= 5 and dias_restantes > 0 %}
-    <div class="modal fade" id="paymentWarningModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content border-0 shadow-lg" style="border-radius: 20px;">
-                <div class="modal-header bg-warning border-0">
-                    <h5 class="modal-title fw-bold text-dark"><i class="bi bi-clock-history"></i> Recordatorio de Pago</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body p-4 text-center">
-                    <h4 class="fw-bold">Tu suscripción vence en {{ dias_restantes }} día(s)</h4>
-                    <p class="text-muted">Evita la interrupción del servicio realizando tu pago a tiempo.</p>
-                </div>
-                <div class="modal-footer justify-content-center border-0">
-                    <form method="POST" action="{% url 'pagar_suscripcion' %}">
-                        {% csrf_token %}
+
+        <div
+            class="modal fade"
+            id="paymentWarningModal"
+            tabindex="-1"
+            aria-hidden="true"
+        >
+
+            <div
+                class="
+                    modal-dialog
+                    modal-dialog-centered
+                "
+            >
+
+                <div
+                    class="
+                        modal-content
+                        border-0
+                        shadow-lg
+                    "
+                    style="
+                        border-radius: 20px;
+                    "
+                >
+
+                    <div
+                        class="
+                            modal-header
+                            bg-warning
+                            border-0
+                        "
+                    >
+
+                        <h5
+                            class="
+                                modal-title
+                                fw-bold
+                                text-dark
+                            "
+                        >
+
+                            <i
+                                class="
+                                    bi
+                                    bi-clock-history
+                                "
+                            ></i>
+
+                            Recordatorio de Pago
+
+                        </h5>
+
 
                         <button
-                            type="submit"
-                            class="btn btn-dark rounded-pill px-4 shadow-lg"
-                        >
-                            <i class="bi bi-credit-card-2-front me-2"></i>
-                            Pagar Suscripción ($50.00)
-                        </button>
-                    </form>
-                    <div class="w-100 text-center mt-2">
-                        <a href="https://wa.me/50360704219" target="_blank" class="small text-muted text-decoration-none">
-                            o contáctanos por WhatsApp
-                        </a>
+                            type="button"
+                            class="btn-close"
+                            data-bs-dismiss="modal"
+                        ></button>
+
                     </div>
+
+
+                    <div
+                        class="
+                            modal-body
+                            p-4
+                            text-center
+                        "
+                    >
+
+                        <h4 class="fw-bold">
+
+                            Tu suscripción vence en
+                            {{ dias_restantes }}
+                            día(s)
+
+                        </h4>
+
+
+                        <p class="text-muted">
+
+                            Evita la interrupción del servicio
+                            realizando tu pago a tiempo.
+
+                        </p>
+
+                    </div>
+
+
+                    <div
+                        class="
+                            modal-footer
+                            justify-content-center
+                            border-0
+                        "
+                    >
+
+                        <form
+                            method="POST"
+                            action="{% url 'pagar_suscripcion' %}"
+                        >
+
+                            {% csrf_token %}
+
+                            <button
+                                type="submit"
+                                class="
+                                    btn
+                                    btn-dark
+                                    rounded-pill
+                                    px-4
+                                    shadow-lg
+                                "
+                            >
+
+                                <i
+                                    class="
+                                        bi
+                                        bi-credit-card-2-front
+                                        me-2
+                                    "
+                                ></i>
+
+                                Pagar Suscripción ($50.00)
+
+                            </button>
+
+                        </form>
+
+
+                        <div
+                            class="
+                                w-100
+                                text-center
+                                mt-2
+                            "
+                        >
+
+                            <a
+                                href="https://wa.me/50360704219"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                class="
+                                    small
+                                    text-muted
+                                    text-decoration-none
+                                "
+                            >
+
+                                o contáctanos por WhatsApp
+
+                            </a>
+
+                        </div>
+
+                    </div>
+
                 </div>
+
             </div>
+
         </div>
-    </div>
+
     {% endif %}
+
+
+    <!-- =========================================================
+         BLOQUEO DE SUSCRIPCIÓN
+         ========================================================= -->
 
     {% if dias_restantes <= 0 %}
-    <div class="modal fade" id="paymentBlockModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
-        <div class="modal-dialog modal-fullscreen">
-            <div class="modal-content bg-dark text-white text-center d-flex flex-column justify-content-center align-items-center">
-                <div style="max-width: 500px; padding: 30px;">
-                    <i class="bi bi-slash-circle fs-1 text-danger mb-4 d-block" style="font-size: 5rem !important;"></i>
-                    <h1 class="fw-bold display-4 mb-3">Servicio Suspendido</h1>
-                    <p class="m-0 small text-white-50">Para reactivar el servicio inmediatamente, por favor gestiona tu pago.</p>
+
+        <div
+            class="modal fade"
+            id="paymentBlockModal"
+            tabindex="-1"
+            aria-hidden="true"
+            data-bs-backdrop="static"
+            data-bs-keyboard="false"
+        >
+
+            <div
+                class="
+                    modal-dialog
+                    modal-fullscreen
+                "
+            >
+
+                <div
+                    class="
+                        modal-content
+                        bg-dark
+                        text-white
+                        text-center
+                        d-flex
+                        flex-column
+                        justify-content-center
+                        align-items-center
+                    "
+                >
+
+                    <div
+                        style="
+                            max-width: 500px;
+                            padding: 30px;
+                        "
+                    >
+
+                        <i
+                            class="
+                                bi
+                                bi-slash-circle
+                                text-danger
+                                mb-4
+                                d-block
+                            "
+                            style="
+                                font-size: 5rem;
+                            "
+                        ></i>
+
+
+                        <h1
+                            class="
+                                fw-bold
+                                display-4
+                                mb-3
+                            "
+                        >
+
+                            Servicio Suspendido
+
+                        </h1>
+
+
+                        <p
+                            class="
+                                m-0
+                                small
+                                text-white-50
+                            "
+                        >
+
+                            Para reactivar el servicio
+                            inmediatamente, por favor gestiona
+                            tu pago.
+
+                        </p>
+
                     </div>
 
-                    <form method="POST" action="{% url 'pagar_suscripcion' %}">
+
+                    <form
+                        method="POST"
+                        action="{% url 'pagar_suscripcion' %}"
+                    >
+
                         {% csrf_token %}
 
                         <button
                             type="submit"
-                            class="btn btn-success btn-lg rounded-pill px-5 py-3 fw-bold shadow-lg"
+                            class="
+                                btn
+                                btn-success
+                                btn-lg
+                                rounded-pill
+                                px-5
+                                py-3
+                                fw-bold
+                                shadow-lg
+                            "
                         >
-                            <i class="bi bi-credit-card-2-front me-2"></i>
+
+                            <i
+                                class="
+                                    bi
+                                    bi-credit-card-2-front
+                                    me-2
+                                "
+                            ></i>
+
                             PAGAR Y REACTIVAR ($50)
+
                         </button>
+
                     </form>
 
+
                     <div class="mt-4">
-                        <a href="https://wa.me/50360704219" target="_blank" class="text-white-50 small text-decoration-none">
-                            <i class="bi bi-whatsapp"></i> ¿Problemas? Soporte Técnico
+
+                        <a
+                            href="https://wa.me/50360704219"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class="
+                                text-white-50
+                                small
+                                text-decoration-none
+                            "
+                        >
+
+                            <i
+                                class="bi bi-whatsapp"
+                            ></i>
+
+                            ¿Problemas?
+                            Soporte Técnico
+
                         </a>
+
                     </div>
+
                 </div>
+
             </div>
+
         </div>
-    </div>
+
     {% endif %}
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-    
+
+    <!-- =========================================================
+         LIBRERÍAS
+         ========================================================= -->
+
+    <script
+        src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"
+    ></script>
+
+    <script
+        src="https://cdn.jsdelivr.net/npm/sweetalert2@11"
+    ></script>
+
+
     <script>
-        // --- LOGICA DE MODALES DE PAGO ---
-        document.addEventListener("DOMContentLoaded", function() {
-            const blockModalEl = document.getElementById('paymentBlockModal');
-            if (blockModalEl) {
-                const blockModal = new bootstrap.Modal(blockModalEl);
-                blockModal.show();
+        /* =========================================================
+           CAMBIO DE SUCURSAL
+           ========================================================= */
+
+        document
+            .querySelectorAll(
+                ".branch-option"
+            )
+            .forEach(
+                option => {
+
+                    option.addEventListener(
+                        "click",
+                        function () {
+
+                            const branchId =
+                                this.dataset.branchId;
+
+
+                            const currentBranchId =
+                                document
+                                    .getElementById(
+                                        "branchPublicIdInput"
+                                    )
+                                    ?.value;
+
+
+                            if (
+                                !branchId ||
+                                branchId ===
+                                    currentBranchId
+                            ) {
+                                return;
+                            }
+
+
+                            const form =
+                                document.getElementById(
+                                    "branchSwitcherForm"
+                                );
+
+
+                            const input =
+                                document.getElementById(
+                                    "branchPublicIdInput"
+                                );
+
+
+                            if (
+                                !form ||
+                                !input
+                            ) {
+                                return;
+                            }
+
+
+                            document
+                                .querySelectorAll(
+                                    ".branch-option"
+                                )
+                                .forEach(
+                                    item => {
+
+                                        item.disabled =
+                                            true;
+
+                                    }
+                                );
+
+
+                            input.value =
+                                branchId;
+
+
+                            form.submit();
+                        }
+                    );
+                }
+            );
+
+
+        /* =========================================================
+           MODALES DE PAGO
+           ========================================================= */
+
+        document.addEventListener(
+            "DOMContentLoaded",
+            function () {
+
+                const blockModalEl =
+                    document.getElementById(
+                        "paymentBlockModal"
+                    );
+
+
+                if (blockModalEl) {
+
+                    const blockModal =
+                        new bootstrap.Modal(
+                            blockModalEl
+                        );
+
+                    blockModal.show();
+
+                    return;
+                }
+
+
+                const warningModalEl =
+                    document.getElementById(
+                        "paymentWarningModal"
+                    );
+
+
+                if (warningModalEl) {
+
+                    const hoy =
+                        new Date()
+                            .toISOString()
+                            .split("T")[0];
+
+
+                    const ultimoAviso =
+                        localStorage.getItem(
+                            "foodback_last_payment_warning"
+                        );
+
+
+                    if (
+                        ultimoAviso !== hoy
+                    ) {
+
+                        const warningModal =
+                            new bootstrap.Modal(
+                                warningModalEl
+                            );
+
+
+                        warningModal.show();
+
+
+                        localStorage.setItem(
+                            "foodback_last_payment_warning",
+                            hoy
+                        );
+                    }
+                }
+            }
+        );
+
+
+        /* =========================================================
+           AUDIO
+           ========================================================= */
+
+        const notificacionAudio =
+            new Audio(
+                "https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3"
+            );
+
+
+        document.addEventListener(
+            "click",
+            function () {
+
+                notificacionAudio.load();
+
+                notificacionAudio.volume = 0;
+
+
+                notificacionAudio
+                    .play()
+                    .then(
+                        () => {
+
+                            notificacionAudio.pause();
+
+                            notificacionAudio.volume =
+                                1.0;
+
+                            notificacionAudio.currentTime =
+                                0;
+                        }
+                    )
+                    .catch(
+                        () => {
+                        }
+                    );
+
+            },
+            {
+                once: true
+            }
+        );
+
+
+        function reproducirSonido() {
+
+            notificacionAudio
+                .play()
+                .catch(
+                    () => {
+
+                        console.log(
+                            "Esperando interacción para audio..."
+                        );
+
+                    }
+                );
+        }
+
+
+        /* =========================================================
+           TOASTS
+           ========================================================= */
+
+        const Toast =
+            Swal.mixin({
+
+                toast: true,
+
+                position:
+                    "top-end",
+
+                iconColor:
+                    "white",
+
+                customClass: {
+                    popup:
+                        "colored-toast"
+                },
+
+                showConfirmButton:
+                    false,
+
+                timer:
+                    3000,
+
+                timerProgressBar:
+                    true
+            });
+
+
+        function processMessages(
+            docOrElement
+        ) {
+
+            const msgDiv =
+                docOrElement.getElementById(
+                    "django-messages-data"
+                );
+
+
+            if (!msgDiv) {
                 return;
             }
 
-            const warningModalEl = document.getElementById('paymentWarningModal');
-            if (warningModalEl) {
-                const hoy = new Date().toISOString().split('T')[0];
-                const ultimoAviso = localStorage.getItem('foodback_last_payment_warning');
 
-                if (ultimoAviso !== hoy) {
-                    const warningModal = new bootstrap.Modal(warningModalEl);
-                    warningModal.show();
-                    localStorage.setItem('foodback_last_payment_warning', hoy);
-                }
-            }
-        });
+            try {
 
-        // 1. AUDIO
-        const notificacionAudio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+                const messages =
+                    JSON.parse(
+                        msgDiv.getAttribute(
+                            "data-messages"
+                        )
+                    );
 
-        document.addEventListener('click', function() {
-            notificacionAudio.load();
-            notificacionAudio.volume = 0;
 
-            notificacionAudio.play().then(() => {
-                notificacionAudio.pause();
-                notificacionAudio.volume = 1.0;
-                notificacionAudio.currentTime = 0;
-            }).catch(e => {});
-        }, { once: true });
+                messages.forEach(
+                    msg => {
 
-        function reproducirSonido() {
-            notificacionAudio.play().catch(e => console.log("Esperando interacción para audio..."));
-        }
+                        let icon =
+                            "success";
 
-        // 2. TOASTS
-        const Toast = Swal.mixin({
-            toast: true,
-            position: 'top-end',
-            iconColor: 'white',
-            customClass: { popup: 'colored-toast' },
-            showConfirmButton: false,
-            timer: 3000,
-            timerProgressBar: true
-        });
 
-        function processMessages(docOrElement) {
-            const msgDiv = docOrElement.getElementById('django-messages-data');
+                        if (
+                            msg.tag.includes(
+                                "error"
+                            )
+                        ) {
+                            icon =
+                                "error";
+                        }
 
-            if (msgDiv) {
-                try {
-                    const messages = JSON.parse(msgDiv.getAttribute('data-messages'));
 
-                    messages.forEach(msg => {
-                        let icon = 'success';
+                        if (
+                            msg.tag.includes(
+                                "warning"
+                            )
+                        ) {
+                            icon =
+                                "warning";
+                        }
 
-                        if (msg.tag.includes('error')) icon = 'error';
-                        if (msg.tag.includes('warning')) icon = 'warning';
 
                         Toast.fire({
                             icon: icon,
                             title: msg.text
                         });
-                    });
+                    }
+                );
 
-                    msgDiv.remove();
 
-                } catch(e) {
-                    console.error("Error parseando mensajes", e);
-                }
+                msgDiv.remove();
+
+            } catch (error) {
+
+                console.error(
+                    "Error parseando mensajes",
+                    error
+                );
             }
         }
 
-        document.addEventListener("DOMContentLoaded", function() {
-            processMessages(document);
 
-            const activeTabId = localStorage.getItem('activeTab');
+        /* =========================================================
+           RESTAURAR TAB ACTIVO
+           ========================================================= */
 
-            if (activeTabId) {
-                const tabBtn = document.querySelector(`[data-bs-target="#${activeTabId}"]`);
-                const tabPane = document.getElementById(activeTabId);
+        document.addEventListener(
+            "DOMContentLoaded",
+            function () {
 
-                if (tabBtn && tabPane) {
-                    new bootstrap.Tab(tabBtn).show();
-                }
-            }
-        });
+                processMessages(
+                    document
+                );
 
-        // 3. POLLING OPTIMIZADO
-        let dashboardLastUpdate = "{{ last_update|default:'none' }}";
-        let ultimosPedidosContados = document.querySelectorAll('#pills-nuevos .order-card').length;
 
-        let isPaused = false;
-        let pollingDelay = 5000;
-        const MIN_DELAY = 5000;
-        const MAX_DELAY = 20000;
-        let pollingTimer = null;
+                const activeTabId =
+                    localStorage.getItem(
+                        "activeTab"
+                    );
 
-        function pausePolling() {
-            isPaused = true;
-        }
 
-        document.addEventListener('mousedown', () => {
-            isPaused = true;
-        });
-
-        document.addEventListener('mouseup', () => {
-            setTimeout(() => {
-                isPaused = false;
-            }, 1000);
-        });
-
-        function scheduleNextAdminPoll(delay = pollingDelay) {
-            clearTimeout(pollingTimer);
-            pollingTimer = setTimeout(syncAdminDashboard, delay);
-        }
-
-        function syncAdminDashboard() {
-            if (document.getElementById('paymentBlockModal')) {
-                scheduleNextAdminPoll(MAX_DELAY);
-                return;
-            }
-
-            if (isPaused) {
-                scheduleNextAdminPoll(MIN_DELAY);
-                return;
-            }
-
-            if (document.hidden) {
-                scheduleNextAdminPoll(30000);
-                return;
-            }
-
-            const url = new URL("{% url 'api_dashboard_admin_sync' %}", window.location.origin);
-            url.searchParams.set('last_update', dashboardLastUpdate || 'none');
-
-            fetch(url, {
-                method: 'GET',
-                credentials: 'same-origin',
-                headers: {
-                    'X-Requested-With': 'XMLHttpRequest'
-                }
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (!data.changed) {
-                    pollingDelay = Math.min(pollingDelay + 3000, MAX_DELAY);
-                    scheduleNextAdminPoll();
+                if (!activeTabId) {
                     return;
                 }
 
-                dashboardLastUpdate = data.last_update || dashboardLastUpdate;
-                pollingDelay = MIN_DELAY;
 
-                const nuevosEnServidor = data.nuevos_count || 0;
+                const tabBtn =
+                    document.querySelector(
+                        `[data-bs-target="#${activeTabId}"]`
+                    );
 
-                if (nuevosEnServidor > ultimosPedidosContados) {
-                    reproducirSonido();
+
+                const tabPane =
+                    document.getElementById(
+                        activeTabId
+                    );
+
+
+                if (
+                    tabBtn &&
+                    tabPane
+                ) {
+
+                    new bootstrap.Tab(
+                        tabBtn
+                    ).show();
+
                 }
+            }
+        );
 
-                ultimosPedidosContados = nuevosEnServidor;
 
-                if (data.html) {
-                    Object.keys(data.html).forEach(id => {
-                        const actual = document.getElementById(id);
+        /* =========================================================
+           POLLING OPTIMIZADO
+           ========================================================= */
 
-                        if (actual && actual.innerHTML !== data.html[id]) {
-                            actual.innerHTML = data.html[id];
-                        }
-                    });
-                }
+        let dashboardLastUpdate =
+            "{{ last_update|default:'none' }}";
 
-                scheduleNextAdminPoll();
-            })
-            .catch(err => {
-                console.error('Error sync admin:', err);
-                pollingDelay = Math.min(pollingDelay + 5000, 30000);
-                scheduleNextAdminPoll();
-            });
+
+        let ultimosPedidosContados =
+            document.querySelectorAll(
+                "#pills-nuevos .order-card"
+            ).length;
+
+
+        let isPaused =
+            false;
+
+
+        let pollingDelay =
+            5000;
+
+
+        const MIN_DELAY =
+            5000;
+
+
+        const MAX_DELAY =
+            20000;
+
+
+        let pollingTimer =
+            null;
+
+
+        function pausePolling() {
+
+            isPaused =
+                true;
         }
 
-        document.addEventListener('visibilitychange', () => {
-            if (!document.hidden) {
-                pollingDelay = MIN_DELAY;
-                scheduleNextAdminPoll(1000);
+
+        document.addEventListener(
+            "mousedown",
+            () => {
+
+                isPaused =
+                    true;
             }
-        });
+        );
 
-        scheduleNextAdminPoll(3000);
 
-        function saveTab(tabId) {
-            localStorage.setItem('activeTab', tabId);
+        document.addEventListener(
+            "mouseup",
+            () => {
+
+                setTimeout(
+                    () => {
+
+                        isPaused =
+                            false;
+
+                    },
+                    1000
+                );
+            }
+        );
+
+
+        function scheduleNextAdminPoll(
+            delay = pollingDelay
+        ) {
+
+            clearTimeout(
+                pollingTimer
+            );
+
+
+            pollingTimer =
+                setTimeout(
+                    syncAdminDashboard,
+                    delay
+                );
+        }
+
+
+        function syncAdminDashboard() {
+
+            if (
+                document.getElementById(
+                    "paymentBlockModal"
+                )
+            ) {
+
+                scheduleNextAdminPoll(
+                    MAX_DELAY
+                );
+
+                return;
+            }
+
+
+            if (isPaused) {
+
+                scheduleNextAdminPoll(
+                    MIN_DELAY
+                );
+
+                return;
+            }
+
+
+            if (document.hidden) {
+
+                scheduleNextAdminPoll(
+                    30000
+                );
+
+                return;
+            }
+
+
+            const url =
+                new URL(
+                    "{% url 'api_dashboard_admin_sync' %}",
+                    window.location.origin
+                );
+
+
+            url.searchParams.set(
+                "last_update",
+                dashboardLastUpdate ||
+                    "none"
+            );
+
+
+            fetch(
+                url,
+                {
+                    method:
+                        "GET",
+
+                    credentials:
+                        "same-origin",
+
+                    headers: {
+                        "X-Requested-With":
+                            "XMLHttpRequest"
+                    }
+                }
+            )
+            .then(
+                response => {
+
+                    if (
+                        !response.ok
+                    ) {
+
+                        throw new Error(
+                            `HTTP ${response.status}`
+                        );
+                    }
+
+
+                    return response.json();
+                }
+            )
+            .then(
+                data => {
+
+                    if (
+                        !data.changed
+                    ) {
+
+                        pollingDelay =
+                            Math.min(
+                                pollingDelay + 3000,
+                                MAX_DELAY
+                            );
+
+
+                        scheduleNextAdminPoll();
+
+
+                        return;
+                    }
+
+
+                    dashboardLastUpdate =
+                        data.last_update ||
+                        dashboardLastUpdate;
+
+
+                    pollingDelay =
+                        MIN_DELAY;
+
+
+                    const nuevosEnServidor =
+                        data.nuevos_count ||
+                        0;
+
+
+                    if (
+                        nuevosEnServidor >
+                        ultimosPedidosContados
+                    ) {
+
+                        reproducirSonido();
+                    }
+
+
+                    ultimosPedidosContados =
+                        nuevosEnServidor;
+
+
+                    if (
+                        data.html
+                    ) {
+
+                        Object
+                            .keys(
+                                data.html
+                            )
+                            .forEach(
+                                id => {
+
+                                    const actual =
+                                        document.getElementById(
+                                            id
+                                        );
+
+
+                                    if (
+                                        actual &&
+                                        actual.innerHTML !==
+                                            data.html[id]
+                                    ) {
+
+                                        actual.innerHTML =
+                                            data.html[id];
+                                    }
+                                }
+                            );
+                    }
+
+
+                    scheduleNextAdminPoll();
+                }
+            )
+            .catch(
+                error => {
+
+                    console.error(
+                        "Error sync admin:",
+                        error
+                    );
+
+
+                    pollingDelay =
+                        Math.min(
+                            pollingDelay + 5000,
+                            30000
+                        );
+
+
+                    scheduleNextAdminPoll();
+                }
+            );
+        }
+
+
+        document.addEventListener(
+            "visibilitychange",
+            () => {
+
+                if (
+                    !document.hidden
+                ) {
+
+                    pollingDelay =
+                        MIN_DELAY;
+
+
+                    scheduleNextAdminPoll(
+                        1000
+                    );
+                }
+            }
+        );
+
+
+        scheduleNextAdminPoll(
+            3000
+        );
+
+
+        /* =========================================================
+           GUARDAR TAB ACTIVO
+           ========================================================= */
+
+        function saveTab(
+            tabId
+        ) {
+
+            localStorage.setItem(
+                "activeTab",
+                tabId
+            );
         }
     </script>
+
 </body>
+
 </html>

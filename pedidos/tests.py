@@ -22,6 +22,8 @@ from django.contrib.sessions.backends.db import SessionStore
 
 from django.contrib.auth.models import AnonymousUser
 
+from django.core.exceptions import PermissionDenied
+
 from django.test import override_settings
 
 from django.http import HttpResponse
@@ -346,18 +348,22 @@ class AuthenticationBaselineTests(FoodBackTestBase):
             )
         )
 
-    def test_repartidor_no_accede_dashboard_admin(self):
-        self.client.force_login(self.delivery_1)
-
-        response = self.client.get(
-            reverse("dashboard_admin")
+    def test_repartidor_no_accede_dashboard_admin(
+        self,
+    ):
+        self.client.force_login(
+            self.delivery_1
         )
 
-        self.assertEqual(response.status_code, 302)
-        self.assertTrue(
-            response["Location"].startswith(
-                reverse("login_custom")
+        response = self.client.get(
+            reverse(
+                "dashboard_admin"
             )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403,
         )
 
     def test_admin_no_accede_dashboard_delivery(self):
@@ -6606,4 +6612,88 @@ class WompiRedirectTenantIsolationTests(
                 "historial_pedidos",
                 [],
             ),
+        )
+        
+
+class TenantMembershipAuthorizationTests(
+    FoodBackTestBase
+):
+
+    def test_owner_membership_puede_entrar_dashboard(
+        self,
+    ):
+        self.client.force_login(
+            self.admin_user
+        )
+
+        response = self.client.get(
+            reverse(
+                "dashboard_admin"
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+
+    def test_manager_membership_puede_entrar_dashboard(
+        self,
+    ):
+        manager = User.objects.create_user(
+            username="manager_authz",
+            password="test12345",
+        )
+
+        Membership.objects.create(
+            tenant=self.tenant,
+            usuario=manager,
+            rol=Membership.ROLE_MANAGER,
+            activo=True,
+        )
+
+        self.client.force_login(
+            manager
+        )
+
+        response = self.client.get(
+            reverse(
+                "dashboard_admin"
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+
+    def test_usuario_solo_con_group_admin_no_es_autorizado(
+        self,
+    ):
+        legacy_admin = (
+            User.objects.create_user(
+                username="legacy_admin",
+                password="test12345",
+            )
+        )
+
+        legacy_admin.groups.add(
+            self.grupo_admin
+        )
+
+        self.client.force_login(
+            legacy_admin
+        )
+
+        response = self.client.get(
+            reverse(
+                "dashboard_admin"
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403,
         )

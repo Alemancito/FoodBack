@@ -13,6 +13,9 @@ from django.db import transaction
 from django.contrib import messages
 from decouple import config
 from django.contrib.auth.decorators import login_required, user_passes_test
+from .authz import (
+    require_tenant_roles,
+)
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_POST
 from django.views.decorators.csrf import csrf_exempt  # IMPORTANTE PARA EL WEBHOOK
@@ -24,6 +27,7 @@ from django.db.models import Sum, Count, F, Q, Max, Prefetch
 from django.core.exceptions import PermissionDenied
 from django.utils.dateparse import parse_datetime
 from django.utils import timezone
+from .models import Membership
 
 # --- LÓGICA DE LOGIN Y SEGURIDAD ---
 
@@ -3342,7 +3346,10 @@ def _pedidos_sesion(request):
 
 @never_cache
 @login_required(login_url="login_custom")
-@user_passes_test(es_admin, login_url="login_custom")
+@require_tenant_roles(
+    Membership.ROLE_OWNER,
+    Membership.ROLE_MANAGER,
+)
 def dashboard_admin_view(request):
     _limpiar_pedidos_pendientes_vencidos()
 
@@ -3489,7 +3496,10 @@ def dashboard_admin_view(request):
 
 @never_cache
 @login_required(login_url='login_custom')
-@user_passes_test(es_admin, login_url='login_custom')
+@require_tenant_roles(
+    Membership.ROLE_OWNER,
+    Membership.ROLE_MANAGER,
+)
 def api_dashboard_admin_sync(request):
     sucursal = getattr(
         request,
@@ -3614,7 +3624,10 @@ def api_dashboard_admin_sync(request):
 
 @never_cache
 @login_required(login_url='login_custom')
-@user_passes_test(es_admin, login_url='login_custom')
+@require_tenant_roles(
+    Membership.ROLE_OWNER,
+    Membership.ROLE_MANAGER,
+)
 def admin_settings_view(request):
     if not suscripcion_activa(
         request.tenant
@@ -3920,7 +3933,10 @@ def admin_settings_view(request):
 
 
 @login_required(login_url='login_custom')
-@user_passes_test(es_admin, login_url='login_custom')
+@require_tenant_roles(
+    Membership.ROLE_OWNER,
+    Membership.ROLE_MANAGER,
+)
 @require_POST
 def eliminar_excepcion_view(
     request,
@@ -4743,7 +4759,10 @@ def api_order_status(request, tracking_token):
 
 @never_cache
 @login_required(login_url='login_custom')
-@user_passes_test(es_admin, login_url='login_custom')
+@require_tenant_roles(
+    Membership.ROLE_OWNER,
+    Membership.ROLE_MANAGER,
+)
 def dashboard_metrics_view(request):
     tenant = getattr(
         request,
@@ -5064,7 +5083,10 @@ def perfil_usuario_view(request):
 
 
 @login_required(login_url='login_custom')
-@user_passes_test(es_admin, login_url='login_custom')
+@require_tenant_roles(
+    Membership.ROLE_OWNER,
+    Membership.ROLE_MANAGER,
+)
 @require_POST
 def pagar_suscripcion_view(request):
     """
@@ -5345,7 +5367,10 @@ def pagar_suscripcion_view(request):
 
 
 @login_required(login_url="login_custom")
-@user_passes_test(es_admin, login_url="login_custom")
+@require_tenant_roles(
+    Membership.ROLE_OWNER,
+    Membership.ROLE_MANAGER,
+)
 def wompi_suscripcion_respuesta_view(request):
     referencia = (
         request.GET.get("ref")

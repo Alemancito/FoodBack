@@ -62,6 +62,7 @@ from .models import (
     EstadoPasarelaPago,
     SuscripcionTenant,
     RepartidorSucursal,
+    MembershipSucursal,
 )
 
 
@@ -6664,10 +6665,16 @@ class TenantMembershipAuthorizationTests(
             password="test12345",
         )
 
-        Membership.objects.create(
+        membership = Membership.objects.create(
             tenant=self.tenant,
             usuario=manager,
             rol=Membership.ROLE_MANAGER,
+            activo=True,
+        )
+
+        MembershipSucursal.objects.create(
+            membership=membership,
+            sucursal=self.sucursal,
             activo=True,
         )
 
@@ -6946,7 +6953,7 @@ class DeliveryAssignmentAuthorizationTests(
         )
 
 
-    def test_repartidor_de_otra_sucursal_no_puede_entrar(
+    def test_repartidor_resuelve_su_sucursal_asignada(
         self,
     ):
         sucursal_b = Sucursal.objects.create(
@@ -6979,7 +6986,12 @@ class DeliveryAssignmentAuthorizationTests(
 
         self.assertEqual(
             response.status_code,
-            403,
+            200,
+        )
+
+        self.assertEqual(
+            response.wsgi_request.sucursal,
+            sucursal_b,
         )
 
 
@@ -7011,4 +7023,341 @@ class DeliveryAssignmentAuthorizationTests(
         self.assertEqual(
             response.status_code,
             403,
+        )
+        
+        
+class ManagerBranchAuthorizationTests(
+    FoodBackTestBase
+):
+
+    def setUp(self):
+        self.manager = User.objects.create_user(
+            username="manager_branch_auth",
+            password="PasswordSeguro123!",
+        )
+
+        self.membership = (
+            Membership.objects.create(
+                tenant=self.tenant,
+                usuario=self.manager,
+                rol=Membership.ROLE_MANAGER,
+                activo=True,
+            )
+        )
+
+        self.sucursal_b = Sucursal.objects.create(
+            tenant=self.tenant,
+            nombre="Sucursal B Auth",
+            slug="sucursal-b-auth",
+            estado=Sucursal.Estado.ACTIVA,
+        )
+
+
+    def test_manager_asignado_puede_administrar_sucursal(
+        self,
+    ):
+        MembershipSucursal.objects.create(
+            membership=self.membership,
+            sucursal=self.sucursal,
+            activo=True,
+        )
+
+        from pedidos.authz import (
+            obtener_acceso_admin_sucursal,
+        )
+
+        request = type(
+            "Request",
+            (),
+            {},
+        )()
+
+        request.user = self.manager
+        request.tenant = self.tenant
+        request.sucursal = self.sucursal
+
+        acceso = (
+            obtener_acceso_admin_sucursal(
+                request
+            )
+        )
+
+        self.assertEqual(
+            acceso,
+            self.membership,
+        )
+
+
+    def test_manager_no_asignado_no_administra_otra_sucursal(
+        self,
+    ):
+        MembershipSucursal.objects.create(
+            membership=self.membership,
+            sucursal=self.sucursal,
+            activo=True,
+        )
+
+        from pedidos.authz import (
+            obtener_acceso_admin_sucursal,
+        )
+
+        request = type(
+            "Request",
+            (),
+            {},
+        )()
+
+        request.user = self.manager
+        request.tenant = self.tenant
+        request.sucursal = self.sucursal_b
+
+        self.assertIsNone(
+            obtener_acceso_admin_sucursal(
+                request
+            )
+        )
+
+
+    def test_owner_administra_todas_las_sucursales_sin_asignacion(
+        self,
+    ):
+        from pedidos.authz import (
+            obtener_acceso_admin_sucursal,
+        )
+
+        request = type(
+            "Request",
+            (),
+            {},
+        )()
+
+        request.user = self.admin_user
+        request.tenant = self.tenant
+        request.sucursal = self.sucursal_b
+
+        acceso = (
+            obtener_acceso_admin_sucursal(
+                request
+            )
+        )
+
+        self.assertIsNotNone(
+            acceso
+        )
+
+        self.assertEqual(
+            acceso.rol,
+            Membership.ROLE_OWNER,
+        )
+
+
+    def test_sucursal_de_otro_tenant_nunca_autoriza(
+        self,
+    ):
+        tenant_b = Tenant.objects.create(
+            nombre="Tenant B Branch Auth",
+            slug="tenant-b-branch-auth",
+        )
+
+        sucursal_otro_tenant = (
+            Sucursal.objects.create(
+                tenant=tenant_b,
+                nombre="Sucursal Ajena",
+                slug="sucursal-ajena",
+                estado=Sucursal.Estado.ACTIVA,
+            )
+        )
+
+        # Incluso si alguien consiguiera introducir
+        # una relación inconsistente en la BD...
+        MembershipSucursal.objects.create(
+            membership=self.membership,
+            sucursal=sucursal_otro_tenant,
+            activo=True,
+        )
+
+        from pedidos.authz import (
+            obtener_acceso_admin_sucursal,
+        )
+
+        request = type(
+            "Request",
+            (),
+            {},
+        )()
+
+        request.user = self.manager
+        request.tenant = self.tenant
+        request.sucursal = sucursal_otro_tenant
+
+        self.assertIsNone(
+            obtener_acceso_admin_sucursal(
+                request
+            )
+        )
+        
+class SucursalContextAuthorizationTests(
+    FoodBackTestBase
+):
+
+    def setUp(self):
+        self.sucursal_b = Sucursal.objects.create(
+            tenant=self.tenant,
+            nombre="Sucursal B Context",
+            slug="sucursal-b-context",
+            estado=Sucursal.Estado.ACTIVA,
+        )
+
+    def test_manager_resuelve_solo_sucursal_asignada(
+        self,
+    ):
+        manager = User.objects.create_user(
+            username="manager_context_b",
+            password="PasswordSeguro123!",
+        )
+
+        membership = Membership.objects.create(
+            tenant=self.tenant,
+            usuario=manager,
+            rol=Membership.ROLE_MANAGER,
+            activo=True,
+        )
+
+        MembershipSucursal.objects.create(
+            membership=membership,
+            sucursal=self.sucursal_b,
+            activo=True,
+        )
+
+        self.client.force_login(
+            manager
+        )
+
+        response = self.client.get(
+            reverse("dashboard_admin")
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.assertEqual(
+            response.wsgi_request.sucursal,
+            self.sucursal_b,
+        )
+
+
+    def test_session_no_permite_manager_saltar_a_sucursal_no_asignada(
+        self,
+    ):
+        manager = User.objects.create_user(
+            username="manager_context_session",
+            password="PasswordSeguro123!",
+        )
+
+        membership = Membership.objects.create(
+            tenant=self.tenant,
+            usuario=manager,
+            rol=Membership.ROLE_MANAGER,
+            activo=True,
+        )
+
+        MembershipSucursal.objects.create(
+            membership=membership,
+            sucursal=self.sucursal_b,
+            activo=True,
+        )
+
+        self.client.force_login(
+            manager
+        )
+
+        session = self.client.session
+
+        session[
+            "sucursal_activa_public_id"
+        ] = str(
+            self.sucursal.public_id
+        )
+
+        session.save()
+
+        response = self.client.get(
+            reverse("dashboard_admin")
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.assertEqual(
+            response.wsgi_request.sucursal,
+            self.sucursal_b,
+        )
+
+
+    def test_owner_puede_resolver_segunda_sucursal(
+        self,
+    ):
+        self.client.force_login(
+            self.admin_user
+        )
+
+        session = self.client.session
+
+        session[
+            "sucursal_activa_public_id"
+        ] = str(
+            self.sucursal_b.public_id
+        )
+
+        session.save()
+
+        response = self.client.get(
+            reverse("dashboard_admin")
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.assertEqual(
+            response.wsgi_request.sucursal,
+            self.sucursal_b,
+        )
+
+
+    def test_repartidor_resuelve_solo_sucursal_asignada(
+        self,
+    ):
+        repartidor = User.objects.create_user(
+            username="delivery_context_b",
+            password="PasswordSeguro123!",
+        )
+
+        RepartidorSucursal.objects.create(
+            usuario=repartidor,
+            sucursal=self.sucursal_b,
+            activo=True,
+        )
+
+        self.client.force_login(
+            repartidor
+        )
+
+        response = self.client.get(
+            reverse("dashboard_delivery")
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.assertEqual(
+            response.wsgi_request.sucursal,
+            self.sucursal_b,
         )

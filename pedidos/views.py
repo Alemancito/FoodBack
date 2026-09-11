@@ -16,6 +16,7 @@ from django.contrib.auth.decorators import login_required
 from .authz import (
     obtener_asignacion_repartidor_activa,
     obtener_membership_activo,
+    require_branch_access,
     require_delivery_assignment,
     require_tenant_roles,
 )
@@ -3373,10 +3374,7 @@ def _pedidos_sesion(request):
 
 @never_cache
 @login_required(login_url="login_custom")
-@require_tenant_roles(
-    Membership.ROLE_OWNER,
-    Membership.ROLE_MANAGER,
-)
+@require_branch_access
 def dashboard_admin_view(request):
     _limpiar_pedidos_pendientes_vencidos()
 
@@ -3523,10 +3521,7 @@ def dashboard_admin_view(request):
 
 @never_cache
 @login_required(login_url='login_custom')
-@require_tenant_roles(
-    Membership.ROLE_OWNER,
-    Membership.ROLE_MANAGER,
-)
+@require_branch_access
 def api_dashboard_admin_sync(request):
     sucursal = getattr(
         request,
@@ -3651,10 +3646,7 @@ def api_dashboard_admin_sync(request):
 
 @never_cache
 @login_required(login_url='login_custom')
-@require_tenant_roles(
-    Membership.ROLE_OWNER,
-    Membership.ROLE_MANAGER,
-)
+@require_branch_access
 def admin_settings_view(request):
     if not suscripcion_activa(
         request.tenant
@@ -3960,10 +3952,7 @@ def admin_settings_view(request):
 
 
 @login_required(login_url='login_custom')
-@require_tenant_roles(
-    Membership.ROLE_OWNER,
-    Membership.ROLE_MANAGER,
-)
+@require_branch_access
 @require_POST
 def eliminar_excepcion_view(
     request,
@@ -4786,10 +4775,7 @@ def api_order_status(request, tracking_token):
 
 @never_cache
 @login_required(login_url='login_custom')
-@require_tenant_roles(
-    Membership.ROLE_OWNER,
-    Membership.ROLE_MANAGER,
-)
+@require_branch_access
 def dashboard_metrics_view(request):
     tenant = getattr(
         request,

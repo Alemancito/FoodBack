@@ -3,7 +3,13 @@ from typing import Optional
 
 from django.conf import settings
 
-from .models import Membership, Sucursal, Tenant
+from .models import (
+    Membership,
+    MembershipSucursal,
+    RepartidorSucursal,
+    Sucursal,
+    Tenant,
+)
 
 
 @dataclass(frozen=True)
@@ -161,48 +167,145 @@ def resolver_tenant(request):
     return _resolver_tenant_desarrollo()
 
 
+def _sucursales_accesibles_usuario(
+    request,
+    tenant,
+):
+    """
+    Devuelve únicamente las sucursales que pueden
+    utilizarse como contexto para el usuario actual.
+
+    Los visitantes anónimos conservan acceso a las
+    sucursales públicas activas.
+
+    Para usuarios internos autenticados:
+    - OWNER: todas las sucursales del Tenant.
+    - MANAGER: solo sus asignaciones activas.
+    - DELIVERY: solo sus asignaciones activas.
+    - Sin asignación: ninguna sucursal.
+    """
+
+    sucursales = (
+        Sucursal.objects
+        .filter(
+            tenant=tenant,
+            estado=Sucursal.Estado.ACTIVA,
+        )
+    )
+
+    user = getattr(
+        request,
+        "user",
+        None,
+    )
+
+    # Cliente/visitante público.
+    if (
+        not user
+        or not user.is_authenticated
+    ):
+        return sucursales
+
+    membership = (
+        Membership.objects
+        .filter(
+            usuario=user,
+            tenant=tenant,
+            activo=True,
+        )
+        .first()
+    )
+
+    if membership:
+
+        if (
+            membership.rol
+            == Membership.ROLE_OWNER
+        ):
+            return sucursales
+
+        if (
+            membership.rol
+            == Membership.ROLE_MANAGER
+        ):
+            return (
+                sucursales
+                .filter(
+                    memberships_autorizados__membership=membership,
+                    memberships_autorizados__activo=True,
+                )
+                .distinct()
+            )
+
+    # Si no tiene Membership administrativo,
+    # comprobamos Delivery.
+    return (
+        sucursales
+        .filter(
+            repartidores_asignados__usuario=user,
+            repartidores_asignados__activo=True,
+        )
+        .distinct()
+    )
+
+
 def resolver_sucursal(
     request,
     tenant,
 ):
     """
-    Obtiene una sucursal válida del Tenant.
+    Resuelve una sucursal activa y permitida
+    para el contexto actual.
 
-    Si existe una selección guardada en sesión,
-    se valida SIEMPRE contra el Tenant actual.
+    Una selección guardada en sesión nunca se
+    acepta sin volver a validar autorización.
     """
 
     if not tenant:
         return None
 
-    sucursal_public_id = request.session.get(
-        "sucursal_activa_public_id"
+    sucursal_public_id = (
+        request.session.get(
+            "sucursal_activa_public_id"
+        )
     )
 
-    sucursales = Sucursal.objects.filter(
-        tenant=tenant,
-        estado=Sucursal.Estado.ACTIVA,
+    sucursales = (
+        _sucursales_accesibles_usuario(
+            request,
+            tenant,
+        )
     )
 
     if sucursal_public_id:
-        sucursal = sucursales.filter(
-            public_id=sucursal_public_id
-        ).first()
+
+        sucursal = (
+            sucursales
+            .filter(
+                public_id=sucursal_public_id
+            )
+            .first()
+        )
 
         if sucursal:
             return sucursal
 
+        # La sucursal guardada ya no existe,
+        # está archivada o el usuario perdió acceso.
         request.session.pop(
             "sucursal_activa_public_id",
             None,
         )
+
         request.session.modified = True
 
-    # Mientras solo exista una sucursal activa,
-    # esta será la sucursal natural.
-    return sucursales.order_by(
-        "id"
-    ).first()
+    # Seleccionamos únicamente entre las sucursales
+    # que este contexto tiene permitido utilizar.
+    return (
+        sucursales
+        .order_by("id")
+        .first()
+    )
 
 
 def obtener_tenant_context(request):

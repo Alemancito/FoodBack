@@ -281,6 +281,87 @@ class Membership(models.Model):
 
 
 
+class MembershipSucursal(models.Model):
+    """
+    Define qué sucursales puede administrar
+    un Membership.
+
+    OWNER no necesita registros aquí:
+    por definición puede administrar todas
+    las sucursales de su Tenant.
+
+    Para MANAGER, estas asignaciones determinan
+    las sucursales permitidas.
+    """
+
+    membership = models.ForeignKey(
+        Membership,
+        on_delete=models.PROTECT,
+        related_name="sucursales_permitidas",
+    )
+
+    sucursal = models.ForeignKey(
+        Sucursal,
+        on_delete=models.PROTECT,
+        related_name="memberships_autorizados",
+    )
+
+    activo = models.BooleanField(
+        default=True,
+        db_index=True,
+    )
+
+    fecha_creacion = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    actualizado_en = models.DateTimeField(
+        auto_now=True,
+    )
+
+    def __str__(self):
+        return (
+            f"{self.membership.usuario.username} - "
+            f"{self.sucursal.nombre}"
+        )
+
+    class Meta:
+        verbose_name = "Acceso administrativo a sucursal"
+        verbose_name_plural = (
+            "Accesos administrativos a sucursales"
+        )
+
+        constraints = [
+            models.UniqueConstraint(
+                fields=[
+                    "membership",
+                    "sucursal",
+                ],
+                name=(
+                    "unique_membership_"
+                    "por_sucursal"
+                ),
+            ),
+        ]
+
+        indexes = [
+            models.Index(
+                fields=[
+                    "membership",
+                    "activo",
+                ],
+                name="member_branch_active_idx",
+            ),
+            models.Index(
+                fields=[
+                    "sucursal",
+                    "activo",
+                ],
+                name="branch_member_active_idx",
+            ),
+        ]
+
+
 class RepartidorSucursal(models.Model):
     """
     Autoriza a un usuario para trabajar como repartidor

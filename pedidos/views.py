@@ -20,6 +20,9 @@ from .authz import (
     require_delivery_assignment,
     require_tenant_roles,
 )
+from .tenant_context import (
+    _sucursales_accesibles_usuario,
+)
 from django.urls import reverse
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_POST
@@ -80,6 +83,7 @@ class CustomLoginView(LoginView):
         return reverse(
             "menu"
         )
+    
 
 
 @require_POST
@@ -3371,6 +3375,72 @@ def _pedidos_sesion(request):
 
 # --- DASHBOARDS PROTEGIDOS ---
 
+
+
+@require_POST
+@login_required(
+    login_url="login_custom"
+)
+@require_tenant_roles(
+    Membership.ROLE_OWNER,
+    Membership.ROLE_MANAGER,
+)
+def cambiar_sucursal_view(request):
+    tenant = getattr(
+        request,
+        "tenant",
+        None,
+    )
+
+    if not tenant:
+        return HttpResponseForbidden(
+            "No hay un Tenant activo."
+        )
+
+    public_id = request.POST.get(
+        "sucursal_public_id",
+        ""
+    ).strip()
+
+    if not public_id:
+        return HttpResponseBadRequest(
+            "Sucursal no especificada."
+        )
+
+    sucursales_permitidas = (
+        _sucursales_accesibles_usuario(
+            request,
+            tenant,
+        )
+    )
+
+    sucursal = (
+        sucursales_permitidas
+        .filter(
+            public_id=public_id
+        )
+        .first()
+    )
+
+    if not sucursal:
+        raise PermissionDenied(
+            (
+                "No tienes autorización "
+                "para utilizar esa sucursal."
+            )
+        )
+
+    request.session[
+        "sucursal_activa_public_id"
+    ] = str(
+        sucursal.public_id
+    )
+
+    request.session.modified = True
+
+    return redirect(
+        "dashboard_admin"
+    )
 
 @never_cache
 @login_required(login_url="login_custom")

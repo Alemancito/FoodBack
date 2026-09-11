@@ -39,6 +39,12 @@ urlpatterns = [
     ),
     
     path(
+        "dashboard/cambiar-sucursal/",
+        views.cambiar_sucursal_view,
+        name="cambiar_sucursal",
+    ),
+    
+    path(
         'pedido/<uuid:tracking_token>/ocultar-pendiente/',
         views.ocultar_pedido_pendiente_view,
         name='ocultar_pedido_pendiente',

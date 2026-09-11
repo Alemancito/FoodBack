@@ -7361,3 +7361,193 @@ class SucursalContextAuthorizationTests(
             response.wsgi_request.sucursal,
             self.sucursal_b,
         )
+        
+        
+class BranchSwitchAuthorizationTests(
+    FoodBackTestBase
+):
+
+    def setUp(self):
+        self.sucursal_b = Sucursal.objects.create(
+            tenant=self.tenant,
+            nombre="Sucursal B Switch",
+            slug="sucursal-b-switch",
+            estado=Sucursal.Estado.ACTIVA,
+        )
+
+
+    def test_owner_puede_cambiar_a_otra_sucursal(
+        self,
+    ):
+        self.client.force_login(
+            self.admin_user
+        )
+
+        response = self.client.post(
+            reverse(
+                "cambiar_sucursal"
+            ),
+            {
+                "sucursal_public_id":
+                    str(
+                        self.sucursal_b.public_id
+                    ),
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        session = self.client.session
+
+        self.assertEqual(
+            session[
+                "sucursal_activa_public_id"
+            ],
+            str(
+                self.sucursal_b.public_id
+            ),
+        )
+
+
+    def test_manager_puede_cambiar_a_sucursal_asignada(
+        self,
+    ):
+        manager = User.objects.create_user(
+            username="manager_switch",
+            password="PasswordSeguro123!",
+        )
+
+        membership = Membership.objects.create(
+            tenant=self.tenant,
+            usuario=manager,
+            rol=Membership.ROLE_MANAGER,
+            activo=True,
+        )
+
+        MembershipSucursal.objects.create(
+            membership=membership,
+            sucursal=self.sucursal_b,
+            activo=True,
+        )
+
+        self.client.force_login(
+            manager
+        )
+
+        response = self.client.post(
+            reverse(
+                "cambiar_sucursal"
+            ),
+            {
+                "sucursal_public_id":
+                    str(
+                        self.sucursal_b.public_id
+                    ),
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        self.assertEqual(
+            self.client.session[
+                "sucursal_activa_public_id"
+            ],
+            str(
+                self.sucursal_b.public_id
+            ),
+        )
+
+
+    def test_manager_no_puede_forzar_sucursal_no_asignada(
+        self,
+    ):
+        manager = User.objects.create_user(
+            username="manager_switch_denied",
+            password="PasswordSeguro123!",
+        )
+
+        membership = Membership.objects.create(
+            tenant=self.tenant,
+            usuario=manager,
+            rol=Membership.ROLE_MANAGER,
+            activo=True,
+        )
+
+        MembershipSucursal.objects.create(
+            membership=membership,
+            sucursal=self.sucursal_b,
+            activo=True,
+        )
+
+        self.client.force_login(
+            manager
+        )
+
+        response = self.client.post(
+            reverse(
+                "cambiar_sucursal"
+            ),
+            {
+                "sucursal_public_id":
+                    str(
+                        self.sucursal.public_id
+                    ),
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403,
+        )
+
+        self.assertNotEqual(
+            self.client.session.get(
+                "sucursal_activa_public_id"
+            ),
+            str(
+                self.sucursal.public_id
+            ),
+        )
+
+
+    def test_no_se_puede_cambiar_a_sucursal_de_otro_tenant(
+        self,
+    ):
+        tenant_b = Tenant.objects.create(
+            nombre="Tenant B Switch",
+            slug="tenant-b-switch",
+        )
+
+        sucursal_ajena = Sucursal.objects.create(
+            tenant=tenant_b,
+            nombre="Sucursal Ajena",
+            slug="sucursal-ajena-switch",
+            estado=Sucursal.Estado.ACTIVA,
+        )
+
+        self.client.force_login(
+            self.admin_user
+        )
+
+        response = self.client.post(
+            reverse(
+                "cambiar_sucursal"
+            ),
+            {
+                "sucursal_public_id":
+                    str(
+                        sucursal_ajena.public_id
+                    ),
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403,
+        )

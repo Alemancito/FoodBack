@@ -2271,24 +2271,7 @@ def _tenant_pago_suscripcion(
     como compatibilidad con registros legacy.
     """
 
-    if pago.tenant_id:
-        return pago.tenant
-
-    config_negocio = (
-        pago.configuracion_negocio
-    )
-
-    if (
-        config_negocio
-        and config_negocio.sucursal_id
-    ):
-        return (
-            config_negocio
-            .sucursal
-            .tenant
-        )
-
-    return None
+    return pago.tenant
 
 
 @transaction.atomic
@@ -2428,15 +2411,6 @@ def _procesar_pago_wompi_aprobado(
             return (
                 False,
                 "El pago de suscripción no tiene un Tenant válido.",
-            )
-
-        if not pago.tenant_id:
-            pago.tenant = tenant_pago
-            pago.save(
-                update_fields=[
-                    "tenant",
-                    "fecha_actualizacion",
-                ]
             )
 
         suscripcion_pago = (
@@ -2728,15 +2702,6 @@ def _iniciar_pago_wompi_pedido(request, pedido):
             )
             .first()
         )
-
-        if pago and not pago.tenant_id:
-            pago.tenant = tenant_pago
-            pago.save(
-                update_fields=[
-                    'tenant',
-                    'fecha_actualizacion',
-                ]
-            )
         
         if (
             pago
@@ -5178,32 +5143,17 @@ def pagar_suscripcion_view(request):
                 .select_for_update()
                 .filter(
                     tipo="SUSCRIPCION",
+                    tenant=tenant,
                     estado__in=[
-                        'CREADO',
-                        'PENDIENTE',
+                        "CREADO",
+                        "PENDIENTE",
                     ],
                 )
-                .filter(
-                    Q(tenant=tenant)
-                    | Q(
-                        tenant__isnull=True,
-                        configuracion_negocio__sucursal__tenant=tenant,
-                    )
-                )
                 .order_by(
-                    '-fecha_creacion'
+                    "-fecha_creacion"
                 )
                 .first()
             )
-
-            if pago and not pago.tenant_id:
-                pago.tenant = tenant
-                pago.save(
-                    update_fields=[
-                        "tenant",
-                        "fecha_actualizacion",
-                    ]
-                )
 
             # Si ya existe un enlace todavía pendiente,
             # simplemente lo reutilizamos.

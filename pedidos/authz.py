@@ -2,7 +2,10 @@ from functools import wraps
 
 from django.core.exceptions import PermissionDenied
 
-from .models import Membership
+from .models import (
+    Membership,
+    RepartidorSucursal,
+)
 
 
 def obtener_membership_activo(
@@ -106,3 +109,89 @@ def require_tenant_roles(
         return wrapper
 
     return decorator
+
+
+def obtener_asignacion_repartidor_activa(
+    request,
+):
+    """
+    Comprueba que el usuario esté autorizado
+    específicamente para la sucursal activa.
+    """
+
+    user = getattr(
+        request,
+        "user",
+        None,
+    )
+
+    tenant = getattr(
+        request,
+        "tenant",
+        None,
+    )
+
+    sucursal = getattr(
+        request,
+        "sucursal",
+        None,
+    )
+
+    if (
+        not user
+        or not user.is_authenticated
+        or not tenant
+        or not sucursal
+    ):
+        return None
+
+    return (
+        RepartidorSucursal.objects
+        .filter(
+            usuario=user,
+            sucursal=sucursal,
+            sucursal__tenant=tenant,
+            activo=True,
+        )
+        .select_related(
+            "sucursal",
+            "sucursal__tenant",
+        )
+        .first()
+    )
+
+
+def require_delivery_assignment(
+    view_func,
+):
+    @wraps(view_func)
+    def wrapper(
+        request,
+        *args,
+        **kwargs,
+    ):
+        asignacion = (
+            obtener_asignacion_repartidor_activa(
+                request
+            )
+        )
+
+        if not asignacion:
+            raise PermissionDenied(
+                (
+                    "No tienes autorización "
+                    "para repartir en esta sucursal."
+                )
+            )
+
+        request.delivery_assignment = (
+            asignacion
+        )
+
+        return view_func(
+            request,
+            *args,
+            **kwargs,
+        )
+
+    return wrapper

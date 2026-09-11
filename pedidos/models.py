@@ -280,6 +280,82 @@ class Membership(models.Model):
         ]
 
 
+
+class RepartidorSucursal(models.Model):
+    """
+    Autoriza a un usuario para trabajar como repartidor
+    en una sucursal específica.
+
+    Un mismo usuario puede estar habilitado en varias
+    sucursales sin convertirse en MANAGER del Tenant.
+    """
+
+    usuario = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name="foodback_delivery_assignments",
+    )
+
+    sucursal = models.ForeignKey(
+        "Sucursal",
+        on_delete=models.PROTECT,
+        related_name="repartidores_asignados",
+    )
+
+    activo = models.BooleanField(
+        default=True,
+        db_index=True,
+    )
+
+    fecha_creacion = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    actualizado_en = models.DateTimeField(
+        auto_now=True,
+    )
+
+    def __str__(self):
+        return (
+            f"{self.usuario.username} - "
+            f"{self.sucursal}"
+        )
+
+    class Meta:
+        verbose_name = "Asignación de repartidor"
+        verbose_name_plural = "Asignaciones de repartidores"
+
+        constraints = [
+            models.UniqueConstraint(
+                fields=[
+                    "usuario",
+                    "sucursal",
+                ],
+                name=(
+                    "unique_repartidor_"
+                    "por_sucursal"
+                ),
+            ),
+        ]
+
+        indexes = [
+            models.Index(
+                fields=[
+                    "usuario",
+                    "activo",
+                ],
+                name="delivery_user_active_idx",
+            ),
+            models.Index(
+                fields=[
+                    "sucursal",
+                    "activo",
+                ],
+                name="delivery_branch_active_idx",
+            ),
+        ]
+
+
 # --- NUEVO MODELO DE EXTRAS (Papas, Queso, Jalapeños...) ---
 class Extra(models.Model):
     tenant = models.ForeignKey(

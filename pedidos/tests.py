@@ -39,6 +39,7 @@ from pedidos.views import (
     _renovar_suscripcion_30_dias,
     _procesar_pago_wompi_aprobado,
     _estado_bloqueo_pasarela_tenant,
+    
 )
 
 from pedidos.tenant_context import (
@@ -60,6 +61,7 @@ from .models import (
     EventoPagoWompi,
     EstadoPasarelaPago,
     SuscripcionTenant,
+    RepartidorSucursal,
 )
 
 
@@ -206,6 +208,18 @@ class FoodBackTestBase(TestCase):
 
         cls.delivery_2.groups.add(
             cls.grupo_delivery
+        )
+        
+        RepartidorSucursal.objects.create(
+            usuario=cls.delivery_1,
+            sucursal=cls.sucursal,
+            activo=True,
+        )
+
+        RepartidorSucursal.objects.create(
+            usuario=cls.delivery_2,
+            sucursal=cls.sucursal,
+            activo=True,
         )
 
     def crear_pedido(
@@ -366,18 +380,22 @@ class AuthenticationBaselineTests(FoodBackTestBase):
             403,
         )
 
-    def test_admin_no_accede_dashboard_delivery(self):
-        self.client.force_login(self.admin_user)
-
-        response = self.client.get(
-            reverse("dashboard_delivery")
+    def test_admin_no_accede_dashboard_delivery(
+        self,
+    ):
+        self.client.force_login(
+            self.admin_user
         )
 
-        self.assertEqual(response.status_code, 302)
-        self.assertTrue(
-            response["Location"].startswith(
-                reverse("login_custom")
+        response = self.client.get(
+            reverse(
+                "dashboard_delivery"
             )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403,
         )
 
 
@@ -6834,4 +6852,123 @@ class LoginMembershipRoutingTests(
             response,
             reverse("dashboard_delivery"),
             fetch_redirect_response=False,
+        )
+        
+        
+class DeliveryAssignmentAuthorizationTests(
+    FoodBackTestBase
+):
+
+    def test_repartidor_asignado_puede_entrar(
+        self,
+    ):
+        self.client.force_login(
+            self.delivery_1
+        )
+
+        response = self.client.get(
+            reverse(
+                "dashboard_delivery"
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+
+    def test_group_repartidores_sin_asignacion_no_autoriza(
+        self,
+    ):
+        usuario = User.objects.create_user(
+            username="delivery_legacy_only",
+            password="PasswordSeguro123!",
+        )
+
+        usuario.groups.add(
+            self.grupo_delivery
+        )
+
+        self.client.force_login(
+            usuario
+        )
+
+        response = self.client.get(
+            reverse(
+                "dashboard_delivery"
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403,
+        )
+
+
+    def test_repartidor_de_otra_sucursal_no_puede_entrar(
+        self,
+    ):
+        sucursal_b = Sucursal.objects.create(
+            tenant=self.tenant,
+            nombre="Sucursal B Delivery",
+            slug="sucursal-b-delivery",
+            estado=Sucursal.Estado.ACTIVA,
+        )
+
+        usuario = User.objects.create_user(
+            username="delivery_sucursal_b",
+            password="PasswordSeguro123!",
+        )
+
+        RepartidorSucursal.objects.create(
+            usuario=usuario,
+            sucursal=sucursal_b,
+            activo=True,
+        )
+
+        self.client.force_login(
+            usuario
+        )
+
+        response = self.client.get(
+            reverse(
+                "dashboard_delivery"
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403,
+        )
+
+
+    def test_manager_no_es_repartidor_automaticamente(
+        self,
+    ):
+        manager = User.objects.create_user(
+            username="manager_not_delivery",
+            password="PasswordSeguro123!",
+        )
+
+        Membership.objects.create(
+            tenant=self.tenant,
+            usuario=manager,
+            rol=Membership.ROLE_MANAGER,
+            activo=True,
+        )
+
+        self.client.force_login(
+            manager
+        )
+
+        response = self.client.get(
+            reverse(
+                "dashboard_delivery"
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403,
         )

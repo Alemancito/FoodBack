@@ -31,6 +31,12 @@ from django.utils.dateparse import parse_datetime
 from django.utils import timezone
 from .models import Membership
 
+from .authz import (
+    obtener_membership_activo,
+    require_delivery_assignment,
+    require_tenant_roles,
+)
+
 # --- LÓGICA DE LOGIN Y SEGURIDAD ---
 
 
@@ -4009,7 +4015,7 @@ def eliminar_excepcion_view(
 
 @never_cache
 @login_required(login_url='login_custom')
-@user_passes_test(es_repartidor, login_url='login_custom')
+@require_delivery_assignment
 def dashboard_delivery_view(request):
     _limpiar_pedidos_pendientes_vencidos()
 
@@ -4201,7 +4207,7 @@ def dashboard_delivery_view(request):
 
 @never_cache
 @login_required(login_url='login_custom')
-@user_passes_test(es_repartidor, login_url='login_custom')
+@require_delivery_assignment
 def api_delivery_sync(request):
     sucursal = getattr(
         request,

@@ -298,3 +298,41 @@ FOODBACK_PAYMENT_RESUME_BLOCK_SECONDS = config(
     default=600,
     cast=int,
 )
+
+# =========================================================
+# FOODBACK - SUBSCRIPTION PAYMENT RATE LIMIT
+# =========================================================
+
+FOODBACK_SUBSCRIPTION_PAYMENT_USER_LIMIT = config(
+    "FOODBACK_SUBSCRIPTION_PAYMENT_USER_LIMIT",
+    default=10,
+    cast=int,
+)
+
+FOODBACK_SUBSCRIPTION_PAYMENT_IP_LIMIT = config(
+    "FOODBACK_SUBSCRIPTION_PAYMENT_IP_LIMIT",
+    default=60,
+    cast=int,
+)
+
+FOODBACK_SUBSCRIPTION_PAYMENT_WINDOW_SECONDS = config(
+    "FOODBACK_SUBSCRIPTION_PAYMENT_WINDOW_SECONDS",
+    default=600,
+    cast=int,
+)
+
+FOODBACK_SUBSCRIPTION_PAYMENT_BLOCK_SECONDS = config(
+    "FOODBACK_SUBSCRIPTION_PAYMENT_BLOCK_SECONDS",
+    default=600,
+    cast=int,
+)
+
+# =========================================================
+# FOODBACK - WOMPI WEBHOOK
+# =========================================================
+
+FOODBACK_WOMPI_WEBHOOK_MAX_BYTES = config(
+    "FOODBACK_WOMPI_WEBHOOK_MAX_BYTES",
+    default=262144,
+    cast=int,
+)

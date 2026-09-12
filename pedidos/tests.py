@@ -1235,6 +1235,84 @@ class PaymentHttpSecurityTests(FoodBackTestBase):
     WOMPI_URL_FAKE = "https://wompi.test/enlace-seguro"
     
     @patch(
+    "pedidos.views."
+    "_validar_hash_webhook_wompi"
+    )
+    def test_webhook_rechaza_content_type_no_json(
+        self,
+        mock_validar_hash,
+    ):
+        response = self.client.post(
+            reverse(
+                "wompi_webhook"
+            ),
+            data="contenido arbitrario",
+            content_type="text/plain",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            415,
+        )
+
+        mock_validar_hash.assert_not_called()
+    
+    @patch(
+    "pedidos.views."
+    "_validar_hash_webhook_wompi"
+    )
+    def test_webhook_json_malformado_responde_400(
+        self,
+        mock_validar_hash,
+    ):
+        response = self.client.post(
+            reverse(
+                "wompi_webhook"
+            ),
+            data='{"IdCuenta": 123,',
+            content_type="application/json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            400,
+        )
+
+        mock_validar_hash.assert_not_called()
+    
+    @override_settings(
+        FOODBACK_WOMPI_WEBHOOK_MAX_BYTES=128,
+    )
+    @patch(
+        "pedidos.views."
+        "_validar_hash_webhook_wompi"
+    )
+    def test_webhook_rechaza_payload_demasiado_grande(
+        self,
+        mock_validar_hash,
+    ):
+        body = {
+            "padding": "X" * 500,
+        }
+
+        response = self.client.post(
+            reverse(
+                "wompi_webhook"
+            ),
+            data=json.dumps(
+                body
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            413,
+        )
+
+        mock_validar_hash.assert_not_called()
+    
+    @patch(
     "pedidos.views._validar_hash_webhook_wompi",
     return_value=True,
     )
@@ -8954,5 +9032,140 @@ class WompiStartRateLimitTests(
         self.assertEqual(
             mock_iniciar_pago.call_count,
             2,
+        )
+        
+
+class SubscriptionPaymentRateLimitTests(
+    FoodBackTestBase
+):
+
+    @override_settings(
+        FOODBACK_SUBSCRIPTION_PAYMENT_USER_LIMIT=2,
+        FOODBACK_SUBSCRIPTION_PAYMENT_IP_LIMIT=50,
+        FOODBACK_SUBSCRIPTION_PAYMENT_WINDOW_SECONDS=600,
+        FOODBACK_SUBSCRIPTION_PAYMENT_BLOCK_SECONDS=900,
+    )
+    @patch(
+        "pedidos.views."
+        "_wompi_crear_enlace_pago"
+    )
+    def test_pago_suscripcion_bloquea_flood_del_owner(
+        self,
+        mock_wompi,
+    ):
+        mock_wompi.return_value = (
+            {
+                "urlEnlace":
+                    "https://wompi.test/subscription",
+
+                "idEnlace":
+                    "SUBS-RATE-LIMIT",
+            },
+            {
+                "mock": True,
+            },
+        )
+
+        self.client.force_login(
+            self.admin_user
+        )
+
+        url = reverse(
+            "pagar_suscripcion"
+        )
+
+        for _ in range(2):
+            response = self.client.post(
+                url,
+                REMOTE_ADDR="192.0.2.230",
+            )
+
+            self.assertEqual(
+                response.status_code,
+                302,
+            )
+
+        response = self.client.post(
+            url,
+            REMOTE_ADDR="192.0.2.230",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            429,
+        )
+
+        self.assertIn(
+            "Retry-After",
+            response.headers,
+        )
+
+        # Gracias a la idempotencia existente,
+        # Wompi solo necesitó crear un enlace.
+        self.assertEqual(
+            mock_wompi.call_count,
+            1,
+        )
+
+
+    @override_settings(
+        FOODBACK_SUBSCRIPTION_PAYMENT_USER_LIMIT=50,
+        FOODBACK_SUBSCRIPTION_PAYMENT_IP_LIMIT=2,
+        FOODBACK_SUBSCRIPTION_PAYMENT_WINDOW_SECONDS=600,
+        FOODBACK_SUBSCRIPTION_PAYMENT_BLOCK_SECONDS=900,
+    )
+    @patch(
+        "pedidos.views."
+        "_wompi_crear_enlace_pago"
+    )
+    def test_pago_suscripcion_bloquea_flood_por_ip(
+        self,
+        mock_wompi,
+    ):
+        mock_wompi.return_value = (
+            {
+                "urlEnlace":
+                    "https://wompi.test/subscription-ip",
+
+                "idEnlace":
+                    "SUBS-RATE-LIMIT-IP",
+            },
+            {
+                "mock": True,
+            },
+        )
+
+        self.client.force_login(
+            self.admin_user
+        )
+
+        url = reverse(
+            "pagar_suscripcion"
+        )
+
+        for _ in range(2):
+            response = self.client.post(
+                url,
+                REMOTE_ADDR="192.0.2.231",
+            )
+
+            self.assertEqual(
+                response.status_code,
+                302,
+            )
+
+        response = self.client.post(
+            url,
+            REMOTE_ADDR="192.0.2.231",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            429,
+        )
+
+        self.assertIn(
+            "Retry-After",
+            response.headers,
         )
 

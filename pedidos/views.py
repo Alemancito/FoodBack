@@ -2239,6 +2239,91 @@ def _verificar_rate_limit_retomar_pago(
     return None
 
 
+
+def _verificar_rate_limit_pago_suscripcion(
+    request,
+    tenant,
+):
+    """
+    Protección anti-flood al iniciar
+    el pago de una suscripción FoodBack.
+
+    Capa 1:
+        usuario autenticado dentro del Tenant.
+
+    Capa 2:
+        IP dentro del Tenant.
+    """
+
+    usuario_id = getattr(
+        request.user,
+        "pk",
+        None,
+    )
+
+    ip = obtener_ip_cliente(
+        request
+    )
+
+    tenant_id = (
+        tenant.id
+        if tenant
+        else "none"
+    )
+
+    limite_usuario = consumir_rate_limit(
+        group="pagar-suscripcion-user",
+        raw_key=(
+            f"{tenant_id}:"
+            f"{usuario_id or 'unknown'}"
+        ),
+        limite=(
+            settings
+            .FOODBACK_SUBSCRIPTION_PAYMENT_USER_LIMIT
+        ),
+        ventana_segundos=(
+            settings
+            .FOODBACK_SUBSCRIPTION_PAYMENT_WINDOW_SECONDS
+        ),
+        bloqueo_segundos=(
+            settings
+            .FOODBACK_SUBSCRIPTION_PAYMENT_BLOCK_SECONDS
+        ),
+    )
+
+    if not limite_usuario[
+        "permitido"
+    ]:
+        return limite_usuario
+
+    limite_ip = consumir_rate_limit(
+        group="pagar-suscripcion-ip",
+        raw_key=(
+            f"{tenant_id}:"
+            f"{ip}"
+        ),
+        limite=(
+            settings
+            .FOODBACK_SUBSCRIPTION_PAYMENT_IP_LIMIT
+        ),
+        ventana_segundos=(
+            settings
+            .FOODBACK_SUBSCRIPTION_PAYMENT_WINDOW_SECONDS
+        ),
+        bloqueo_segundos=(
+            settings
+            .FOODBACK_SUBSCRIPTION_PAYMENT_BLOCK_SECONDS
+        ),
+    )
+
+    if not limite_ip[
+        "permitido"
+    ]:
+        return limite_ip
+
+    return None
+
+
 # --- VISTAS DE PAGO WOMPI (CLIENTES PAGANDO PEDIDOS) ---
 
 
@@ -6151,6 +6236,45 @@ def pagar_suscripcion_view(request):
     - no crea otro PagoWompi;
     - si ya tiene URL, reutiliza el mismo enlace.
     """
+    
+    tenant = getattr(
+        request,
+        "tenant",
+        None,
+    )
+
+    rate_limit_pago = (
+        _verificar_rate_limit_pago_suscripcion(
+            request,
+            tenant,
+        )
+    )
+
+    if rate_limit_pago:
+        response = HttpResponseBadRequest(
+            "Se realizaron demasiados "
+            "intentos de iniciar el pago "
+            "de la suscripción. "
+            "Espera unos minutos "
+            "e inténtalo nuevamente."
+        )
+
+        response.status_code = 429
+
+        response[
+            "Retry-After"
+        ] = str(
+            max(
+                int(
+                    rate_limit_pago[
+                        "retry_after"
+                    ]
+                ),
+                1,
+            )
+        )
+
+        return response
 
     try:
         precio_mensual = _decimal_monto(
@@ -6538,8 +6662,56 @@ def wompi_suscripcion_respuesta_view(request):
 @never_cache
 @require_POST
 def wompi_webhook_view(request):
+    
+    if request.content_type != "application/json":
+        return JsonResponse(
+            {
+                "status": "error",
+                "msg": "Content-Type no soportado",
+            },
+            status=415,
+    )
+
+    limite_bytes = (
+        settings
+        .FOODBACK_WOMPI_WEBHOOK_MAX_BYTES
+    )
+
+    content_length = request.META.get(
+        "CONTENT_LENGTH"
+    )
+
+    if content_length:
+        try:
+            if int(content_length) > limite_bytes:
+                return JsonResponse(
+                    {
+                        "status": "error",
+                        "msg": (
+                            "Payload demasiado grande"
+                        ),
+                    },
+                    status=413,
+                )
+
+        except (
+            TypeError,
+            ValueError,
+        ):
+            pass
 
     raw_body = request.body
+
+    if len(raw_body) > limite_bytes:
+        return JsonResponse(
+            {
+                "status": "error",
+                "msg": (
+                    "Payload demasiado grande"
+                ),
+            },
+            status=413,
+        )
 
     try:
         data = json.loads(raw_body.decode('utf-8'))
@@ -6685,6 +6857,18 @@ def wompi_webhook_view(request):
             )
 
         return JsonResponse({'status': 'ok', 'msg': 'Webhook recibido'})
+    
+    except (
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+    ):
+        return JsonResponse(
+            {
+                'status': 'error',
+                'msg': 'JSON inválido',
+            },
+            status=400,
+        )
 
     except Exception as e:
         print(f'Error webhook Wompi: {e}')

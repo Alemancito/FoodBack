@@ -5837,31 +5837,104 @@ def ocultar_pedido_pendiente_view(
     )
 
 @require_safe
-def api_order_status(request, tracking_token):
-    try:
-        pedido = Pedido.objects.only(
-            'id',
-            'estado',
-            'actualizado_en'
-        ).get(
-                tracking_token=tracking_token,
-                sucursal=request.sucursal,
+def api_order_status(
+    request,
+    tracking_token
+):
+    ultimo_cliente_raw = (
+        request.GET.get(
+            "last_update",
+            "none",
+        )
+    )
+
+    ultimo_cliente = (
+        _parse_last_update(
+            ultimo_cliente_raw
+        )
+    )
+
+    # Un last_update manipulado o malformado
+    # se rechaza antes incluso de buscar el Pedido.
+    if (
+        ultimo_cliente_raw != "none"
+        and ultimo_cliente is None
+    ):
+        return JsonResponse(
+            {
+                "status": "error",
+                "msg": (
+                    "last_update inválido"
+                ),
+            },
+            status=400,
         )
 
-        return JsonResponse({
-            'status': 'ok',
-            'estado_codigo': pedido.estado,
-            'estado_texto': pedido.get_estado_display(),
-            'last_update': _iso_datetime(
-                pedido.actualizado_en
-            ),
-        })
+    try:
+        pedido = (
+            Pedido.objects
+            .only(
+                "id",
+                "estado",
+                "actualizado_en",
+            )
+            .get(
+                tracking_token=(
+                    tracking_token
+                ),
+                sucursal=request.sucursal,
+            )
+        )
 
     except Pedido.DoesNotExist:
-        return JsonResponse({
-            'status': 'error',
-            'msg': 'Pedido no encontrado'
-        }, status=404)
+        return JsonResponse(
+            {
+                "status": "error",
+                "msg": (
+                    "Pedido no encontrado"
+                ),
+            },
+            status=404,
+        )
+
+    ultimo_servidor = (
+        pedido.actualizado_en
+    )
+
+    # El cliente ya posee esta versión.
+    # No reenviamos información que no cambió.
+    if (
+        ultimo_cliente
+        and ultimo_servidor
+        <= ultimo_cliente
+    ):
+        return JsonResponse(
+            {
+                "status": "ok",
+                "changed": False,
+                "last_update": (
+                    _iso_datetime(
+                        ultimo_servidor
+                    )
+                ),
+            }
+        )
+
+    return JsonResponse(
+        {
+            "status": "ok",
+            "changed": True,
+            "estado_codigo":
+                pedido.estado,
+            "estado_texto":
+                pedido.get_estado_display(),
+            "last_update": (
+                _iso_datetime(
+                    ultimo_servidor
+                )
+            ),
+        }
+    )
 
 
 @require_safe

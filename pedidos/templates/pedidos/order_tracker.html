@@ -758,8 +758,16 @@
         let trackerDelay = 8000;
         let trackerStopped = false;
 
-        function scheduleTrackerPoll(delay = trackerDelay) {
-            clearTimeout(trackerTimer);
+        const TRACKER_MIN_DELAY = 8000;
+        const TRACKER_MAX_DELAY = 15000;
+
+
+        function scheduleTrackerPoll(
+            delay = trackerDelay
+        ) {
+            clearTimeout(
+                trackerTimer
+            );
 
             if (!trackerStopped) {
                 trackerTimer = setTimeout(
@@ -769,48 +777,123 @@
             }
         }
 
+
         function updateTracker() {
+
             if (document.hidden) {
-                scheduleTrackerPoll(20000);
+                scheduleTrackerPoll(
+                    20000
+                );
+
                 return;
             }
 
             const url =
                 `/api/pedido/${trackingToken}/status/`
-                + `?last_update=${encodeURIComponent(trackerLastUpdate)}`;
+                + `?last_update=${
+                    encodeURIComponent(
+                        trackerLastUpdate
+                    )
+                }`;
 
-            fetch(url)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'ok') {
-                        trackerLastUpdate =
-                            data.last_update
-                            || trackerLastUpdate;
+            fetch(
+                url,
+                {
+                    method: "GET",
+                    credentials: "same-origin",
+                }
+            )
+            .then(
+                response => {
 
-                        renderStatus(
-                            data.estado_codigo
+                    if (!response.ok) {
+                        throw new Error(
+                            `HTTP ${response.status}`
+                        );
+                    }
+
+                    return response.json();
+                }
+            )
+            .then(
+                data => {
+
+                    if (data.status !== "ok") {
+                        scheduleTrackerPoll(
+                            15000
                         );
 
-                        if (
-                            data.estado_codigo === 'ENTREGADO'
-                            || data.estado_codigo === 'CANCELADO'
-                        ) {
-                            trackerStopped = true;
-                            clearTimeout(trackerTimer);
-                            return;
-                        }
+                        return;
+                    }
+
+                    trackerLastUpdate =
+                        data.last_update
+                        || trackerLastUpdate;
+
+                    /*
+                    * Nada cambió.
+                    *
+                    * Bajamos gradualmente la frecuencia
+                    * para ahorrar requests.
+                    */
+                    if (
+                        data.changed === false
+                    ) {
+                        trackerDelay =
+                            Math.min(
+                                trackerDelay + 3000,
+                                TRACKER_MAX_DELAY
+                            );
+
+                        scheduleTrackerPoll();
+
+                        return;
+                    }
+
+                    /*
+                    * Hubo un cambio real.
+                    *
+                    * Actualizamos la pantalla y volvemos
+                    * temporalmente a máxima frecuencia.
+                    */
+                    trackerDelay =
+                        TRACKER_MIN_DELAY;
+
+                    renderStatus(
+                        data.estado_codigo
+                    );
+
+                    if (
+                        data.estado_codigo
+                            === "ENTREGADO"
+                        ||
+                        data.estado_codigo
+                            === "CANCELADO"
+                    ) {
+                        trackerStopped = true;
+
+                        clearTimeout(
+                            trackerTimer
+                        );
+
+                        return;
                     }
 
                     scheduleTrackerPoll();
-                })
-                .catch(err => {
+                }
+            )
+            .catch(
+                err => {
                     console.error(
                         "Error polling:",
                         err
                     );
 
-                    scheduleTrackerPoll(15000);
-                });
+                    scheduleTrackerPoll(
+                        15000
+                    );
+                }
+            );
         }
 
         function renderStatus(estado) {

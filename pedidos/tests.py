@@ -623,6 +623,86 @@ class PublicTrackingSecurityTests(FoodBackTestBase):
             data["estado_codigo"],
             pedido.estado,
         )
+        
+    
+    def test_api_estado_sin_cambios_responde_ligero(
+        self,
+    ):
+        pedido = self.crear_pedido(
+            estado="RECIBIDO",
+            telefono="75000040",
+        )
+
+        pedido.refresh_from_db()
+
+        response = self.client.get(
+            reverse(
+                "api_order_status",
+                args=[
+                    pedido.tracking_token
+                ],
+            ),
+            {
+                "last_update": (
+                    pedido
+                    .actualizado_en
+                    .isoformat()
+                )
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        data = response.json()
+
+        self.assertEqual(
+            data["status"],
+            "ok",
+        )
+
+        self.assertFalse(
+            data["changed"]
+        )
+
+        self.assertNotIn(
+            "estado_codigo",
+            data,
+        )
+
+        self.assertNotIn(
+            "estado_texto",
+            data,
+        )
+
+
+    def test_api_estado_rechaza_last_update_invalido(
+        self,
+    ):
+        pedido = self.crear_pedido(
+            estado="RECIBIDO",
+            telefono="75000041",
+        )
+
+        response = self.client.get(
+            reverse(
+                "api_order_status",
+                args=[
+                    pedido.tracking_token
+                ],
+            ),
+            {
+                "last_update":
+                    "esto-no-es-una-fecha"
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            400,
+        )
 
     def test_id_numerico_no_debe_abrir_pago(self):
         pedido = self.crear_pedido(

@@ -918,13 +918,51 @@ def menu_view(request):
         )
 
     cart = request.session.get(
-        'cart',
-        {}
+        "cart",
+        {},
     )
 
-    cantidad_total = sum(
-        cart.values()
-    )
+    try:
+        if not isinstance(cart, dict):
+            raise CarritoInvalido(
+                "La estructura del carrito no es válida."
+            )
+
+        if len(cart) > CART_MAX_LINES:
+            raise CarritoInvalido(
+                "El carrito contiene demasiados artículos."
+            )
+
+        cantidades = []
+
+        for cantidad_raw in cart.values():
+            cantidad = _entero_positivo(
+                cantidad_raw,
+                "cantidad",
+            )
+
+            if cantidad > CART_MAX_ITEM_QUANTITY:
+                raise CarritoInvalido(
+                    "La cantidad de un producto excede "
+                    "el límite permitido."
+                )
+
+            cantidades.append(
+                cantidad
+            )
+
+        cantidad_total = sum(
+            cantidades
+        )
+
+    except CarritoInvalido:
+        # Una sesión corrupta/manipulada nunca debe romper
+        # la página pública. La descartamos de forma segura.
+        request.session[
+            "cart"
+        ] = {}
+        request.session.modified = True
+        cantidad_total = 0
 
     abierto, mensaje_estado = (
         verificar_estado_negocio(
@@ -5217,6 +5255,10 @@ def admin_settings_view(request):
             return redirect(
                 "admin_settings"
             )
+
+        return HttpResponseBadRequest(
+            "Acción de configuración no válida."
+        )
 
     agenda = []
 

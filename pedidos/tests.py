@@ -403,6 +403,38 @@ class PublicBaselineTests(FoodBackTestBase):
             CART_MAX_ITEM_QUANTITY,
         )
     
+    def test_menu_descarta_carrito_de_sesion_malformado(
+        self,
+    ):
+        session = self.client.session
+        session["cart"] = [
+            "estructura-invalida"
+        ]
+        session.save()
+
+        response = self.client.get(
+            reverse("menu")
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.assertEqual(
+            response.context[
+                "cantidad_carrito"
+            ],
+            0,
+        )
+
+        self.assertEqual(
+            self.client.session.get(
+                "cart"
+            ),
+            {},
+        )
+
     def test_producto_simple_menu_usa_post_y_no_get(self):
         response = self.client.get(
             reverse("menu")
@@ -9848,6 +9880,56 @@ class GeoIpRetirementSecurityTests(
 class AdminSettingsValidationTests(
     FoodBackTestBase
 ):
+
+    def test_tipo_accion_inventado_es_rechazado(
+        self,
+    ):
+        self.client.force_login(
+            self.admin_user
+        )
+
+        self.config.refresh_from_db()
+
+        apertura_original = (
+            self.config.hora_apertura
+        )
+
+        cierre_original = (
+            self.config.hora_cierre
+        )
+
+        response = self.client.post(
+            reverse(
+                "admin_settings"
+            ),
+            {
+                "tipo_accion":
+                    "accion-inventada",
+
+                "hora_apertura":
+                    "01:00",
+
+                "hora_cierre":
+                    "02:00",
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            400,
+        )
+
+        self.config.refresh_from_db()
+
+        self.assertEqual(
+            self.config.hora_apertura,
+            apertura_original,
+        )
+
+        self.assertEqual(
+            self.config.hora_cierre,
+            cierre_original,
+        )
 
     def test_horario_global_invalido_no_modifica_configuracion(
         self,

@@ -4779,6 +4779,44 @@ def api_dashboard_admin_sync(request):
             ),
         },
     })
+    
+    
+    
+def _parse_hora_configuracion(
+    valor,
+    *,
+    requerida=False,
+):
+    """
+    Convierte una hora enviada por formulario
+    en un objeto time válido.
+
+    Solo acepta el formato HH:MM que utiliza
+    el input type="time" de FoodBack.
+    """
+
+    valor = (
+        valor or ""
+    ).strip()
+
+    if not valor:
+        if requerida:
+            raise ValueError(
+                "Hora requerida."
+            )
+
+        return None
+
+    try:
+        return datetime.strptime(
+            valor,
+            "%H:%M",
+        ).time()
+
+    except ValueError as exc:
+        raise ValueError(
+            "Hora inválida."
+        ) from exc
 
 
 @never_cache
@@ -4820,21 +4858,50 @@ def admin_settings_view(request):
         )
 
         if tipo_accion == "global":
-            config_negocio.hora_apertura = (
-                request.POST.get(
-                    "hora_apertura"
+            try:
+                hora_apertura = (
+                    _parse_hora_configuracion(
+                        request.POST.get(
+                            "hora_apertura"
+                        ),
+                        requerida=True,
+                    )
                 )
+
+                hora_cierre = (
+                    _parse_hora_configuracion(
+                        request.POST.get(
+                            "hora_cierre"
+                        ),
+                        requerida=True,
+                    )
+                )
+
+            except ValueError:
+                messages.error(
+                    request,
+                    (
+                        "Las horas de apertura "
+                        "y cierre no son válidas."
+                    ),
+                )
+
+                return redirect(
+                    "admin_settings"
+                )
+
+            config_negocio.hora_apertura = (
+                hora_apertura
             )
 
             config_negocio.hora_cierre = (
-                request.POST.get(
-                    "hora_cierre"
-                )
+                hora_cierre
             )
 
             config_negocio.mensaje_cierre = (
                 request.POST.get(
-                    "mensaje_cierre"
+                    "mensaje_cierre",
+                    ""
                 )
             )
 
@@ -4904,6 +4971,77 @@ def admin_settings_view(request):
                     "admin_settings"
                 )
 
+            abierto = (
+                request.POST.get(
+                    "estado_dia"
+                )
+                == "on"
+            )
+
+            h_ap_raw = (
+                request.POST.get(
+                    "hora_apertura_dia"
+                )
+            )
+
+            h_ci_raw = (
+                request.POST.get(
+                    "hora_cierre_dia"
+                )
+            )
+
+            motivo = (
+                request.POST.get(
+                    "motivo",
+                    ""
+                )
+                or ""
+            ).strip()
+
+            # DiaEspecial.motivo tiene
+            # max_length=100 en el modelo.
+            if len(motivo) > 100:
+                messages.error(
+                    request,
+                    (
+                        "El motivo no puede "
+                        "superar 100 caracteres."
+                    ),
+                )
+
+                return redirect(
+                    "admin_settings"
+                )
+
+            try:
+                hora_apertura = (
+                    _parse_hora_configuracion(
+                        h_ap_raw
+                    )
+                )
+
+                hora_cierre = (
+                    _parse_hora_configuracion(
+                        h_ci_raw
+                    )
+                )
+
+            except ValueError:
+                messages.error(
+                    request,
+                    (
+                        "El horario especial "
+                        "no es válido."
+                    ),
+                )
+
+                return redirect(
+                    "admin_settings"
+                )
+
+            # IMPORTANTE:
+            # solo después de validar TODO
+            # tocamos la base de datos.
             excepcion, _ = (
                 DiaEspecial.objects
                 .get_or_create(
@@ -4913,32 +5051,19 @@ def admin_settings_view(request):
             )
 
             excepcion.abierto = (
-                request.POST.get(
-                    "estado_dia"
-                )
-                == "on"
-            )
-
-            h_ap = request.POST.get(
-                "hora_apertura_dia"
-            )
-
-            h_ci = request.POST.get(
-                "hora_cierre_dia"
+                abierto
             )
 
             excepcion.hora_apertura = (
-                h_ap if h_ap else None
+                hora_apertura
             )
 
             excepcion.hora_cierre = (
-                h_ci if h_ci else None
+                hora_cierre
             )
 
             excepcion.motivo = (
-                request.POST.get(
-                    "motivo"
-                )
+                motivo or None
             )
 
             excepcion.save()

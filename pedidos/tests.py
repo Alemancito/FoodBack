@@ -9399,4 +9399,162 @@ class GeoIpRetirementSecurityTests(
             response.status_code,
             404,
         )
+        
+        
+class AdminSettingsValidationTests(
+    FoodBackTestBase
+):
+
+    def test_horario_global_invalido_no_modifica_configuracion(
+        self,
+    ):
+        self.client.force_login(
+            self.admin_user
+        )
+
+        self.config.refresh_from_db()
+
+        apertura_original = (
+            self.config.hora_apertura
+        )
+
+        cierre_original = (
+            self.config.hora_cierre
+        )
+
+        response = self.client.post(
+            reverse(
+                "admin_settings"
+            ),
+            {
+                "tipo_accion":
+                    "global",
+
+                "hora_apertura":
+                    "esto-no-es-hora",
+
+                "hora_cierre":
+                    "22:00",
+
+                "mensaje_cierre":
+                    "Mensaje válido",
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        self.config.refresh_from_db()
+
+        self.assertEqual(
+            self.config.hora_apertura,
+            apertura_original,
+        )
+
+        self.assertEqual(
+            self.config.hora_cierre,
+            cierre_original,
+        )
+
+
+    def test_horario_especial_invalido_no_crea_excepcion(
+        self,
+    ):
+        self.client.force_login(
+            self.admin_user
+        )
+
+        fecha_objetivo = (
+            date.today()
+            + timedelta(days=3)
+        )
+
+        response = self.client.post(
+            reverse(
+                "admin_settings"
+            ),
+            {
+                "tipo_accion":
+                    "dia_especifico",
+
+                "fecha_target":
+                    fecha_objetivo.isoformat(),
+
+                "estado_dia":
+                    "on",
+
+                "hora_apertura_dia":
+                    "hora-falsa",
+
+                "hora_cierre_dia":
+                    "18:00",
+
+                "motivo":
+                    "Horario especial",
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        self.assertFalse(
+            DiaEspecial.objects.filter(
+                sucursal=self.sucursal,
+                fecha=fecha_objetivo,
+            ).exists()
+        )
+
+
+    def test_motivo_demasiado_largo_no_crea_excepcion(
+        self,
+    ):
+        self.client.force_login(
+            self.admin_user
+        )
+
+        fecha_objetivo = (
+            date.today()
+            + timedelta(days=4)
+        )
+
+        response = self.client.post(
+            reverse(
+                "admin_settings"
+            ),
+            {
+                "tipo_accion":
+                    "dia_especifico",
+
+                "fecha_target":
+                    fecha_objetivo.isoformat(),
+
+                "estado_dia":
+                    "on",
+
+                "hora_apertura_dia":
+                    "08:00",
+
+                "hora_cierre_dia":
+                    "18:00",
+
+                "motivo":
+                    "X" * 101,
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        self.assertFalse(
+            DiaEspecial.objects.filter(
+                sucursal=self.sucursal,
+                fecha=fecha_objetivo,
+            ).exists()
+        )
 

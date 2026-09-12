@@ -777,6 +777,18 @@ class Pedido(models.Model):
         max_length=150, null=True, blank=True, db_index=True)
     pago_verificado = models.BooleanField(default=False)
     fecha_pago_verificado = models.DateTimeField(null=True, blank=True)
+    
+    
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=[
+                    "sucursal",
+                    "actualizado_en",
+                ],
+                name="pedido_suc_actual_idx",
+            ),
+        ]
 
     def save(self, *args, **kwargs):
         total_productos = Decimal(

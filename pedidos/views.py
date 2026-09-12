@@ -8,11 +8,33 @@ import time  # Necesario para generar referencias únicas
 from datetime import datetime, date, timedelta
 from decimal import Decimal, InvalidOperation
 from django.shortcuts import render, redirect, get_object_or_404
-from .models import Categoria, Producto, Pedido, DetallePedido, Cliente, ConfiguracionNegocio, DiaEspecial, OpcionProducto, Extra, PagoWompi, EventoPagoWompi,EstadoPasarelaPago, SuscripcionTenant
-from django.db import transaction
+from .models import (
+    Categoria,
+    Producto,
+    Pedido,
+    DetallePedido,
+    Cliente,
+    ConfiguracionNegocio,
+    DiaEspecial,
+    OpcionProducto,
+    Extra,
+    PagoWompi,
+    EventoPagoWompi,
+    EstadoPasarelaPago,
+    SuscripcionTenant,
+    Membership,
+)
+from django.db import IntegrityError, transaction
 from django.contrib import messages
 from decouple import config
 from django.contrib.auth.decorators import login_required
+from .security import (
+    consumir_rate_limit,
+    obtener_id_seguridad_cliente,
+    obtener_ip_cliente,
+)
+from django.utils import timezone
+from django.conf import settings
 from .authz import (
     obtener_asignacion_repartidor_activa,
     obtener_membership_activo,
@@ -39,15 +61,6 @@ from django.template.loader import render_to_string
 from django.db.models import Sum, Count, F, Q, Max, Prefetch
 from django.core.exceptions import PermissionDenied
 from django.utils.dateparse import parse_datetime
-from django.utils import timezone
-from .models import Membership
-
-from .authz import (
-    obtener_membership_activo,
-    require_delivery_assignment,
-    require_tenant_roles,
-)
-
 # --- LÓGICA DE LOGIN Y SEGURIDAD ---
 
 
@@ -55,9 +68,309 @@ class CustomLoginView(LoginView):
     template_name = "registration/login.html"
     redirect_authenticated_user = True
 
-    def get_success_url(self):
-        user = self.request.user
+    RATE_LIMIT_SESSION_UNTIL = (
+        "foodback_login_rate_limit_until"
+    )
 
+    RATE_LIMIT_SESSION_USERNAME = (
+        "foodback_login_rate_limit_username"
+    )
+
+    RATE_LIMIT_MESSAGE = (
+        "Se realizaron demasiados intentos "
+        "de inicio de sesión. "
+        "Espera unos minutos e inténtalo nuevamente."
+    )
+
+    def _limpiar_estado_visual_rate_limit(
+        self,
+    ):
+        self.request.session.pop(
+            self.RATE_LIMIT_SESSION_UNTIL,
+            None,
+        )
+
+        self.request.session.pop(
+            self.RATE_LIMIT_SESSION_USERNAME,
+            None,
+        )
+
+        self.request.session.modified = True
+
+    def _guardar_estado_visual_rate_limit(
+        self,
+        request,
+        retry_after,
+    ):
+        """
+        Guarda únicamente información de UX.
+
+        NO es la barrera de seguridad real.
+        La autoridad continúa siendo
+        RateLimitBucket en la base de datos.
+        """
+
+        retry_after = max(
+            int(retry_after),
+            1,
+        )
+
+        bloqueado_hasta = (
+            timezone.now().timestamp()
+            + retry_after
+        )
+
+        username = (
+            request.POST.get(
+                "username",
+                "",
+            )
+            .strip()
+        )
+
+        request.session[
+            self.RATE_LIMIT_SESSION_UNTIL
+        ] = bloqueado_hasta
+
+        request.session[
+            self.RATE_LIMIT_SESSION_USERNAME
+        ] = username[:150]
+
+        request.session.modified = True
+
+    def get_context_data(
+        self,
+        **kwargs,
+    ):
+        context = super().get_context_data(
+            **kwargs
+        )
+
+        bloqueado_hasta = (
+            self.request.session.get(
+                self.RATE_LIMIT_SESSION_UNTIL
+            )
+        )
+
+        if not bloqueado_hasta:
+            return context
+
+        try:
+            segundos_restantes = int(
+                float(
+                    bloqueado_hasta
+                )
+                - timezone.now().timestamp()
+            )
+
+        except (
+            TypeError,
+            ValueError,
+        ):
+            self._limpiar_estado_visual_rate_limit()
+            return context
+
+        if segundos_restantes <= 0:
+            self._limpiar_estado_visual_rate_limit()
+            return context
+
+        context[
+            "rate_limit_error"
+        ] = self.RATE_LIMIT_MESSAGE
+
+        context[
+            "rate_limit_retry_after"
+        ] = max(
+            segundos_restantes,
+            1,
+        )
+
+        form = context.get(
+            "form"
+        )
+
+        username_guardado = (
+            self.request.session.get(
+                self.RATE_LIMIT_SESSION_USERNAME,
+                "",
+            )
+        )
+
+        if (
+            form
+            and not form.is_bound
+            and username_guardado
+        ):
+            form.initial[
+                "username"
+            ] = username_guardado
+
+        return context
+
+    def _respuesta_rate_limit(
+        self,
+        request,
+        retry_after,
+    ):
+        """
+        Respuesta HTTP 429 sin volver a ejecutar
+        autenticación ni comprobación de contraseña.
+        """
+
+        retry_after = max(
+            int(retry_after),
+            1,
+        )
+
+        self._guardar_estado_visual_rate_limit(
+            request,
+            retry_after,
+        )
+
+        form_class = self.get_form_class()
+
+        form = form_class(
+            request=request,
+            initial={
+                "username": (
+                    request.POST.get(
+                        "username",
+                        "",
+                    )
+                    .strip()
+                ),
+            },
+        )
+
+        context = self.get_context_data(
+            form=form,
+        )
+
+        response = self.render_to_response(
+            context,
+            status=429,
+        )
+
+        response[
+            "Retry-After"
+        ] = str(
+            retry_after
+        )
+
+        return response
+
+    def post(
+        self,
+        request,
+        *args,
+        **kwargs,
+    ):
+        ip = obtener_ip_cliente(
+            request
+        )
+
+        username = (
+            request.POST.get(
+                "username",
+                "",
+            )
+            .strip()
+            .lower()
+        )
+
+        username = username[:150]
+
+        # -------------------------------------------------
+        # CAPA 1
+        # Intentos totales desde la misma IP.
+        # -------------------------------------------------
+
+        limite_ip = consumir_rate_limit(
+            group="login-ip",
+            raw_key=ip,
+            limite=(
+                settings
+                .FOODBACK_LOGIN_IP_LIMIT
+            ),
+            ventana_segundos=(
+                settings
+                .FOODBACK_LOGIN_WINDOW_SECONDS
+            ),
+            bloqueo_segundos=(
+                settings
+                .FOODBACK_LOGIN_BLOCK_SECONDS
+            ),
+        )
+
+        if not limite_ip[
+            "permitido"
+        ]:
+            return self._respuesta_rate_limit(
+                request,
+                limite_ip[
+                    "retry_after"
+                ],
+            )
+
+        # -------------------------------------------------
+        # CAPA 2
+        # Misma IP atacando un username concreto.
+        # -------------------------------------------------
+
+        clave_usuario = (
+            f"{ip}:"
+            f"{username or '<empty>'}"
+        )
+
+        limite_usuario = consumir_rate_limit(
+            group="login-ip-username",
+            raw_key=clave_usuario,
+            limite=(
+                settings
+                .FOODBACK_LOGIN_USER_LIMIT
+            ),
+            ventana_segundos=(
+                settings
+                .FOODBACK_LOGIN_WINDOW_SECONDS
+            ),
+            bloqueo_segundos=(
+                settings
+                .FOODBACK_LOGIN_BLOCK_SECONDS
+            ),
+        )
+
+        if not limite_usuario[
+            "permitido"
+        ]:
+            return self._respuesta_rate_limit(
+                request,
+                limite_usuario[
+                    "retry_after"
+                ],
+            )
+
+        return super().post(
+            request,
+            *args,
+            **kwargs,
+        )
+
+    def form_valid(
+        self,
+        form,
+    ):
+        """
+        Si finalmente existe un login válido,
+        eliminamos cualquier marca visual vieja.
+        """
+
+        self._limpiar_estado_visual_rate_limit()
+
+        return super().form_valid(
+            form
+        )
+
+    def get_success_url(self):
         membership = obtener_membership_activo(
             self.request,
             roles=[
@@ -66,7 +379,6 @@ class CustomLoginView(LoginView):
             ],
         )
 
-        # OWNER / MANAGER reales del Tenant actual.
         if membership:
             return reverse(
                 "dashboard_admin"
@@ -83,12 +395,10 @@ class CustomLoginView(LoginView):
                 "dashboard_delivery"
             )
 
-        # Usuario autenticado pero sin rol FoodBack
-        # válido para este Tenant.
         return reverse(
             "menu"
         )
-    
+
 
 
 @require_POST
@@ -284,6 +594,8 @@ def verificar_estado_negocio(sucursal):
 
 
 # --- SEGURIDAD E INTEGRIDAD DEL CARRITO ---
+
+
 
 
 class CarritoInvalido(ValueError):
@@ -555,6 +867,10 @@ def _validar_carrito(
         })
 
     return items_validados
+
+
+
+
 
 
 # --- VISTAS PÚBLICAS ---
@@ -882,6 +1198,130 @@ def eliminar_item_carrito(
     )
 
 
+CHECKOUT_TOKEN_SESSION_KEY = (
+    "foodback_checkout_token"
+)
+
+
+def _obtener_checkout_token(
+    request,
+):
+    """
+    Devuelve el token de envío actual del checkout.
+
+    Si no existe o fue manipulado, genera uno nuevo.
+    """
+
+    valor = request.session.get(
+        CHECKOUT_TOKEN_SESSION_KEY
+    )
+
+    if valor:
+        try:
+            return uuid.UUID(
+                str(valor)
+            )
+
+        except (
+            ValueError,
+            TypeError,
+            AttributeError,
+        ):
+            pass
+
+    token = uuid.uuid4()
+
+    request.session[
+        CHECKOUT_TOKEN_SESSION_KEY
+    ] = str(token)
+
+    request.session.modified = True
+
+    return token
+
+
+def _checkout_token_post_valido(
+    request,
+):
+    """
+    El token recibido debe coincidir exactamente
+    con el que emitió la sesión actual.
+    """
+
+    recibido = (
+        request.POST.get(
+            "checkout_token",
+            "",
+        )
+        .strip()
+    )
+
+    esperado = request.session.get(
+        CHECKOUT_TOKEN_SESSION_KEY,
+        "",
+    )
+
+    if (
+        not recibido
+        or not esperado
+        or recibido != esperado
+    ):
+        return None
+
+    try:
+        return uuid.UUID(
+            recibido
+        )
+
+    except (
+        ValueError,
+        TypeError,
+        AttributeError,
+    ):
+        return None
+    
+    
+
+def _finalizar_checkout_en_sesion(
+    request,
+    pedido,
+):
+    """
+    Consolida el estado de sesión después de que un Pedido
+    quedó creado, tanto en el flujo normal como al recuperar
+    un envío idempotente concurrente.
+    """
+
+    request.session[
+        "ultimo_pedido_id"
+    ] = pedido.id
+
+    historial = request.session.get(
+        "historial_pedidos",
+        [],
+    )
+
+    if pedido.id not in historial:
+        historial.append(
+            pedido.id
+        )
+
+    request.session[
+        "historial_pedidos"
+    ] = historial
+
+    request.session[
+        "cart"
+    ] = {}
+
+    request.session.pop(
+        CHECKOUT_TOKEN_SESSION_KEY,
+        None,
+    )
+
+    request.session.modified = True
+
+
 def _obtener_pedido_pendiente_recuperable(request):
     """
     Busca exclusivamente el último pedido que FoodBack guardó
@@ -962,6 +1402,65 @@ def checkout_view(request):
             f"⛔ El restaurante ha cerrado. {mensaje}"
         )
         return redirect('menu')
+    
+    
+    # -------------------------------------------------
+    # SEGURIDAD DEL POST
+    #
+    # El anti-flood se consume ANTES de validar token,
+    # carrito o datos comerciales.
+    #
+    # Así un atacante no puede enviar POST inválidos
+    # ilimitadamente evitando los buckets defensivos.
+    # -------------------------------------------------
+
+    checkout_token = None
+
+    if request.method == 'POST':
+
+        rate_limit_checkout = (
+            _verificar_rate_limit_checkout(
+                request,
+                tenant,
+            )
+        )
+
+        if rate_limit_checkout:
+            response = HttpResponseBadRequest(
+                "Se realizaron demasiados "
+                "intentos de pedido. "
+                "Espera unos minutos "
+                "e inténtalo nuevamente."
+            )
+
+            response.status_code = 429
+
+            response[
+                "Retry-After"
+            ] = str(
+                max(
+                    int(
+                        rate_limit_checkout[
+                            "retry_after"
+                        ]
+                    ),
+                    1,
+                )
+            )
+
+            return response
+
+        checkout_token = (
+            _checkout_token_post_valido(
+                request
+            )
+        )
+
+        if not checkout_token:
+            return HttpResponseBadRequest(
+                "El envío del checkout no es válido. "
+                "Actualiza la página e inténtalo nuevamente."
+            )
 
     cart = request.session.get(
         'cart',
@@ -1012,7 +1511,7 @@ def checkout_view(request):
 
             return redirect('menu')
 
-    if request.method == 'POST':
+    if request.method == 'POST': 
 
         telefono = request.POST.get(
             'telefono'
@@ -1153,6 +1652,7 @@ def checkout_view(request):
                     longitud=lng,
                     es_pedido_whatsapp=False,
                     estado=estado_inicial,
+                    checkout_token=checkout_token,
                 )
 
                 # -------------------------------------
@@ -1197,29 +1697,10 @@ def checkout_view(request):
 
                 pedido.save()
 
-                request.session[
-                    'ultimo_pedido_id'
-                ] = pedido.id
-
-                historial = request.session.get(
-                    'historial_pedidos',
-                    []
+                _finalizar_checkout_en_sesion(
+                    request,
+                    pedido,
                 )
-
-                if pedido.id not in historial:
-                    historial.append(
-                        pedido.id
-                    )
-
-                request.session[
-                    'historial_pedidos'
-                ] = historial
-
-                request.session[
-                    'cart'
-                ] = {}
-
-                request.session.modified = True
 
                 if metodo_pago == 'TARJETA':
                     return _iniciar_pago_wompi_pedido(
@@ -1233,6 +1714,62 @@ def checkout_view(request):
                         pedido.tracking_token
                     )
                 )
+                
+        except IntegrityError as e:
+        # Puede ocurrir si dos POST legítimos llegan
+        # casi simultáneamente con el mismo checkout_token.
+        #
+        # La restricción UNIQUE deja crear un solo Pedido.
+        # El segundo request recupera ese mismo Pedido.
+
+            pedido_existente = (
+                Pedido.objects
+                .filter(
+                    sucursal=request.sucursal,
+                    checkout_token=checkout_token,
+                )
+                .first()
+            )
+
+            if pedido_existente:
+                _finalizar_checkout_en_sesion(
+                    request,
+                    pedido_existente,
+                )
+
+                if (
+                    pedido_existente.metodo_pago
+                    == 'TARJETA'
+                ):
+                    return _iniciar_pago_wompi_pedido(
+                        request,
+                        pedido_existente,
+                    )
+
+                return redirect(
+                    'order_tracker',
+                    tracking_token=(
+                        pedido_existente.tracking_token
+                    ),
+                )
+
+            # Si el IntegrityError fue provocado por otra
+            # restricción, no lo tratamos falsamente como
+            # una repetición idempotente.
+            print(
+                f"Error de integridad checkout: {e}"
+            )
+
+            messages.error(
+                request,
+                "No pudimos procesar tu pedido. "
+                "Intenta nuevamente."
+            )
+
+            return redirect(
+                'checkout'
+            )
+                
 
         except Exception as e:
             # El detalle técnico NO se envía al usuario.
@@ -1363,7 +1900,16 @@ def checkout_view(request):
         )
     )
 
+    checkout_token = (
+        _obtener_checkout_token(
+            request
+        )
+    )
+
     context = {
+        'checkout_token':
+            str(checkout_token),
+
         'items':
             productos_en_carrito,
 
@@ -1438,6 +1984,94 @@ def checkout_view(request):
         'pedidos/checkout.html',
         context
     )
+    
+    
+    
+def _verificar_rate_limit_checkout(
+    request,
+    tenant,
+):
+    """
+    Protección anti-flood del checkout.
+
+    Capa 1:
+        navegador/sesión dentro del Tenant.
+
+    Capa 2:
+        IP dentro del Tenant.
+
+    Devuelve None si está permitido.
+    Devuelve resultado bloqueado si excede límite.
+    """
+
+    cliente_id = (
+        obtener_id_seguridad_cliente(
+            request
+        )
+    )
+
+    ip = obtener_ip_cliente(
+        request
+    )
+
+    tenant_id = (
+        tenant.id
+        if tenant
+        else "none"
+    )
+
+    limite_cliente = consumir_rate_limit(
+        group="checkout-client",
+        raw_key=(
+            f"{tenant_id}:"
+            f"{cliente_id}"
+        ),
+        limite=(
+            settings
+            .FOODBACK_CHECKOUT_SESSION_LIMIT
+        ),
+        ventana_segundos=(
+            settings
+            .FOODBACK_CHECKOUT_WINDOW_SECONDS
+        ),
+        bloqueo_segundos=(
+            settings
+            .FOODBACK_CHECKOUT_BLOCK_SECONDS
+        ),
+    )
+
+    if not limite_cliente[
+        "permitido"
+    ]:
+        return limite_cliente
+
+    limite_ip = consumir_rate_limit(
+        group="checkout-ip",
+        raw_key=(
+            f"{tenant_id}:"
+            f"{ip}"
+        ),
+        limite=(
+            settings
+            .FOODBACK_CHECKOUT_IP_LIMIT
+        ),
+        ventana_segundos=(
+            settings
+            .FOODBACK_CHECKOUT_WINDOW_SECONDS
+        ),
+        bloqueo_segundos=(
+            settings
+            .FOODBACK_CHECKOUT_BLOCK_SECONDS
+        ),
+    )
+
+    if not limite_ip[
+        "permitido"
+    ]:
+        return limite_ip
+
+    return None
+
 
 # --- VISTAS DE PAGO WOMPI (CLIENTES PAGANDO PEDIDOS) ---
 
@@ -4426,22 +5060,59 @@ def api_delivery_sync(request):
 
 
 @require_safe
+@require_safe
 def obtener_ubicacion_ip(request):
-    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-    if x_forwarded_for:
-        ip = x_forwarded_for.split(',')[0]
-    else:
-        ip = request.META.get('REMOTE_ADDR')
-    if ip == '127.0.0.1':
-        pass
+    ip = obtener_ip_cliente(
+        request
+    )
+
+    if ip in {
+        "127.0.0.1",
+        "::1",
+        "0.0.0.0",
+    }:
+        return JsonResponse({
+            "status": "error",
+            "lat": 13.6929,
+            "lng": -89.2182,
+        })
+
     try:
-        with urllib.request.urlopen(f"http://ip-api.com/json/{ip}") as url:
-            data = json.loads(url.read().decode())
-            if data.get('status') == 'success' and data.get('countryCode') == 'SV':
-                return JsonResponse({'status': 'ok', 'lat': data['lat'], 'lng': data['lon'], 'city': data['city']})
-    except:
+        with urllib.request.urlopen(
+            f"http://ip-api.com/json/{ip}",
+            timeout=3,
+        ) as url:
+            data = json.loads(
+                url.read().decode(
+                    "utf-8"
+                )
+            )
+
+        if (
+            data.get("status")
+            == "success"
+            and
+            data.get("countryCode")
+            == "SV"
+        ):
+            return JsonResponse({
+                "status": "ok",
+                "lat": data["lat"],
+                "lng": data["lon"],
+                "city": data["city"],
+            })
+
+    except Exception:
+        # Más adelante esto irá al
+        # sistema profesional de logs.
         pass
-    return JsonResponse({'status': 'error', 'lat': 13.6929, 'lng': -89.2182})
+
+    return JsonResponse({
+        "status": "error",
+        "lat": 13.6929,
+        "lng": -89.2182,
+    })
+
 
 
 @require_safe

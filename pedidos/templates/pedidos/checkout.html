@@ -717,6 +717,12 @@
 >
             <form method="POST" action="{% url 'checkout' %}" id="pedidoForm" novalidate> 
                 {% csrf_token %}
+
+                <input
+                    type="hidden"
+                    name="checkout_token"
+                    value="{{ checkout_token }}"
+                >
                 <div class="form-section-title">Contacto</div>
                 <div class="row g-2">
                     <div class="col-6">

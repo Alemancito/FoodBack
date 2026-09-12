@@ -717,6 +717,14 @@ class Pedido(models.Model):
         on_delete=models.PROTECT,
         related_name="pedidos",
     )
+    
+    checkout_token = models.UUIDField(
+        null=True,
+        blank=True,
+        unique=True,
+        editable=False,
+        db_index=True,
+    )
 
     fecha_creacion = models.DateTimeField(auto_now_add=True)
 
@@ -1131,3 +1139,46 @@ def actualizar_total_pedido(sender, instance, **kwargs):
         total=Sum('subtotal'))['total'] or 0
     pedido.total_productos = nuevo_total
     pedido.save()
+    
+class RateLimitBucket(models.Model):
+    grupo = models.CharField(
+        max_length=80,
+        db_index=True,
+    )
+
+    clave_hash = models.CharField(
+        max_length=64,
+        unique=True,
+    )
+
+    ventana_inicio = models.DateTimeField()
+
+    contador = models.PositiveIntegerField(
+        default=0,
+    )
+
+    bloqueado_hasta = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    actualizado_en = models.DateTimeField(
+        auto_now=True,
+    )
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=[
+                    "grupo",
+                    "actualizado_en",
+                ],
+                name="ratelimit_group_updated_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.grupo} "
+            f"({self.contador})"
+        )

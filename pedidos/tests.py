@@ -10,6 +10,17 @@ from django.contrib.auth.models import Group, User
 from django.test import Client, TestCase
 from django.urls import reverse
 
+from django.test import override_settings
+
+from pedidos.security import (
+    obtener_ip_cliente,
+)
+
+
+from pedidos.security import (
+    consumir_rate_limit,
+)
+
 from django.db import IntegrityError, transaction
 
 from django.utils import timezone
@@ -224,6 +235,31 @@ class FoodBackTestBase(TestCase):
             sucursal=cls.sucursal,
             activo=True,
         )
+        
+    
+    def _crear_checkout_token_test(
+        self,
+    ):
+        """
+        Emite un token legítimo de checkout
+        para tests que NO están probando
+        manipulación/idempotencia del token.
+        """
+
+        token = str(
+            uuid.uuid4()
+        )
+
+        session = self.client.session
+
+        session[
+            "foodback_checkout_token"
+        ] = token
+
+        session.save()
+
+        return token    
+    
 
     def crear_pedido(
         self,
@@ -829,10 +865,15 @@ class CartIntegritySecurityTests(FoodBackTestBase):
         }
 
         session.save()
+        
+        checkout_token = (
+            self._crear_checkout_token_test()
+        )
 
         response = self.client.post(
             reverse("checkout"),
             {
+                "checkout_token": checkout_token,
                 "telefono": "76000001",
                 "nombre": "Ataque",
                 "apellido": "Prueba",
@@ -2621,10 +2662,15 @@ class PaymentRecoverySecurityTests(FoodBackTestBase):
         }
 
         session.save()
+        
+        checkout_token = (
+            self._crear_checkout_token_test()
+        )
 
         response = self.client.post(
             reverse("checkout"),
             {
+                "checkout_token": checkout_token,
                 "telefono":
                     "79100007",
                 "nombre":
@@ -3252,10 +3298,15 @@ class PaymentUserCooldownSecurityTests(
         }
 
         session.save()
+        
+        checkout_token = (
+            self._crear_checkout_token_test()
+        )
 
         response = self.client.post(
             reverse("checkout"),
             {
+                "checkout_token": checkout_token,
                 "telefono":
                     "79300004",
 
@@ -3318,10 +3369,15 @@ class PaymentUserCooldownSecurityTests(
         }
 
         session.save()
+        
+        checkout_token = (
+            self._crear_checkout_token_test()
+        )
 
         response = self.client.post(
             reverse("checkout"),
             {
+                "checkout_token": checkout_token,
                 "telefono":
                     "79300005",
 
@@ -3931,10 +3987,15 @@ class PaymentGlobalCircuitBreakerTests(
         }
 
         session.save()
+        
+        checkout_token = (
+            self._crear_checkout_token_test()
+        )
 
         response = self.client.post(
             reverse("checkout"),
             {
+                "checkout_token": checkout_token,
                 "telefono":
                     "79400005",
                 "nombre":
@@ -6485,10 +6546,16 @@ class ClienteTenantIsolationTests(
         }
 
         session.save()
+        
+        checkout_token = (
+            self._crear_checkout_token_test()
+        )
 
         response = self.client.post(
             reverse("checkout"),
             {
+                "checkout_token": checkout_token,
+                
                 "telefono":
                     telefono,
 
@@ -7778,3 +7845,864 @@ class EndpointMethodSecurityTests(
             response.status_code,
             405,
         )
+        
+        
+class ClientIPSecurityTests(
+    FoodBackTestBase
+):
+
+    def test_no_confia_en_x_forwarded_for(
+        self,
+    ):
+        request = type(
+            "Request",
+            (),
+            {},
+        )()
+
+        request.META = {
+            "REMOTE_ADDR":
+                "192.0.2.10",
+
+            "HTTP_X_FORWARDED_FOR":
+                "203.0.113.250",
+        }
+
+        self.assertEqual(
+            obtener_ip_cliente(
+                request
+            ),
+            "192.0.2.10",
+        )
+
+
+    @override_settings(
+        FOODBACK_TRUST_X_REAL_IP=True
+    )
+    def test_railway_x_real_ip_valida(
+        self,
+    ):
+        request = type(
+            "Request",
+            (),
+            {},
+        )()
+
+        request.META = {
+            "REMOTE_ADDR":
+                "10.0.0.10",
+
+            "HTTP_X_REAL_IP":
+                "203.0.113.25",
+        }
+
+        self.assertEqual(
+            obtener_ip_cliente(
+                request
+            ),
+            "203.0.113.25",
+        )
+
+
+    @override_settings(
+        FOODBACK_TRUST_X_REAL_IP=True
+    )
+    def test_x_real_ip_invalida_cae_a_remote_addr(
+        self,
+    ):
+        request = type(
+            "Request",
+            (),
+            {},
+        )()
+
+        request.META = {
+            "REMOTE_ADDR":
+                "192.0.2.50",
+
+            "HTTP_X_REAL_IP":
+                "soy-un-hacker-jajaja",
+        }
+
+        self.assertEqual(
+            obtener_ip_cliente(
+                request
+            ),
+            "192.0.2.50",
+        )
+        
+        
+class DatabaseRateLimitTests(
+    FoodBackTestBase
+):
+
+    def test_permite_hasta_el_limite(
+        self,
+    ):
+        for _ in range(3):
+            resultado = consumir_rate_limit(
+                group="test-login",
+                raw_key="192.0.2.10:user",
+                limite=3,
+                ventana_segundos=60,
+                bloqueo_segundos=120,
+            )
+
+            self.assertTrue(
+                resultado[
+                    "permitido"
+                ]
+            )
+
+
+    def test_bloquea_al_superar_limite(
+        self,
+    ):
+        for _ in range(3):
+            consumir_rate_limit(
+                group="test-login-bloqueo",
+                raw_key="192.0.2.20:user",
+                limite=3,
+                ventana_segundos=60,
+                bloqueo_segundos=120,
+            )
+
+        resultado = consumir_rate_limit(
+            group="test-login-bloqueo",
+            raw_key="192.0.2.20:user",
+            limite=3,
+            ventana_segundos=60,
+            bloqueo_segundos=120,
+        )
+
+        self.assertFalse(
+            resultado[
+                "permitido"
+            ]
+        )
+
+        self.assertGreater(
+            resultado[
+                "retry_after"
+            ],
+            0,
+        )
+
+
+    def test_clave_cruda_no_se_guarda(
+        self,
+    ):
+        from pedidos.models import (
+            RateLimitBucket,
+        )
+
+        raw_key = (
+            "203.0.113.55:"
+            "owner@example.com"
+        )
+
+        consumir_rate_limit(
+            group="test-privacy",
+            raw_key=raw_key,
+            limite=5,
+            ventana_segundos=60,
+        )
+
+        bucket = (
+            RateLimitBucket.objects
+            .get(
+                grupo="test-privacy"
+            )
+        )
+
+        self.assertNotIn(
+            raw_key,
+            bucket.clave_hash,
+        )
+
+        self.assertEqual(
+            len(
+                bucket.clave_hash
+            ),
+            64,
+        )
+        
+class LoginRateLimitTests(
+    FoodBackTestBase
+):
+
+    @override_settings(
+        FOODBACK_LOGIN_IP_LIMIT=50,
+        FOODBACK_LOGIN_USER_LIMIT=2,
+        FOODBACK_LOGIN_WINDOW_SECONDS=600,
+        FOODBACK_LOGIN_BLOCK_SECONDS=900,
+    )
+    def test_bloquea_multiples_intentos_misma_cuenta(
+        self,
+    ):
+        url = reverse(
+            "login_custom"
+        )
+
+        datos = {
+            "username":
+                "victima_login",
+
+            "password":
+                "incorrecta",
+        }
+
+        for _ in range(2):
+            response = self.client.post(
+                url,
+                datos,
+                REMOTE_ADDR="192.0.2.10",
+            )
+
+            self.assertNotEqual(
+                response.status_code,
+                429,
+            )
+
+        response = self.client.post(
+            url,
+            datos,
+            REMOTE_ADDR="192.0.2.10",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            429,
+        )
+
+        self.assertIn(
+            "Retry-After",
+            response.headers,
+        )
+
+
+    @override_settings(
+        FOODBACK_LOGIN_IP_LIMIT=2,
+        FOODBACK_LOGIN_USER_LIMIT=50,
+        FOODBACK_LOGIN_WINDOW_SECONDS=600,
+        FOODBACK_LOGIN_BLOCK_SECONDS=900,
+    )
+    def test_bloquea_ip_aunque_cambie_username(
+        self,
+    ):
+        url = reverse(
+            "login_custom"
+        )
+
+        for numero in range(2):
+            response = self.client.post(
+                url,
+                {
+                    "username":
+                        f"usuario{numero}",
+
+                    "password":
+                        "incorrecta",
+                },
+                REMOTE_ADDR="192.0.2.20",
+            )
+
+            self.assertNotEqual(
+                response.status_code,
+                429,
+            )
+
+        response = self.client.post(
+            url,
+            {
+                "username":
+                    "otro_usuario",
+
+                "password":
+                    "incorrecta",
+            },
+            REMOTE_ADDR="192.0.2.20",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            429,
+        )
+
+
+    @override_settings(
+        FOODBACK_LOGIN_IP_LIMIT=2,
+        FOODBACK_LOGIN_USER_LIMIT=50,
+        FOODBACK_LOGIN_WINDOW_SECONDS=600,
+        FOODBACK_LOGIN_BLOCK_SECONDS=900,
+        FOODBACK_TRUST_X_REAL_IP=False,
+    )
+    def test_x_forwarded_for_no_permite_evadir_limite(
+        self,
+    ):
+        url = reverse(
+            "login_custom"
+        )
+
+        for numero in range(2):
+            response = self.client.post(
+                url,
+                {
+                    "username":
+                        f"usuario{numero}",
+
+                    "password":
+                        "incorrecta",
+                },
+                REMOTE_ADDR="192.0.2.30",
+                HTTP_X_FORWARDED_FOR=(
+                    f"203.0.113.{numero + 1}"
+                ),
+            )
+
+            self.assertNotEqual(
+                response.status_code,
+                429,
+            )
+
+        response = self.client.post(
+            url,
+            {
+                "username":
+                    "tercer_usuario",
+
+                "password":
+                    "incorrecta",
+            },
+            REMOTE_ADDR="192.0.2.30",
+            HTTP_X_FORWARDED_FOR=(
+                "198.51.100.200"
+            ),
+        )
+
+        self.assertEqual(
+            response.status_code,
+            429,
+        )
+    
+    def test_bloqueo_visual_persiste_al_salir_y_volver_al_login(
+        self,
+    ):
+        url = reverse(
+            "login_custom"
+        )
+
+        with self.settings(
+            FOODBACK_LOGIN_IP_LIMIT=50,
+            FOODBACK_LOGIN_USER_LIMIT=1,
+            FOODBACK_LOGIN_WINDOW_SECONDS=600,
+            FOODBACK_LOGIN_BLOCK_SECONDS=900,
+        ):
+            datos = {
+                "username": "ataque-persistente",
+                "password": "incorrecta",
+            }
+
+            primer_intento = self.client.post(
+                url,
+                datos,
+                REMOTE_ADDR="192.0.2.80",
+            )
+
+            self.assertNotEqual(
+                primer_intento.status_code,
+                429,
+            )
+
+            bloqueo = self.client.post(
+                url,
+                datos,
+                REMOTE_ADDR="192.0.2.80",
+            )
+
+            self.assertEqual(
+                bloqueo.status_code,
+                429,
+            )
+
+            # Simulamos que el usuario sale al menú.
+            self.client.get(
+                reverse("menu"),
+                REMOTE_ADDR="192.0.2.80",
+            )
+
+            # Y posteriormente vuelve al login.
+            regreso = self.client.get(
+                url,
+                REMOTE_ADDR="192.0.2.80",
+            )
+
+            self.assertEqual(
+                regreso.status_code,
+                200,
+            )
+
+            self.assertContains(
+                regreso,
+                "Acceso temporalmente limitado",
+            )
+
+            self.assertTrue(
+                regreso.context[
+                    "rate_limit_retry_after"
+                ] > 0
+            )
+
+
+    def test_borrar_estado_visual_no_elimina_bloqueo_real(
+        self,
+    ):
+        url = reverse(
+            "login_custom"
+        )
+
+        with self.settings(
+            FOODBACK_LOGIN_IP_LIMIT=50,
+            FOODBACK_LOGIN_USER_LIMIT=1,
+            FOODBACK_LOGIN_WINDOW_SECONDS=600,
+            FOODBACK_LOGIN_BLOCK_SECONDS=900,
+        ):
+            datos = {
+                "username": "ataque-backend",
+                "password": "incorrecta",
+            }
+
+            self.client.post(
+                url,
+                datos,
+                REMOTE_ADDR="192.0.2.81",
+            )
+
+            bloqueo = self.client.post(
+                url,
+                datos,
+                REMOTE_ADDR="192.0.2.81",
+            )
+
+            self.assertEqual(
+                bloqueo.status_code,
+                429,
+            )
+
+            # El atacante manipula su propia sesión
+            # e intenta eliminar únicamente la marca UX.
+            session = self.client.session
+
+            session.pop(
+                "foodback_login_rate_limit_until",
+                None,
+            )
+
+            session.pop(
+                "foodback_login_rate_limit_username",
+                None,
+            )
+
+            session.save()
+
+            # PostgreSQL sigue teniendo la autoridad.
+            intento_manipulado = self.client.post(
+                url,
+                datos,
+                REMOTE_ADDR="192.0.2.81",
+            )
+
+            self.assertEqual(
+                intento_manipulado.status_code,
+                429,
+            )
+
+            self.assertIn(
+                "Retry-After",
+                intento_manipulado.headers,
+            )
+            
+class CheckoutIdempotencyTests(
+    FoodBackTestBase
+):
+
+    def test_checkout_post_sin_token_es_rechazado(
+        self,
+    ):
+        response = self.client.post(
+            reverse(
+                "checkout"
+            ),
+            {
+                "nombre": "Cliente",
+                "apellido": "Prueba",
+                "telefono": "77777777",
+                "direccion": "San Miguel",
+                "metodo_pago": "EFECTIVO",
+                "latitud": "13.48",
+                "longitud": "-88.18",
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            400,
+        )
+
+
+    def test_checkout_token_manipulado_es_rechazado(
+        self,
+    ):
+        # GET crea el token legítimo.
+        self.client.get(
+            reverse(
+                "checkout"
+            )
+        )
+
+        response = self.client.post(
+            reverse(
+                "checkout"
+            ),
+            {
+                "checkout_token":
+                    str(
+                        uuid.uuid4()
+                    ),
+
+                "nombre":
+                    "Cliente",
+
+                "apellido":
+                    "Prueba",
+
+                "telefono":
+                    "77777777",
+
+                "direccion":
+                    "San Miguel",
+
+                "metodo_pago":
+                    "EFECTIVO",
+
+                "latitud":
+                    "13.48",
+
+                "longitud":
+                    "-88.18",
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            400,
+        )
+        
+    def test_checkout_repetido_recupera_mismo_pedido(
+        self,
+    ):
+        checkout_token = (
+            self._crear_checkout_token_test()
+        )
+
+        pedido_existente = self.crear_pedido(
+            telefono="79770002",
+        )
+
+        pedido_existente.checkout_token = (
+            checkout_token
+        )
+
+        pedido_existente.save(
+            update_fields=[
+                "checkout_token"
+            ]
+        )
+
+        session = self.client.session
+
+        session["cart"] = {
+            f"{self.producto.id}-0-0": 1
+        }
+
+        session.save()
+
+        cantidad_antes = (
+            Pedido.objects.count()
+        )
+
+        response = self.client.post(
+            reverse(
+                "checkout"
+            ),
+            {
+                "checkout_token":
+                    checkout_token,
+
+                "nombre":
+                    "Cliente",
+
+                "apellido":
+                    "Repetido",
+
+                "telefono":
+                    "79770002",
+
+                "direccion":
+                    "San Miguel",
+
+                "metodo_pago":
+                    "EFECTIVO",
+
+                "latitud":
+                    "13.4800",
+
+                "longitud":
+                    "-88.1800",
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        self.assertEqual(
+            Pedido.objects.count(),
+            cantidad_antes,
+        )
+
+        self.assertEqual(
+            Pedido.objects.filter(
+                checkout_token=checkout_token,
+            ).count(),
+            1,
+        )
+
+        self.assertEqual(
+            response["Location"],
+            reverse(
+                "order_tracker",
+                args=[
+                    pedido_existente.tracking_token
+                ],
+            ),
+        )
+        
+    #--
+    def test_checkout_legitimo_guarda_y_consume_token(
+        self,
+    ):
+        checkout_token = (
+            self._crear_checkout_token_test()
+        )
+
+        session = self.client.session
+
+        session["cart"] = {
+            f"{self.producto.id}-0-0": 1
+        }
+
+        session.save()
+
+        response = self.client.post(
+            reverse(
+                "checkout"
+            ),
+            {
+                "checkout_token":
+                    checkout_token,
+
+                "nombre":
+                    "Cliente",
+
+                "apellido":
+                    "Idempotencia",
+
+                "telefono":
+                    "79770003",
+
+                "direccion":
+                    "San Miguel",
+
+                "metodo_pago":
+                    "EFECTIVO",
+
+                "latitud":
+                    "13.4800",
+
+                "longitud":
+                    "-88.1800",
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        pedido = Pedido.objects.get(
+            checkout_token=checkout_token,
+        )
+
+        self.assertEqual(
+            str(
+                pedido.checkout_token
+            ),
+            checkout_token,
+        )
+
+        session = self.client.session
+
+        self.assertNotIn(
+            "foodback_checkout_token",
+            session,
+        )
+
+        self.assertEqual(
+            session.get(
+                "cart"
+            ),
+            {},
+        )
+
+        self.assertEqual(
+            session.get(
+                "ultimo_pedido_id"
+            ),
+            pedido.id,
+        )
+
+        self.assertIn(
+            pedido.id,
+            session.get(
+                "historial_pedidos",
+                [],
+            ),
+        )
+        
+        
+class CheckoutRateLimitTests(
+    FoodBackTestBase
+):
+
+    @override_settings(
+        FOODBACK_CHECKOUT_SESSION_LIMIT=2,
+        FOODBACK_CHECKOUT_IP_LIMIT=50,
+        FOODBACK_CHECKOUT_WINDOW_SECONDS=600,
+        FOODBACK_CHECKOUT_BLOCK_SECONDS=900,
+    )
+    def test_checkout_bloquea_flood_del_mismo_navegador(
+        self,
+    ):
+        url = reverse(
+            "checkout"
+        )
+
+        # No necesitamos un checkout válido.
+        # El rate limit ocurre antes de procesar
+        # los datos comerciales.
+        for _ in range(2):
+            response = self.client.post(
+                url,
+                {},
+                REMOTE_ADDR="192.0.2.100",
+            )
+
+            self.assertNotEqual(
+                response.status_code,
+                429,
+            )
+
+        response = self.client.post(
+            url,
+            {},
+            REMOTE_ADDR="192.0.2.100",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            429,
+        )
+
+        self.assertIn(
+            "Retry-After",
+            response.headers,
+        )
+
+
+    @override_settings(
+        FOODBACK_CHECKOUT_SESSION_LIMIT=50,
+        FOODBACK_CHECKOUT_IP_LIMIT=2,
+        FOODBACK_CHECKOUT_WINDOW_SECONDS=600,
+        FOODBACK_CHECKOUT_BLOCK_SECONDS=900,
+    )
+    def test_checkout_bloquea_flood_por_ip(
+        self,
+    ):
+        url = reverse(
+            "checkout"
+        )
+
+        for _ in range(2):
+            response = self.client.post(
+                url,
+                {},
+                REMOTE_ADDR="192.0.2.110",
+            )
+
+            self.assertNotEqual(
+                response.status_code,
+                429,
+            )
+
+        response = self.client.post(
+            url,
+            {},
+            REMOTE_ADDR="192.0.2.110",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            429,
+        )
+
+
+    @override_settings(
+        FOODBACK_CHECKOUT_SESSION_LIMIT=50,
+        FOODBACK_CHECKOUT_IP_LIMIT=2,
+        FOODBACK_CHECKOUT_WINDOW_SECONDS=600,
+        FOODBACK_CHECKOUT_BLOCK_SECONDS=900,
+        FOODBACK_TRUST_X_REAL_IP=False,
+    )
+    def test_checkout_no_confia_en_x_forwarded_for(
+        self,
+    ):
+        url = reverse(
+            "checkout"
+        )
+
+        for numero in range(2):
+            self.client.post(
+                url,
+                {},
+                REMOTE_ADDR="192.0.2.120",
+                HTTP_X_FORWARDED_FOR=(
+                    f"203.0.113.{numero + 1}"
+                ),
+            )
+
+        response = self.client.post(
+            url,
+            {},
+            REMOTE_ADDR="192.0.2.120",
+            HTTP_X_FORWARDED_FOR=(
+                "198.51.100.250"
+            ),
+        )
+
+        self.assertEqual(
+            response.status_code,
+            429,
+        )
+

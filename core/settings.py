@@ -41,6 +41,12 @@ SECURE_PROXY_SSL_HEADER = (
     'https'
 )
 
+FOODBACK_TRUST_X_REAL_IP = config(
+    "FOODBACK_TRUST_X_REAL_IP",
+    default=False,
+    cast=bool,
+)
+
 
 FOODBACK_BASE_DOMAIN = config(
     "FOODBACK_BASE_DOMAIN",
@@ -177,3 +183,62 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 SESSION_COOKIE_AGE = 54000
 SESSION_SAVE_EVERY_REQUEST = False
 SESSION_EXPIRE_AT_BROWSER_CLOSE = False
+
+
+
+
+# =========================================================
+# FOODBACK - RATE LIMITS
+# =========================================================
+
+FOODBACK_LOGIN_IP_LIMIT = config(
+    "FOODBACK_LOGIN_IP_LIMIT",
+    default=30,
+    cast=int,
+)
+
+FOODBACK_LOGIN_USER_LIMIT = config(
+    "FOODBACK_LOGIN_USER_LIMIT",
+    default=8,
+    cast=int,
+)
+
+FOODBACK_LOGIN_WINDOW_SECONDS = config(
+    "FOODBACK_LOGIN_WINDOW_SECONDS",
+    default=600,
+    cast=int,
+)
+
+FOODBACK_LOGIN_BLOCK_SECONDS = config(
+    "FOODBACK_LOGIN_BLOCK_SECONDS",
+    default=900,
+    cast=int,
+)
+
+# =========================================================
+# FOODBACK - CHECKOUT RATE LIMIT
+# =========================================================
+
+FOODBACK_CHECKOUT_SESSION_LIMIT = config(
+    "FOODBACK_CHECKOUT_SESSION_LIMIT",
+    default=10,
+    cast=int,
+)
+
+FOODBACK_CHECKOUT_IP_LIMIT = config(
+    "FOODBACK_CHECKOUT_IP_LIMIT",
+    default=120,
+    cast=int,
+)
+
+FOODBACK_CHECKOUT_WINDOW_SECONDS = config(
+    "FOODBACK_CHECKOUT_WINDOW_SECONDS",
+    default=600,
+    cast=int,
+)
+
+FOODBACK_CHECKOUT_BLOCK_SECONDS = config(
+    "FOODBACK_CHECKOUT_BLOCK_SECONDS",
+    default=600,
+    cast=int,
+)

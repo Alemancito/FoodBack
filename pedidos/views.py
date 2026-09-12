@@ -4589,6 +4589,7 @@ def cambiar_sucursal_view(request):
         "dashboard_admin"
     )
 
+@require_http_methods(["GET", "POST"])
 @never_cache
 @login_required(login_url="login_custom")
 @require_branch_access
@@ -4994,6 +4995,7 @@ def _parse_hora_configuracion(
         ) from exc
 
 
+@require_http_methods(["GET", "POST"])
 @never_cache
 @login_required(login_url='login_custom')
 @require_branch_access
@@ -5445,6 +5447,7 @@ def eliminar_excepcion_view(
     )
 
 
+@require_http_methods(["GET", "POST"])
 @never_cache
 @login_required(login_url='login_custom')
 @require_delivery_assignment

@@ -1680,6 +1680,75 @@ class HttpMethodSecurityTests(FoodBackTestBase):
         )
     
     
+    def test_put_no_debe_operar_dashboard_admin(self):
+        pedido = self.crear_pedido(
+            estado="RECIBIDO",
+            telefono="72100020",
+        )
+
+        self.client.force_login(
+            self.admin_user
+        )
+
+        response = self.client.put(
+            reverse("dashboard_admin"),
+            data={
+                "pedido_id": pedido.id,
+                "accion": "cocina",
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            405,
+        )
+
+        pedido.refresh_from_db()
+
+        self.assertEqual(
+            pedido.estado,
+            "RECIBIDO",
+        )
+
+    def test_put_no_debe_operar_admin_settings(self):
+        self.client.force_login(
+            self.admin_user
+        )
+
+        response = self.client.put(
+            reverse("admin_settings"),
+            data={
+                "tipo_accion": "global",
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            405,
+        )
+
+    def test_put_no_debe_operar_dashboard_delivery(self):
+        self.client.force_login(
+            self.delivery_1
+        )
+
+        response = self.client.put(
+            reverse("dashboard_delivery"),
+            data={
+                "pedido_id": 1,
+                "accion": "tomar",
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            405,
+        )
+
+
 class CsrfSecurityTests(FoodBackTestBase):
     """
     FB-SEC-003A:

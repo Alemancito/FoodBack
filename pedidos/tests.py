@@ -551,6 +551,158 @@ class DeliveryBaselineTests(FoodBackTestBase):
             self.delivery_2,
         )
         
+    def test_delivery_rechaza_accion_y_pedido_id_invalidos(
+        self,
+    ):
+        pedido = self.crear_pedido(
+            estado="RUTA",
+            telefono="74000010",
+        )
+
+        self.client.force_login(
+            self.delivery_1
+        )
+
+        # -----------------------------------------
+        # Acción manipulada.
+        # -----------------------------------------
+
+        response = self.client.post(
+            reverse(
+                "dashboard_delivery"
+            ),
+            {
+                "pedido_id":
+                    pedido.id,
+
+                "accion":
+                    "accion-inventada",
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            400,
+        )
+
+        # -----------------------------------------
+        # ID manipulado.
+        # -----------------------------------------
+
+        response = self.client.post(
+            reverse(
+                "dashboard_delivery"
+            ),
+            {
+                "pedido_id":
+                    "-999",
+
+                "accion":
+                    "tomar",
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            400,
+        )
+
+        # Ninguno de los intentos debe modificar
+        # el Pedido.
+        pedido.refresh_from_db()
+
+        self.assertEqual(
+            pedido.estado,
+            "RUTA",
+        )
+
+        self.assertIsNone(
+            pedido.repartidor
+        )
+
+
+    def test_delivery_no_puede_robar_pedido_ya_tomado(
+        self,
+    ):
+        pedido = self.crear_pedido(
+            estado="RUTA",
+            telefono="74000011",
+        )
+
+        # Delivery 1 toma legítimamente el Pedido.
+        self.client.force_login(
+            self.delivery_1
+        )
+
+        response = self.client.post(
+            reverse(
+                "dashboard_delivery"
+            ),
+            {
+                "pedido_id":
+                    pedido.id,
+
+                "accion":
+                    "tomar",
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        pedido.refresh_from_db()
+
+        self.assertEqual(
+            pedido.repartidor,
+            self.delivery_1,
+        )
+
+        # -----------------------------------------
+        # Delivery 2 también pertenece a ESTA
+        # sucursal, por lo que supera autorización.
+        #
+        # Debe fallar por el estado REAL del Pedido,
+        # no por permisos.
+        # -----------------------------------------
+
+        self.client.force_login(
+            self.delivery_2
+        )
+
+        response = self.client.post(
+            reverse(
+                "dashboard_delivery"
+            ),
+            {
+                "pedido_id":
+                    pedido.id,
+
+                "accion":
+                    "tomar",
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        pedido.refresh_from_db()
+
+        # Delivery 2 NO debe haber podido
+        # apropiarse del Pedido.
+        self.assertEqual(
+            pedido.repartidor,
+            self.delivery_1,
+        )
+
+        self.assertEqual(
+            pedido.estado,
+            "RUTA",
+        )
+        
 class PublicTrackingSecurityTests(FoodBackTestBase):
     """
     FB-SEC-001:

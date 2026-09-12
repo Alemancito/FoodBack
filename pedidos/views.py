@@ -5292,140 +5292,165 @@ def dashboard_delivery_view(request):
         )
 
     if request.method == "POST":
-        pedido = get_object_or_404(
-            Pedido,
-            id=request.POST.get(
-                "pedido_id"
-            ),
-            sucursal=sucursal,
-        )
-
         accion = request.POST.get(
             "accion"
         )
 
-        if accion == "tomar":
-            if (
-                pedido.estado == "RUTA"
-                and pedido.repartidor is None
-            ):
-                pedido.repartidor = (
-                    request.user
-                )
+        acciones_validas = {
+            "tomar",
+            "entregado",
+            "soltar",
+            "problema",
+        }
 
-                pedido.save()
-
-                messages.success(
-                    request,
-                    (
-                        f"Pedido #{pedido.id} "
-                        "tomado 🛵"
-                    ),
-                )
-
-            else:
-                messages.warning(
-                    request,
-                    (
-                        "Ese pedido ya fue "
-                        "tomado por otro "
-                        "repartidor."
-                    ),
-                )
-
-        elif accion == "entregado":
-            if (
-                pedido.repartidor
-                == request.user
-            ):
-                pedido.estado = (
-                    "ENTREGADO"
-                )
-
-                pedido.save()
-
-                messages.success(
-                    request,
-                    (
-                        f"Pedido #{pedido.id} "
-                        "entregado ✅"
-                    ),
-                )
-
-            else:
-                messages.error(
-                    request,
-                    (
-                        "No puedes entregar "
-                        "un pedido que no está "
-                        "en tu mochila."
-                    ),
-                )
-
-        elif accion == "soltar":
-            if (
-                pedido.estado == "RUTA"
-                and pedido.repartidor
-                == request.user
-            ):
-                pedido.repartidor = None
-
-                pedido.save()
-
-                messages.info(
-                    request,
-                    (
-                        f"Pedido #{pedido.id} "
-                        "devuelto a disponibles 🔄"
-                    ),
-                )
-
-            else:
-                messages.error(
-                    request,
-                    (
-                        "No puedes quitar de "
-                        "tu mochila un pedido "
-                        "que no tienes asignado."
-                    ),
-                )
-
-        elif accion == "problema":
-            if (
-                pedido.repartidor
-                == request.user
-            ):
-                pedido.estado = (
-                    "PROBLEMA"
-                )
-
-                pedido.repartidor = None
-
-                pedido.save()
-
-                messages.warning(
-                    request,
-                    (
-                        "Problema reportado "
-                        f"en pedido #{pedido.id}"
-                    ),
-                )
-
-            else:
-                messages.error(
-                    request,
-                    (
-                        "No puedes reportar "
-                        "un pedido que no está "
-                        "en tu mochila."
-                    ),
-                )
-
-        else:
-            messages.error(
-                request,
-                "Acción no válida.",
+        if accion not in acciones_validas:
+            return HttpResponseBadRequest(
+                "Acción no válida."
             )
+
+        pedido_id_raw = request.POST.get(
+            "pedido_id"
+        )
+
+        try:
+            pedido_id = int(
+                pedido_id_raw
+            )
+
+            if pedido_id <= 0:
+                raise ValueError
+
+        except (
+            TypeError,
+            ValueError,
+        ):
+            return HttpResponseBadRequest(
+                "Pedido no válido."
+            )
+
+        with transaction.atomic():
+            pedido = get_object_or_404(
+                Pedido.objects.select_for_update(),
+                id=pedido_id,
+                sucursal=sucursal,
+            )
+
+            if accion == "tomar":
+                if (
+                    pedido.estado == "RUTA"
+                    and pedido.repartidor is None
+                ):
+                    pedido.repartidor = (
+                        request.user
+                    )
+
+                    pedido.save()
+
+                    messages.success(
+                        request,
+                        (
+                            f"Pedido #{pedido.id} "
+                            "tomado 🛵"
+                        ),
+                    )
+
+                else:
+                    messages.warning(
+                        request,
+                        (
+                            "Ese pedido ya fue "
+                            "tomado por otro "
+                            "repartidor."
+                        ),
+                    )
+
+            elif accion == "entregado":
+                if (
+                    pedido.repartidor
+                    == request.user
+                ):
+                    pedido.estado = (
+                        "ENTREGADO"
+                    )
+
+                    pedido.save()
+
+                    messages.success(
+                        request,
+                        (
+                            f"Pedido #{pedido.id} "
+                            "entregado ✅"
+                        ),
+                    )
+
+                else:
+                    messages.error(
+                        request,
+                        (
+                            "No puedes entregar "
+                            "un pedido que no está "
+                            "en tu mochila."
+                        ),
+                    )
+
+            elif accion == "soltar":
+                if (
+                    pedido.estado == "RUTA"
+                    and pedido.repartidor
+                    == request.user
+                ):
+                    pedido.repartidor = None
+
+                    pedido.save()
+
+                    messages.info(
+                        request,
+                        (
+                            f"Pedido #{pedido.id} "
+                            "devuelto a disponibles 🔄"
+                        ),
+                    )
+
+                else:
+                    messages.error(
+                        request,
+                        (
+                            "No puedes quitar de "
+                            "tu mochila un pedido "
+                            "que no tienes asignado."
+                        ),
+                    )
+
+            elif accion == "problema":
+                if (
+                    pedido.repartidor
+                    == request.user
+                ):
+                    pedido.estado = (
+                        "PROBLEMA"
+                    )
+
+                    pedido.repartidor = None
+
+                    pedido.save()
+
+                    messages.warning(
+                        request,
+                        (
+                            "Problema reportado "
+                            f"en pedido #{pedido.id}"
+                        ),
+                    )
+
+                else:
+                    messages.error(
+                        request,
+                        (
+                            "No puedes reportar "
+                            "un pedido que no está "
+                            "en tu mochila."
+                        ),
+                    )
 
         return redirect(
             "dashboard_delivery"

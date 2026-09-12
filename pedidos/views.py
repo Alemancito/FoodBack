@@ -2,9 +2,7 @@ import hashlib
 import hmac
 import json
 import uuid
-import urllib.request
 import requests
-import time  # Necesario para generar referencias únicas
 from datetime import datetime, date, timedelta
 from decimal import Decimal, InvalidOperation
 from django.shortcuts import render, redirect, get_object_or_404
@@ -4604,6 +4602,19 @@ def api_dashboard_admin_sync(request):
             ultimo_cliente_raw
         )
     )
+    
+    if (
+        ultimo_cliente_raw != "none"
+        and ultimo_cliente is None
+    ):
+        return JsonResponse(
+            {
+                "detail": (
+                    "last_update inválido."
+                )
+            },
+            status=400,
+        )
 
     if (
         ultimo_servidor is None
@@ -5281,6 +5292,19 @@ def api_delivery_sync(request):
             ultimo_cliente_raw
         )
     )
+    
+    if (
+        ultimo_cliente_raw != "none"
+        and ultimo_cliente is None
+    ):
+        return JsonResponse(
+            {
+                "detail": (
+                    "last_update inválido."
+                )
+            },
+            status=400,
+        )
 
     if (
         ultimo_servidor is None
@@ -5346,63 +5370,6 @@ def api_delivery_sync(request):
             ),
         },
     })
-
-
-
-@require_safe
-@require_safe
-def obtener_ubicacion_ip(request):
-    ip = obtener_ip_cliente(
-        request
-    )
-
-    if ip in {
-        "127.0.0.1",
-        "::1",
-        "0.0.0.0",
-    }:
-        return JsonResponse({
-            "status": "error",
-            "lat": 13.6929,
-            "lng": -89.2182,
-        })
-
-    try:
-        with urllib.request.urlopen(
-            f"http://ip-api.com/json/{ip}",
-            timeout=3,
-        ) as url:
-            data = json.loads(
-                url.read().decode(
-                    "utf-8"
-                )
-            )
-
-        if (
-            data.get("status")
-            == "success"
-            and
-            data.get("countryCode")
-            == "SV"
-        ):
-            return JsonResponse({
-                "status": "ok",
-                "lat": data["lat"],
-                "lng": data["lon"],
-                "city": data["city"],
-            })
-
-    except Exception:
-        # Más adelante esto irá al
-        # sistema profesional de logs.
-        pass
-
-    return JsonResponse({
-        "status": "error",
-        "lat": 13.6929,
-        "lng": -89.2182,
-    })
-
 
 
 @require_safe

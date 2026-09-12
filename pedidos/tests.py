@@ -6098,6 +6098,24 @@ class AdminDashboardSucursalIsolationTests(
             1,
         )
         
+    def test_polling_admin_rechaza_last_update_invalido(
+        self,
+    ):
+        response = self.client.get(
+            reverse(
+                "api_dashboard_admin_sync"
+            ),
+            {
+                "last_update":
+                    "esto-no-es-una-fecha",
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            400,
+        )
+        
         
 class DeliverySucursalIsolationTests(
     FoodBackTestBase
@@ -6238,6 +6256,24 @@ class DeliverySucursalIsolationTests(
         self.assertEqual(
             data["pool_count"],
             1,
+        )
+        
+    def test_polling_delivery_rechaza_last_update_invalido(
+        self,
+    ):
+        response = self.client.get(
+            reverse(
+                "api_delivery_sync"
+            ),
+            {
+                "last_update":
+                    "esto-no-es-una-fecha",
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            400,
         )
         
 class CatalogTenantIsolationTests(
@@ -7901,9 +7937,6 @@ class EndpointMethodSecurityTests(
                 ],
             ),
             reverse(
-                "geo_ip"
-            ),
-            reverse(
                 "api_order_status",
                 args=[
                     token_inexistente,
@@ -9167,5 +9200,21 @@ class SubscriptionPaymentRateLimitTests(
         self.assertIn(
             "Retry-After",
             response.headers,
+        )
+        
+class GeoIpRetirementSecurityTests(
+    FoodBackTestBase
+):
+
+    def test_endpoint_geo_ip_ya_no_esta_expuesto(
+        self,
+    ):
+        response = self.client.get(
+            "/api/geo-ip/"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            404,
         )
 

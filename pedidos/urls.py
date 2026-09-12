@@ -1,6 +1,6 @@
 from django.urls import path
 from . import views
-from .views import obtener_ubicacion_ip, CustomLoginView, logout_view
+from .views import CustomLoginView, logout_view
 from .views import pagar_suscripcion_view, wompi_suscripcion_respuesta_view
 
 urlpatterns = [
@@ -59,7 +59,6 @@ urlpatterns = [
     path('reparto/', views.dashboard_delivery_view, name='dashboard_delivery'),
 
     # APIs
-    path('api/geo-ip/', obtener_ubicacion_ip, name='geo_ip'),
     path(
         'api/pedido/<uuid:tracking_token>/status/',
         views.api_order_status,

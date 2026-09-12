@@ -464,6 +464,99 @@ class AdminBaselineTests(FoodBackTestBase):
             pedido.estado,
             "COCINA",
         )
+        
+    def test_admin_rechaza_accion_y_pedido_id_invalidos(
+        self,
+    ):
+        pedido = self.crear_pedido(
+            estado="RECIBIDO",
+            telefono="72000010",
+        )
+
+        self.client.force_login(
+            self.admin_user
+        )
+
+        response = self.client.post(
+            reverse(
+                "dashboard_admin"
+            ),
+            {
+                "pedido_id":
+                    pedido.id,
+
+                "accion":
+                    "accion-inventada",
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            400,
+        )
+
+        response = self.client.post(
+            reverse(
+                "dashboard_admin"
+            ),
+            {
+                "pedido_id":
+                    "-999",
+
+                "accion":
+                    "cocina",
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            400,
+        )
+
+        pedido.refresh_from_db()
+
+        self.assertEqual(
+            pedido.estado,
+            "RECIBIDO",
+        )
+        
+        
+    def test_admin_no_puede_revivir_pedido_entregado(
+        self,
+    ):
+        pedido = self.crear_pedido(
+            estado="ENTREGADO",
+            telefono="72000011",
+        )
+
+        self.client.force_login(
+            self.admin_user
+        )
+
+        response = self.client.post(
+            reverse(
+                "dashboard_admin"
+            ),
+            {
+                "pedido_id":
+                    pedido.id,
+
+                "accion":
+                    "cocina",
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        pedido.refresh_from_db()
+
+        self.assertEqual(
+            pedido.estado,
+            "ENTREGADO",
+        )
 
 
 class DeliveryBaselineTests(FoodBackTestBase):

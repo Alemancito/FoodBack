@@ -4555,54 +4555,124 @@ def dashboard_admin_view(request):
         )
 
     elif request.method == "POST":
-        pedido = get_object_or_404(
-            Pedido,
-            id=request.POST.get("pedido_id"),
-            sucursal=sucursal,
-        )
-
         accion = request.POST.get(
             "accion"
         )
 
+        transiciones_validas = {
+            "cocina": {
+                "desde": "RECIBIDO",
+                "hacia": "COCINA",
+            },
+            "ruta": {
+                "desde": "COCINA",
+                "hacia": "RUTA",
+            },
+            "reintentar": {
+                "desde": "PROBLEMA",
+                "hacia": "RUTA",
+            },
+            "cancelar": {
+                "desde": "PROBLEMA",
+                "hacia": "CANCELADO",
+            },
+        }
+
+        if accion not in transiciones_validas:
+            return HttpResponseBadRequest(
+                "Acción no válida."
+            )
+
+        pedido_id_raw = request.POST.get(
+            "pedido_id"
+        )
+
+        try:
+            pedido_id = int(
+                pedido_id_raw
+            )
+
+            if pedido_id <= 0:
+                raise ValueError
+
+        except (
+            TypeError,
+            ValueError,
+        ):
+            return HttpResponseBadRequest(
+                "Pedido no válido."
+            )
+
+        regla = transiciones_validas[
+            accion
+        ]
+
+        with transaction.atomic():
+            pedido = get_object_or_404(
+                Pedido.objects.select_for_update(),
+                id=pedido_id,
+                sucursal=sucursal,
+            )
+
+            if (
+                pedido.estado
+                != regla["desde"]
+            ):
+                messages.warning(
+                    request,
+                    (
+                        f"La Orden #{pedido.id} "
+                        "cambió de estado y esa "
+                        "acción ya no es válida."
+                    ),
+                )
+
+                return redirect(
+                    "dashboard_admin"
+                )
+
+            pedido.estado = (
+                regla["hacia"]
+            )
+
+            pedido.save()
+
         if accion == "cocina":
-            pedido.estado = "COCINA"
             messages.success(
                 request,
-                f"Orden #{pedido.id} enviada a Cocina 🔥",
+                (
+                    f"Orden #{pedido.id} "
+                    "enviada a Cocina 🔥"
+                ),
             )
 
         elif accion == "ruta":
-            pedido.estado = "RUTA"
             messages.success(
                 request,
-                f"Orden #{pedido.id} lista para Ruta 🛵",
+                (
+                    f"Orden #{pedido.id} "
+                    "lista para Ruta 🛵"
+                ),
             )
 
         elif accion == "reintentar":
-            pedido.estado = "RUTA"
             messages.info(
                 request,
-                f"Reintentando Orden #{pedido.id} 🔄",
+                (
+                    f"Reintentando Orden "
+                    f"#{pedido.id} 🔄"
+                ),
             )
 
         elif accion == "cancelar":
-            pedido.estado = "CANCELADO"
             messages.error(
                 request,
-                f"Orden #{pedido.id} cancelada ❌",
+                (
+                    f"Orden #{pedido.id} "
+                    "cancelada ❌"
+                ),
             )
 
-        else:
-            messages.error(
-                request,
-                "Acción no válida.",
-            )
-            return redirect(
-                "dashboard_admin"
-            )
-
-        pedido.save()
         return redirect(
             "dashboard_admin"
         )

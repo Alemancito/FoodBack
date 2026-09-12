@@ -25,7 +25,12 @@ from .tenant_context import (
 )
 from django.urls import reverse
 from django.views.decorators.cache import never_cache
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import (
+    require_GET,
+    require_POST,
+    require_safe,
+    require_http_methods,
+)
 from django.views.decorators.csrf import csrf_exempt  # IMPORTANTE PARA EL WEBHOOK
 from django.contrib.auth.views import LoginView
 from django.contrib.auth import logout
@@ -553,7 +558,7 @@ def _validar_carrito(
 
 
 # --- VISTAS PÚBLICAS ---
-
+@require_safe
 def menu_view(request):
     _limpiar_pedidos_pendientes_vencidos()
 
@@ -913,8 +918,29 @@ def _obtener_pedido_pendiente_recuperable(request):
     )
 
 
+@require_http_methods([
+    "GET",
+    "POST",
+])
 def checkout_view(request):
     _limpiar_pedidos_pendientes_vencidos()
+    
+    tenant = getattr(
+        request,
+        "tenant",
+        None,
+    )
+
+    sucursal = getattr(
+        request,
+        "sucursal",
+        None,
+    )
+
+    if not tenant or not sucursal:
+        return HttpResponseForbidden(
+            "No hay una sucursal activa."
+        )
 
     if not suscripcion_activa(
         request.tenant
@@ -1015,6 +1041,19 @@ def checkout_view(request):
         lng = request.POST.get(
             'longitud'
         )
+        
+        metodos_pago_validos = {
+            "EFECTIVO",
+            "TARJETA",
+        }
+
+        if (
+            metodo_pago
+            not in metodos_pago_validos
+        ):
+            return HttpResponseBadRequest(
+                "Método de pago no válido."
+            )
         
         if metodo_pago == 'TARJETA':
 
@@ -2950,6 +2989,7 @@ def pagar_wompi_view(request, tracking_token):
     )
 
 
+@require_GET
 def wompi_respuesta_view(request):
     referencia = (
         request.GET.get("ref")
@@ -3127,7 +3167,7 @@ def wompi_respuesta_view(request):
         ),
     )
 
-
+@require_safe
 def pedido_exito_view(request, tracking_token):
     pedido = get_object_or_404(
         Pedido,
@@ -3600,7 +3640,7 @@ def dashboard_admin_view(request):
     )
 
 
-
+@require_safe
 @never_cache
 @login_required(login_url='login_custom')
 @require_branch_access
@@ -4277,7 +4317,7 @@ def dashboard_delivery_view(request):
         context,
     )
 
-
+@require_safe
 @never_cache
 @login_required(login_url='login_custom')
 @require_delivery_assignment
@@ -4384,6 +4424,8 @@ def api_delivery_sync(request):
     })
 
 
+
+@require_safe
 def obtener_ubicacion_ip(request):
     x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
     if x_forwarded_for:
@@ -4402,6 +4444,7 @@ def obtener_ubicacion_ip(request):
     return JsonResponse({'status': 'error', 'lat': 13.6929, 'lng': -89.2182})
 
 
+@require_safe
 def order_tracker_view(
     request,
     tracking_token
@@ -4827,7 +4870,7 @@ def ocultar_pedido_pendiente_view(
         'menu'
     )
 
-
+@require_safe
 def api_order_status(request, tracking_token):
     try:
         pedido = Pedido.objects.only(
@@ -4855,6 +4898,7 @@ def api_order_status(request, tracking_token):
         }, status=404)
 
 
+@require_safe
 @never_cache
 @login_required(login_url='login_custom')
 @require_branch_access
@@ -5077,6 +5121,7 @@ def dashboard_metrics_view(request):
     )
 
 
+@require_safe
 def perfil_usuario_view(request):
     tenant = getattr(
         request,
@@ -5460,6 +5505,7 @@ def pagar_suscripcion_view(request):
         )
 
 
+@require_GET
 @login_required(login_url="login_custom")
 @require_tenant_roles(
     Membership.ROLE_OWNER,
@@ -5576,9 +5622,8 @@ def wompi_suscripcion_respuesta_view(request):
 
 @csrf_exempt
 @never_cache
+@require_POST
 def wompi_webhook_view(request):
-    if request.method != 'POST':
-        return JsonResponse({'status': 'error', 'msg': 'Método no permitido'}, status=405)
 
     raw_body = request.body
 

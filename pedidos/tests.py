@@ -18,6 +18,8 @@ from django.contrib.auth import get_user_model
 from django.test import RequestFactory
 from pedidos.models import Tenant, Membership, Sucursal
 
+import uuid
+
 from django.contrib.sessions.backends.db import SessionStore
 
 from django.contrib.auth.models import AnonymousUser
@@ -7626,4 +7628,153 @@ class BranchSwitchAuthorizationTests(
         self.assertEqual(
             response.status_code,
             403,
+        )
+        
+
+class EndpointMethodSecurityTests(
+    FoodBackTestBase
+):
+
+    def test_endpoints_de_lectura_rechazan_post(
+        self,
+    ):
+        token_inexistente = uuid.uuid4()
+
+        urls = [
+            reverse(
+                "menu"
+            ),
+            reverse(
+                "pedido_exito",
+                args=[
+                    token_inexistente,
+                ],
+            ),
+            reverse(
+                "order_tracker",
+                args=[
+                    token_inexistente,
+                ],
+            ),
+            reverse(
+                "geo_ip"
+            ),
+            reverse(
+                "api_order_status",
+                args=[
+                    token_inexistente,
+                ],
+            ),
+            reverse(
+                "api_dashboard_admin_sync"
+            ),
+            reverse(
+                "api_delivery_sync"
+            ),
+            reverse(
+                "dashboard_metrics"
+            ),
+            reverse(
+                "wompi_respuesta"
+            ),
+            reverse(
+                "wompi_suscripcion_respuesta"
+            ),
+        ]
+
+        for url in urls:
+
+            with self.subTest(
+                url=url
+            ):
+                response = self.client.post(
+                    url,
+                    {}
+                )
+
+                self.assertEqual(
+                    response.status_code,
+                    405,
+                    msg=(
+                        f"{url} aceptó POST "
+                        "cuando debería ser "
+                        "solo lectura."
+                    ),
+                )
+
+
+    def test_webhook_wompi_rechaza_get(
+        self,
+    ):
+        response = self.client.get(
+            reverse(
+                "wompi_webhook"
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            405,
+        )
+        
+    def test_checkout_rechaza_put(
+        self,
+    ):
+        response = self.client.put(
+            reverse(
+                "checkout"
+            ),
+            data={},
+            content_type="application/json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            405,
+        )
+
+
+    def test_perfil_cliente_rechaza_post(
+        self,
+    ):
+        response = self.client.post(
+            reverse(
+                "perfil_usuario"
+            ),
+            {},
+        )
+
+        self.assertEqual(
+            response.status_code,
+            405,
+        )
+
+
+    def test_redirect_wompi_rechaza_head(
+        self,
+    ):
+        response = self.client.head(
+            reverse(
+                "wompi_respuesta"
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            405,
+        )
+
+
+    def test_redirect_suscripcion_wompi_rechaza_head(
+        self,
+    ):
+        response = self.client.head(
+            reverse(
+                "wompi_suscripcion_respuesta"
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            405,
         )

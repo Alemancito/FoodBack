@@ -59,6 +59,7 @@ from django.template.loader import render_to_string
 from django.db.models import Sum, Count, F, Q, Max, Prefetch
 from django.core.exceptions import PermissionDenied
 from django.utils.dateparse import parse_datetime
+from django.utils.http import url_has_allowed_host_and_scheme
 # --- LÓGICA DE LOGIN Y SEGURIDAD ---
 
 
@@ -604,6 +605,14 @@ class CarritoInvalido(ValueError):
     pass
 
 
+# Límites defensivos del carrito.
+#
+# No sustituyen las reglas comerciales del restaurante; evitan
+# sesiones/pedidos absurdamente grandes por manipulación o abuso.
+CART_MAX_ITEM_QUANTITY = 99
+CART_MAX_LINES = 50
+
+
 def _entero_positivo(valor, nombre_campo):
     """
     Convierte IDs/cantidades recibidos desde cliente o sesión
@@ -787,6 +796,11 @@ def _validar_carrito(
             "La estructura del carrito no es válida."
         )
 
+    if len(cart) > CART_MAX_LINES:
+        raise CarritoInvalido(
+            "El carrito contiene demasiados artículos."
+        )
+
     items_validados = []
 
     for key, cantidad_raw in cart.items():
@@ -795,6 +809,12 @@ def _validar_carrito(
             cantidad_raw,
             "cantidad",
         )
+
+        if cantidad > CART_MAX_ITEM_QUANTITY:
+            raise CarritoInvalido(
+                "La cantidad de un producto excede "
+                "el límite permitido."
+            )
 
         (
             producto_id,
@@ -1050,9 +1070,14 @@ def cart_add(request, producto_id):
         )
 
     cart = request.session.get(
-        'cart',
-        {}
+        "cart",
+        {},
     )
+
+    if not isinstance(cart, dict):
+        return HttpResponseBadRequest(
+            "El carrito no es válido."
+        )
 
     # Construimos la clave usando únicamente IDs
     # que ya fueron validados contra la BD.
@@ -1080,8 +1105,36 @@ def cart_add(request, producto_id):
     )
 
     if key in cart:
-        cart[key] += 1
+        try:
+            cantidad_actual = _entero_positivo(
+                cart[key],
+                "cantidad",
+            )
+        except CarritoInvalido:
+            return HttpResponseBadRequest(
+                "El carrito no es válido."
+            )
+
+        if (
+            cantidad_actual
+            >= CART_MAX_ITEM_QUANTITY
+        ):
+            return HttpResponseBadRequest(
+                "Se alcanzó el máximo permitido "
+                "para este producto."
+            )
+
+        cart[key] = (
+            cantidad_actual + 1
+        )
+
     else:
+        if len(cart) >= CART_MAX_LINES:
+            return HttpResponseBadRequest(
+                "El carrito alcanzó el máximo "
+                "de artículos distintos."
+            )
+
         cart[key] = 1
 
     request.session['cart'] = cart
@@ -1102,11 +1155,26 @@ def cart_add(request, producto_id):
         f"¡{nombre_mostrar} agregado!"
     )
 
-    return redirect(
-        request.META.get(
-            'HTTP_REFERER',
-            'menu'
+    referer = request.META.get(
+        "HTTP_REFERER"
+    )
+
+    if (
+        referer
+        and url_has_allowed_host_and_scheme(
+            referer,
+            allowed_hosts={
+                request.get_host()
+            },
+            require_https=request.is_secure(),
         )
+    ):
+        return redirect(
+            referer
+        )
+
+    return redirect(
+        "menu"
     )
 
 @require_POST
@@ -3938,7 +4006,6 @@ def _iniciar_pago_wompi_pedido(request, pedido):
         return redirect('checkout')
 
 
-@require_POST
 @require_POST
 def pagar_wompi_view(request, tracking_token):
     tenant = getattr(

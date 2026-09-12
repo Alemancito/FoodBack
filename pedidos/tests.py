@@ -52,6 +52,8 @@ from pedidos.views import (
     _renovar_suscripcion_30_dias,
     _procesar_pago_wompi_aprobado,
     _estado_bloqueo_pasarela_tenant,
+    CART_MAX_ITEM_QUANTITY,
+    CART_MAX_LINES,
     
 )
 
@@ -328,6 +330,78 @@ class PublicBaselineTests(FoodBackTestBase):
 
         self.assertIn(clave_esperada, cart)
         self.assertEqual(cart[clave_esperada], 1)
+
+    def test_agregar_producto_no_redirige_a_referer_externo(
+        self,
+    ):
+        response = self.client.post(
+            reverse(
+                "add_to_cart",
+                args=[self.producto.id],
+            ),
+            HTTP_REFERER=(
+                "https://evil.example/phishing"
+            ),
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        self.assertEqual(
+            response.url,
+            reverse("menu"),
+        )
+
+        cart = self.client.session.get(
+            "cart",
+            {},
+        )
+
+        clave = (
+            f"{self.producto.id}-0-0"
+        )
+
+        self.assertEqual(
+            cart[clave],
+            1,
+        )
+
+    def test_carrito_no_permite_superar_cantidad_maxima(
+        self,
+    ):
+        clave = (
+            f"{self.producto.id}-0-0"
+        )
+
+        session = self.client.session
+        session["cart"] = {
+            clave: CART_MAX_ITEM_QUANTITY,
+        }
+        session.save()
+
+        response = self.client.post(
+            reverse(
+                "add_to_cart",
+                args=[self.producto.id],
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            400,
+        )
+
+        cart = self.client.session.get(
+            "cart",
+            {},
+        )
+
+        self.assertEqual(
+            cart[clave],
+            CART_MAX_ITEM_QUANTITY,
+        )
     
     def test_producto_simple_menu_usa_post_y_no_get(self):
         response = self.client.get(
@@ -1173,6 +1247,42 @@ class CartIntegritySecurityTests(FoodBackTestBase):
         self.assertIn(clave, cart)
         self.assertEqual(cart[clave], 1)
 
+    def test_validador_rechaza_cantidad_excesiva_en_sesion(
+        self,
+    ):
+        cart = {
+            f"{self.producto.id}-0-0": (
+                CART_MAX_ITEM_QUANTITY + 1
+            ),
+        }
+
+        with self.assertRaises(
+            CarritoInvalido
+        ):
+            _validar_carrito(
+                cart,
+                self.tenant,
+            )
+
+    def test_validador_rechaza_demasiadas_lineas(
+        self,
+    ):
+        cart = {
+            f"{numero}-0-0": 1
+            for numero in range(
+                1,
+                CART_MAX_LINES + 2,
+            )
+        }
+
+        with self.assertRaises(
+            CarritoInvalido
+        ):
+            _validar_carrito(
+                cart,
+                self.tenant,
+            )
+
     def test_checkout_revalida_carrito_manipulado(self):
         """
         Aunque alguien lograra introducir una combinación inválida
@@ -1419,6 +1529,41 @@ class HttpMethodSecurityTests(FoodBackTestBase):
         self.assertEqual(
             cart,
             {},
+        )
+
+    def test_post_key_inventada_no_borra_otro_item_del_carrito(
+        self,
+    ):
+        session = self.client.session
+        clave = f"{self.producto.id}-0-0"
+
+        session["cart"] = {
+            clave: 1,
+        }
+        session.save()
+
+        response = self.client.post(
+            reverse(
+                "eliminar_item",
+                args=[
+                    "999999-0-0"
+                ],
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        cart = self.client.session.get(
+            "cart",
+            {},
+        )
+
+        self.assertEqual(
+            cart,
+            {clave: 1},
         )
 
     def test_post_si_debe_eliminar_item_carrito(self):
@@ -2474,6 +2619,60 @@ class PaymentHttpSecurityTests(FoodBackTestBase):
 
         self.assertFalse(
             pedido.pago_verificado
+        )
+
+        self.assertNotEqual(
+            pago.estado,
+            "APROBADO",
+        )
+
+    def test_redirect_suscripcion_sin_hash_no_renueva(
+        self,
+    ):
+        self.client.force_login(
+            self.admin_user
+        )
+
+        vencimiento_inicial = (
+            self.suscripcion.fecha_vencimiento
+        )
+
+        pago = PagoWompi.objects.create(
+            tipo="SUSCRIPCION",
+            tenant=self.tenant,
+            referencia=(
+                "SUBS-REDIRECT-SIN-HASH"
+            ),
+            monto=Decimal("50.00"),
+            estado="PENDIENTE",
+        )
+
+        response = self.client.get(
+            reverse(
+                "wompi_suscripcion_respuesta"
+            ),
+            {
+                "ref": pago.referencia,
+                "idTransaccion": (
+                    "TX-SUB-SIN-HASH"
+                ),
+                "monto": str(
+                    pago.monto
+                ),
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.suscripcion.refresh_from_db()
+        pago.refresh_from_db()
+
+        self.assertEqual(
+            self.suscripcion.fecha_vencimiento,
+            vencimiento_inicial,
         )
 
         self.assertNotEqual(

@@ -2073,6 +2073,172 @@ def _verificar_rate_limit_checkout(
     return None
 
 
+
+def _verificar_rate_limit_pagar_wompi(
+    request,
+    tenant,
+):
+    """
+    Protección anti-flood al iniciar/reintentar
+    un pago Wompi.
+
+    Capa 1:
+        navegador/sesión dentro del Tenant.
+
+    Capa 2:
+        IP dentro del Tenant.
+    """
+
+    cliente_id = obtener_id_seguridad_cliente(
+        request
+    )
+
+    ip = obtener_ip_cliente(
+        request
+    )
+
+    tenant_id = (
+        tenant.id
+        if tenant
+        else "none"
+    )
+
+    limite_cliente = consumir_rate_limit(
+        group="pagar-wompi-client",
+        raw_key=(
+            f"{tenant_id}:"
+            f"{cliente_id}"
+        ),
+        limite=(
+            settings
+            .FOODBACK_WOMPI_START_SESSION_LIMIT
+        ),
+        ventana_segundos=(
+            settings
+            .FOODBACK_WOMPI_START_WINDOW_SECONDS
+        ),
+        bloqueo_segundos=(
+            settings
+            .FOODBACK_WOMPI_START_BLOCK_SECONDS
+        ),
+    )
+
+    if not limite_cliente[
+        "permitido"
+    ]:
+        return limite_cliente
+
+    limite_ip = consumir_rate_limit(
+        group="pagar-wompi-ip",
+        raw_key=(
+            f"{tenant_id}:"
+            f"{ip}"
+        ),
+        limite=(
+            settings
+            .FOODBACK_WOMPI_START_IP_LIMIT
+        ),
+        ventana_segundos=(
+            settings
+            .FOODBACK_WOMPI_START_WINDOW_SECONDS
+        ),
+        bloqueo_segundos=(
+            settings
+            .FOODBACK_WOMPI_START_BLOCK_SECONDS
+        ),
+    )
+
+    if not limite_ip[
+        "permitido"
+    ]:
+        return limite_ip
+
+    return None
+
+
+
+def _verificar_rate_limit_retomar_pago(
+    request,
+    tenant,
+):
+    """
+    Protección anti-flood al intentar retomar
+    un pago pendiente.
+
+    Capa 1:
+        navegador/sesión dentro del Tenant.
+
+    Capa 2:
+        IP dentro del Tenant.
+    """
+
+    cliente_id = obtener_id_seguridad_cliente(
+        request
+    )
+
+    ip = obtener_ip_cliente(
+        request
+    )
+
+    tenant_id = (
+        tenant.id
+        if tenant
+        else "none"
+    )
+
+    limite_cliente = consumir_rate_limit(
+        group="retomar-pago-client",
+        raw_key=(
+            f"{tenant_id}:"
+            f"{cliente_id}"
+        ),
+        limite=(
+            settings
+            .FOODBACK_PAYMENT_RESUME_SESSION_LIMIT
+        ),
+        ventana_segundos=(
+            settings
+            .FOODBACK_PAYMENT_RESUME_WINDOW_SECONDS
+        ),
+        bloqueo_segundos=(
+            settings
+            .FOODBACK_PAYMENT_RESUME_BLOCK_SECONDS
+        ),
+    )
+
+    if not limite_cliente[
+        "permitido"
+    ]:
+        return limite_cliente
+
+    limite_ip = consumir_rate_limit(
+        group="retomar-pago-ip",
+        raw_key=(
+            f"{tenant_id}:"
+            f"{ip}"
+        ),
+        limite=(
+            settings
+            .FOODBACK_PAYMENT_RESUME_IP_LIMIT
+        ),
+        ventana_segundos=(
+            settings
+            .FOODBACK_PAYMENT_RESUME_WINDOW_SECONDS
+        ),
+        bloqueo_segundos=(
+            settings
+            .FOODBACK_PAYMENT_RESUME_BLOCK_SECONDS
+        ),
+    )
+
+    if not limite_ip[
+        "permitido"
+    ]:
+        return limite_ip
+
+    return None
+
+
 # --- VISTAS DE PAGO WOMPI (CLIENTES PAGANDO PEDIDOS) ---
 
 
@@ -3610,11 +3776,50 @@ def _iniciar_pago_wompi_pedido(request, pedido):
 
 
 @require_POST
+@require_POST
 def pagar_wompi_view(request, tracking_token):
+    tenant = getattr(
+        request,
+        "tenant",
+        None,
+    )
+
+    rate_limit_pago = (
+        _verificar_rate_limit_pagar_wompi(
+            request,
+            tenant,
+        )
+    )
+
+    if rate_limit_pago:
+        response = HttpResponseBadRequest(
+            "Se realizaron demasiados "
+            "intentos de iniciar el pago. "
+            "Espera unos minutos "
+            "e inténtalo nuevamente."
+        )
+
+        response.status_code = 429
+
+        response[
+            "Retry-After"
+        ] = str(
+            max(
+                int(
+                    rate_limit_pago[
+                        "retry_after"
+                    ]
+                ),
+                1,
+            )
+        )
+
+        return response
+
     pedido = get_object_or_404(
         Pedido,
         tracking_token=tracking_token,
-        sucursal=request.sucursal
+        sucursal=request.sucursal,
     )
 
     return _iniciar_pago_wompi_pedido(
@@ -5212,6 +5417,44 @@ def retomar_pago_view(
     request,
     tracking_token
 ):
+    tenant = getattr(
+        request,
+        "tenant",
+        None,
+    )
+
+    rate_limit_pago = (
+        _verificar_rate_limit_retomar_pago(
+            request,
+            tenant,
+        )
+    )
+
+    if rate_limit_pago:
+        response = HttpResponseBadRequest(
+            "Se realizaron demasiados "
+            "intentos de retomar el pago. "
+            "Espera unos minutos "
+            "e inténtalo nuevamente."
+        )
+
+        response.status_code = 429
+
+        response[
+            "Retry-After"
+        ] = str(
+            max(
+                int(
+                    rate_limit_pago[
+                        "retry_after"
+                    ]
+                ),
+                1,
+            )
+        )
+
+        return response
+
     pedido = get_object_or_404(
         Pedido,
         tracking_token=tracking_token,

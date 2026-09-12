@@ -4389,6 +4389,105 @@ class PaymentTrackerRecoveryTests(
             response,
             "Retomar pago",
         )
+        
+    @override_settings(
+        FOODBACK_PAYMENT_RESUME_SESSION_LIMIT=2,
+        FOODBACK_PAYMENT_RESUME_IP_LIMIT=50,
+        FOODBACK_PAYMENT_RESUME_WINDOW_SECONDS=600,
+        FOODBACK_PAYMENT_RESUME_BLOCK_SECONDS=900,
+    )
+    def test_retomar_pago_bloquea_flood_del_mismo_navegador(
+        self
+    ):
+        pedido = (
+            self.crear_pedido_pendiente_tarjeta(
+                "79600020"
+            )
+        )
+
+        self.asociar_pedido_a_sesion(
+            pedido
+        )
+
+        url = reverse(
+            "retomar_pago",
+            args=[
+                pedido.tracking_token
+            ],
+        )
+
+        for _ in range(2):
+            response = self.client.post(
+                url,
+                REMOTE_ADDR="192.0.2.220",
+            )
+
+            self.assertEqual(
+                response.status_code,
+                302,
+            )
+
+        response = self.client.post(
+            url,
+            REMOTE_ADDR="192.0.2.220",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            429,
+        )
+
+        self.assertIn(
+            "Retry-After",
+            response.headers,
+        )
+
+
+    @override_settings(
+        FOODBACK_PAYMENT_RESUME_SESSION_LIMIT=50,
+        FOODBACK_PAYMENT_RESUME_IP_LIMIT=2,
+        FOODBACK_PAYMENT_RESUME_WINDOW_SECONDS=600,
+        FOODBACK_PAYMENT_RESUME_BLOCK_SECONDS=900,
+    )
+    def test_retomar_pago_tokens_falsos_consumen_limite_ip(
+        self
+    ):
+        for _ in range(2):
+            response = self.client.post(
+                reverse(
+                    "retomar_pago",
+                    args=[
+                        uuid.uuid4()
+                    ],
+                ),
+                REMOTE_ADDR="192.0.2.221",
+            )
+
+            self.assertEqual(
+                response.status_code,
+                404,
+            )
+
+        response = self.client.post(
+            reverse(
+                "retomar_pago",
+                args=[
+                    uuid.uuid4()
+                ],
+            ),
+            REMOTE_ADDR="192.0.2.221",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            429,
+        )
+
+        self.assertIn(
+            "Retry-After",
+            response.headers,
+        )
+    
 
     def test_retomar_pago_regresa_al_checkout(
         self
@@ -8704,5 +8803,156 @@ class CheckoutRateLimitTests(
         self.assertEqual(
             response.status_code,
             429,
+        )
+        
+        
+class WompiStartRateLimitTests(
+    FoodBackTestBase
+):
+
+    def _crear_pedido_tarjeta_pendiente(
+        self,
+        telefono,
+    ):
+        pedido = self.crear_pedido(
+            estado="PENDIENTE",
+            telefono=telefono,
+        )
+
+        pedido.metodo_pago = "TARJETA"
+
+        pedido.save(
+            update_fields=[
+                "metodo_pago"
+            ]
+        )
+
+        return pedido
+
+
+    @override_settings(
+        FOODBACK_WOMPI_START_SESSION_LIMIT=2,
+        FOODBACK_WOMPI_START_IP_LIMIT=50,
+        FOODBACK_WOMPI_START_WINDOW_SECONDS=600,
+        FOODBACK_WOMPI_START_BLOCK_SECONDS=900,
+    )
+    @patch(
+        "pedidos.views."
+        "_iniciar_pago_wompi_pedido"
+    )
+    def test_pagar_wompi_bloquea_flood_del_mismo_navegador(
+        self,
+        mock_iniciar_pago,
+    ):
+        mock_iniciar_pago.return_value = (
+            HttpResponse(
+                "ok",
+                status=200,
+            )
+        )
+
+        pedido = (
+            self._crear_pedido_tarjeta_pendiente(
+                "79770101"
+            )
+        )
+
+        url = reverse(
+            "pagar_wompi",
+            args=[
+                pedido.tracking_token
+            ],
+        )
+
+        for _ in range(2):
+            response = self.client.post(
+                url,
+                REMOTE_ADDR="192.0.2.201",
+            )
+
+            self.assertEqual(
+                response.status_code,
+                200,
+            )
+
+        response = self.client.post(
+            url,
+            REMOTE_ADDR="192.0.2.201",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            429,
+        )
+
+        self.assertIn(
+            "Retry-After",
+            response.headers,
+        )
+
+        self.assertEqual(
+            mock_iniciar_pago.call_count,
+            2,
+        )
+
+
+    @override_settings(
+        FOODBACK_WOMPI_START_SESSION_LIMIT=50,
+        FOODBACK_WOMPI_START_IP_LIMIT=2,
+        FOODBACK_WOMPI_START_WINDOW_SECONDS=600,
+        FOODBACK_WOMPI_START_BLOCK_SECONDS=900,
+    )
+    @patch(
+        "pedidos.views."
+        "_iniciar_pago_wompi_pedido"
+    )
+    def test_pagar_wompi_bloquea_flood_por_ip(
+        self,
+        mock_iniciar_pago,
+    ):
+        mock_iniciar_pago.return_value = (
+            HttpResponse(
+                "ok",
+                status=200,
+            )
+        )
+
+        pedido = (
+            self._crear_pedido_tarjeta_pendiente(
+                "79770102"
+            )
+        )
+
+        url = reverse(
+            "pagar_wompi",
+            args=[
+                pedido.tracking_token
+            ],
+        )
+
+        for _ in range(2):
+            response = self.client.post(
+                url,
+                REMOTE_ADDR="192.0.2.202",
+            )
+
+            self.assertEqual(
+                response.status_code,
+                200,
+            )
+
+        response = self.client.post(
+            url,
+            REMOTE_ADDR="192.0.2.202",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            429,
+        )
+
+        self.assertEqual(
+            mock_iniciar_pago.call_count,
+            2,
         )
 

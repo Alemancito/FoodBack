@@ -242,3 +242,59 @@ FOODBACK_CHECKOUT_BLOCK_SECONDS = config(
     default=600,
     cast=int,
 )
+
+# =========================================================
+# FOODBACK - WOMPI PAYMENT START RATE LIMIT
+# =========================================================
+
+FOODBACK_WOMPI_START_SESSION_LIMIT = config(
+    "FOODBACK_WOMPI_START_SESSION_LIMIT",
+    default=10,
+    cast=int,
+)
+
+FOODBACK_WOMPI_START_IP_LIMIT = config(
+    "FOODBACK_WOMPI_START_IP_LIMIT",
+    default=120,
+    cast=int,
+)
+
+FOODBACK_WOMPI_START_WINDOW_SECONDS = config(
+    "FOODBACK_WOMPI_START_WINDOW_SECONDS",
+    default=600,
+    cast=int,
+)
+
+FOODBACK_WOMPI_START_BLOCK_SECONDS = config(
+    "FOODBACK_WOMPI_START_BLOCK_SECONDS",
+    default=600,
+    cast=int,
+)
+
+# =========================================================
+# FOODBACK - RESUME PAYMENT RATE LIMIT
+# =========================================================
+
+FOODBACK_PAYMENT_RESUME_SESSION_LIMIT = config(
+    "FOODBACK_PAYMENT_RESUME_SESSION_LIMIT",
+    default=10,
+    cast=int,
+)
+
+FOODBACK_PAYMENT_RESUME_IP_LIMIT = config(
+    "FOODBACK_PAYMENT_RESUME_IP_LIMIT",
+    default=120,
+    cast=int,
+)
+
+FOODBACK_PAYMENT_RESUME_WINDOW_SECONDS = config(
+    "FOODBACK_PAYMENT_RESUME_WINDOW_SECONDS",
+    default=600,
+    cast=int,
+)
+
+FOODBACK_PAYMENT_RESUME_BLOCK_SECONDS = config(
+    "FOODBACK_PAYMENT_RESUME_BLOCK_SECONDS",
+    default=600,
+    cast=int,
+)

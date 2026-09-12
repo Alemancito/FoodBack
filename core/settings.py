@@ -336,3 +336,31 @@ FOODBACK_WOMPI_WEBHOOK_MAX_BYTES = config(
     default=262144,
     cast=int,
 )
+
+# =========================================================
+# FOODBACK - PENDING ORDER ACTIONS RATE LIMIT
+# =========================================================
+
+FOODBACK_PENDING_ORDER_ACTION_SESSION_LIMIT = config(
+    "FOODBACK_PENDING_ORDER_ACTION_SESSION_LIMIT",
+    default=10,
+    cast=int,
+)
+
+FOODBACK_PENDING_ORDER_ACTION_IP_LIMIT = config(
+    "FOODBACK_PENDING_ORDER_ACTION_IP_LIMIT",
+    default=120,
+    cast=int,
+)
+
+FOODBACK_PENDING_ORDER_ACTION_WINDOW_SECONDS = config(
+    "FOODBACK_PENDING_ORDER_ACTION_WINDOW_SECONDS",
+    default=600,
+    cast=int,
+)
+
+FOODBACK_PENDING_ORDER_ACTION_BLOCK_SECONDS = config(
+    "FOODBACK_PENDING_ORDER_ACTION_BLOCK_SECONDS",
+    default=600,
+    cast=int,
+)

@@ -2322,6 +2322,86 @@ def _verificar_rate_limit_pago_suscripcion(
     return None
 
 
+def _verificar_rate_limit_accion_pedido_pendiente(
+    request,
+    tenant,
+):
+    """
+    Anti-flood compartido para acciones sobre
+    pedidos pendientes de pago.
+
+    Protege cancelar/ocultar mediante:
+    - navegador/sesión
+    - IP
+    """
+
+    cliente_id = obtener_id_seguridad_cliente(
+        request
+    )
+
+    ip = obtener_ip_cliente(
+        request
+    )
+
+    tenant_id = (
+        tenant.id
+        if tenant
+        else "none"
+    )
+
+    limite_cliente = consumir_rate_limit(
+        group="pending-order-action-client",
+        raw_key=(
+            f"{tenant_id}:"
+            f"{cliente_id}"
+        ),
+        limite=(
+            settings
+            .FOODBACK_PENDING_ORDER_ACTION_SESSION_LIMIT
+        ),
+        ventana_segundos=(
+            settings
+            .FOODBACK_PENDING_ORDER_ACTION_WINDOW_SECONDS
+        ),
+        bloqueo_segundos=(
+            settings
+            .FOODBACK_PENDING_ORDER_ACTION_BLOCK_SECONDS
+        ),
+    )
+
+    if not limite_cliente[
+        "permitido"
+    ]:
+        return limite_cliente
+
+    limite_ip = consumir_rate_limit(
+        group="pending-order-action-ip",
+        raw_key=(
+            f"{tenant_id}:"
+            f"{ip}"
+        ),
+        limite=(
+            settings
+            .FOODBACK_PENDING_ORDER_ACTION_IP_LIMIT
+        ),
+        ventana_segundos=(
+            settings
+            .FOODBACK_PENDING_ORDER_ACTION_WINDOW_SECONDS
+        ),
+        bloqueo_segundos=(
+            settings
+            .FOODBACK_PENDING_ORDER_ACTION_BLOCK_SECONDS
+        ),
+    )
+
+    if not limite_ip[
+        "permitido"
+    ]:
+        return limite_ip
+
+    return None
+
+
 # --- VISTAS DE PAGO WOMPI (CLIENTES PAGANDO PEDIDOS) ---
 
 
@@ -5559,145 +5639,183 @@ def retomar_pago_view(
     
 
 @require_POST
-@transaction.atomic
 def cancelar_pedido_pendiente_view(
     request,
     tracking_token
 ):
-    pedido = get_object_or_404(
-        Pedido.objects.select_for_update(),
-        tracking_token=tracking_token,
-        metodo_pago='TARJETA',
-        estado='PENDIENTE',
-        pago_verificado=False,
-        sucursal=request.sucursal,
+    
+    tenant = getattr(
+        request,
+        "tenant",
+        None,
     )
 
-    historial = request.session.get(
-        'historial_pedidos',
-        []
-    )
-
-    ultimo_pedido_id = (
-        request.session.get(
-            'ultimo_pedido_id'
-        )
-    )
-
-    pertenece_a_sesion = (
-        pedido.id == ultimo_pedido_id
-        or
-        pedido.id in historial
-    )
-
-    if not pertenece_a_sesion:
-        raise PermissionDenied(
-            "No puedes cancelar este pedido."
-        )
-
-    pago_actual = (
-        PagoWompi.objects
-        .select_for_update()
-        .filter(
-            pedido=pedido
-        )
-        .order_by(
-            '-fecha_creacion'
-        )
-        .first()
-    )
-
-    # Si Wompi llegó a generar un enlace,
-    # asumimos conservadoramente que aún
-    # podría ser pagable.
-    enlace_potencialmente_activo = (
-        pago_actual
-        and (
-            bool(pago_actual.url_enlace)
-            or
-            bool(pago_actual.id_enlace)
-        )
-    )
-
-    if enlace_potencialmente_activo:
-        messages.warning(
+    rate_limit_accion = (
+        _verificar_rate_limit_accion_pedido_pendiente(
             request,
-            (
-                'Este pedido todavía tiene un enlace '
-                'de pago que podría estar activo. '
-                'Por seguridad no podemos cancelarlo '
-                'automáticamente todavía.'
+            tenant,
+        )
+    )
+
+    if rate_limit_accion:
+        response = HttpResponseBadRequest(
+            "Se realizaron demasiados "
+            "intentos sobre pedidos pendientes. "
+            "Espera unos minutos "
+            "e inténtalo nuevamente."
+        )
+
+        response.status_code = 429
+
+        response[
+            "Retry-After"
+        ] = str(
+            max(
+                int(
+                    rate_limit_accion[
+                        "retry_after"
+                    ]
+                ),
+                1,
             )
+        )
+
+        return response
+    with transaction.atomic():
+    
+        pedido = get_object_or_404(
+            Pedido.objects.select_for_update(),
+            tracking_token=tracking_token,
+            metodo_pago='TARJETA',
+            estado='PENDIENTE',
+            pago_verificado=False,
+            sucursal=request.sucursal,
+        )
+
+        historial = request.session.get(
+            'historial_pedidos',
+            []
+        )
+
+        ultimo_pedido_id = (
+            request.session.get(
+                'ultimo_pedido_id'
+            )
+        )
+
+        pertenece_a_sesion = (
+            pedido.id == ultimo_pedido_id
+            or
+            pedido.id in historial
+        )
+
+        if not pertenece_a_sesion:
+            raise PermissionDenied(
+                "No puedes cancelar este pedido."
+            )
+
+        pago_actual = (
+            PagoWompi.objects
+            .select_for_update()
+            .filter(
+                pedido=pedido
+            )
+            .order_by(
+                '-fecha_creacion'
+            )
+            .first()
+        )
+
+        # Si Wompi llegó a generar un enlace,
+        # asumimos conservadoramente que aún
+        # podría ser pagable.
+        enlace_potencialmente_activo = (
+            pago_actual
+            and (
+                bool(pago_actual.url_enlace)
+                or
+                bool(pago_actual.id_enlace)
+            )
+        )
+
+        if enlace_potencialmente_activo:
+            messages.warning(
+                request,
+                (
+                    'Este pedido todavía tiene un enlace '
+                    'de pago que podría estar activo. '
+                    'Por seguridad no podemos cancelarlo '
+                    'automáticamente todavía.'
+                )
+            )
+
+            return redirect(
+                'order_tracker',
+                tracking_token=(
+                    pedido.tracking_token
+                )
+            )
+
+        pedido.estado = 'CANCELADO'
+
+        pedido.save(
+            update_fields=[
+                'estado',
+            ]
+        )
+
+        if pago_actual:
+            _registrar_evento_pago(
+                pago_actual,
+                categoria='INFO',
+                origen='SISTEMA',
+                codigo='CLIENT_ORDER_CANCELLED',
+                mensaje=(
+                    'El cliente canceló un pedido '
+                    'pendiente sin enlace Wompi activo.'
+                ),
+                cuenta_para_cliente=False,
+                cuenta_para_global=False,
+                clave_evento=(
+                    f"CANCELACION-PEDIDO:"
+                    f"{pedido.id}"
+                ),
+            )
+
+        # Conservamos historial para que aparezca
+        # como pedido pasado.
+        if pedido.id not in historial:
+            historial.append(
+                pedido.id
+            )
+
+        request.session[
+            'historial_pedidos'
+        ] = historial
+
+        if (
+            request.session.get(
+                'ultimo_pedido_id'
+            )
+            == pedido.id
+        ):
+            del request.session[
+                'ultimo_pedido_id'
+            ]
+
+        request.session.modified = True
+
+        messages.info(
+            request,
+            'El pedido pendiente fue cancelado.'
         )
 
         return redirect(
-            'order_tracker',
-            tracking_token=(
-                pedido.tracking_token
-            )
+            'menu'
         )
-
-    pedido.estado = 'CANCELADO'
-
-    pedido.save(
-        update_fields=[
-            'estado',
-        ]
-    )
-
-    if pago_actual:
-        _registrar_evento_pago(
-            pago_actual,
-            categoria='INFO',
-            origen='SISTEMA',
-            codigo='CLIENT_ORDER_CANCELLED',
-            mensaje=(
-                'El cliente canceló un pedido '
-                'pendiente sin enlace Wompi activo.'
-            ),
-            cuenta_para_cliente=False,
-            cuenta_para_global=False,
-            clave_evento=(
-                f"CANCELACION-PEDIDO:"
-                f"{pedido.id}"
-            ),
-        )
-
-    # Conservamos historial para que aparezca
-    # como pedido pasado.
-    if pedido.id not in historial:
-        historial.append(
-            pedido.id
-        )
-
-    request.session[
-        'historial_pedidos'
-    ] = historial
-
-    if (
-        request.session.get(
-            'ultimo_pedido_id'
-        )
-        == pedido.id
-    ):
-        del request.session[
-            'ultimo_pedido_id'
-        ]
-
-    request.session.modified = True
-
-    messages.info(
-        request,
-        'El pedido pendiente fue cancelado.'
-    )
-
-    return redirect(
-        'menu'
-    )
 
 
 @require_POST
-@transaction.atomic
 def ocultar_pedido_pendiente_view(
     request,
     tracking_token
@@ -5710,131 +5828,171 @@ def ocultar_pedido_pendiente_view(
     NO cancela PagoWompi.
     NO modifica el enlace financiero.
     """
-
-    pedido = get_object_or_404(
-        Pedido.objects.select_for_update(),
-        tracking_token=tracking_token,
-        metodo_pago='TARJETA',
-        estado='PENDIENTE',
-        pago_verificado=False,
-        sucursal=request.sucursal,
+    
+    tenant = getattr(
+        request,
+        "tenant",
+        None,
     )
 
-    historial = request.session.get(
-        'historial_pedidos',
-        []
-    )
-
-    ultimo_pedido_id = (
-        request.session.get(
-            'ultimo_pedido_id'
+    rate_limit_accion = (
+        _verificar_rate_limit_accion_pedido_pendiente(
+            request,
+            tenant,
         )
     )
 
-    pertenece_a_sesion = (
-        pedido.id == ultimo_pedido_id
-        or
-        pedido.id in historial
-    )
-
-    if not pertenece_a_sesion:
-        raise PermissionDenied(
-            "No puedes ocultar este pedido."
+    if rate_limit_accion:
+        response = HttpResponseBadRequest(
+            "Se realizaron demasiados "
+            "intentos sobre pedidos pendientes. "
+            "Espera unos minutos "
+            "e inténtalo nuevamente."
         )
 
-    pago_actual = (
-        PagoWompi.objects
-        .select_for_update()
-        .filter(
-            pedido=pedido
-        )
-        .order_by(
-            '-fecha_creacion'
-        )
-        .first()
-    )
+        response.status_code = 429
 
-    enlace_potencialmente_activo = (
-        pago_actual
-        and (
-            bool(pago_actual.url_enlace)
+        response[
+            "Retry-After"
+        ] = str(
+            max(
+                int(
+                    rate_limit_accion[
+                        "retry_after"
+                    ]
+                ),
+                1,
+            )
+        )
+
+        return response
+    with transaction.atomic():
+    
+
+        pedido = get_object_or_404(
+            Pedido.objects.select_for_update(),
+            tracking_token=tracking_token,
+            metodo_pago='TARJETA',
+            estado='PENDIENTE',
+            pago_verificado=False,
+            sucursal=request.sucursal,
+        )
+
+        historial = request.session.get(
+            'historial_pedidos',
+            []
+        )
+
+        ultimo_pedido_id = (
+            request.session.get(
+                'ultimo_pedido_id'
+            )
+        )
+
+        pertenece_a_sesion = (
+            pedido.id == ultimo_pedido_id
             or
-            bool(pago_actual.id_enlace)
+            pedido.id in historial
         )
-    )
 
-    if not enlace_potencialmente_activo:
+        if not pertenece_a_sesion:
+            raise PermissionDenied(
+                "No puedes ocultar este pedido."
+            )
+
+        pago_actual = (
+            PagoWompi.objects
+            .select_for_update()
+            .filter(
+                pedido=pedido
+            )
+            .order_by(
+                '-fecha_creacion'
+            )
+            .first()
+        )
+
+        enlace_potencialmente_activo = (
+            pago_actual
+            and (
+                bool(pago_actual.url_enlace)
+                or
+                bool(pago_actual.id_enlace)
+            )
+        )
+
+        if not enlace_potencialmente_activo:
+            messages.info(
+                request,
+                (
+                    'Este pedido no tiene un enlace '
+                    'Wompi activo. Puedes cancelarlo '
+                    'normalmente.'
+                )
+            )
+
+            return redirect(
+                'order_tracker',
+                tracking_token=(
+                    pedido.tracking_token
+                )
+            )
+
+        ocultos = request.session.get(
+            'pedidos_pendientes_ocultos',
+            []
+        )
+
+        if pedido.id not in ocultos:
+            ocultos.append(
+                pedido.id
+            )
+
+        request.session[
+            'pedidos_pendientes_ocultos'
+        ] = ocultos
+
+        if (
+            request.session.get(
+                'ultimo_pedido_id'
+            )
+            == pedido.id
+        ):
+            del request.session[
+                'ultimo_pedido_id'
+            ]
+
+        request.session.modified = True
+
+        _registrar_evento_pago(
+            pago_actual,
+            categoria='INFO',
+            origen='SISTEMA',
+            codigo='CLIENT_PENDING_ORDER_HIDDEN',
+            mensaje=(
+                'El cliente ocultó de su interfaz '
+                'un pedido pendiente con enlace '
+                'Wompi potencialmente activo.'
+            ),
+            cuenta_para_cliente=False,
+            cuenta_para_global=False,
+            clave_evento=(
+                f"OCULTAR-PENDIENTE:"
+                f"{pedido.id}"
+            ),
+        )
+
         messages.info(
             request,
             (
-                'Este pedido no tiene un enlace '
-                'Wompi activo. Puedes cancelarlo '
-                'normalmente.'
+                'El pedido dejó de mostrarse como '
+                'pedido en curso.'
             )
         )
 
         return redirect(
-            'order_tracker',
-            tracking_token=(
-                pedido.tracking_token
-            )
+            'menu'
         )
-
-    ocultos = request.session.get(
-        'pedidos_pendientes_ocultos',
-        []
-    )
-
-    if pedido.id not in ocultos:
-        ocultos.append(
-            pedido.id
-        )
-
-    request.session[
-        'pedidos_pendientes_ocultos'
-    ] = ocultos
-
-    if (
-        request.session.get(
-            'ultimo_pedido_id'
-        )
-        == pedido.id
-    ):
-        del request.session[
-            'ultimo_pedido_id'
-        ]
-
-    request.session.modified = True
-
-    _registrar_evento_pago(
-        pago_actual,
-        categoria='INFO',
-        origen='SISTEMA',
-        codigo='CLIENT_PENDING_ORDER_HIDDEN',
-        mensaje=(
-            'El cliente ocultó de su interfaz '
-            'un pedido pendiente con enlace '
-            'Wompi potencialmente activo.'
-        ),
-        cuenta_para_cliente=False,
-        cuenta_para_global=False,
-        clave_evento=(
-            f"OCULTAR-PENDIENTE:"
-            f"{pedido.id}"
-        ),
-    )
-
-    messages.info(
-        request,
-        (
-            'El pedido dejó de mostrarse como '
-            'pedido en curso.'
-        )
-    )
-
-    return redirect(
-        'menu'
-    )
 
 @require_safe
 def api_order_status(

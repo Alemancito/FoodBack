@@ -4969,6 +4969,51 @@ class PaymentPendingCancellationTests(
             "RECIBIDO",
         )
         
+    @override_settings(
+        FOODBACK_PENDING_ORDER_ACTION_SESSION_LIMIT=2,
+        FOODBACK_PENDING_ORDER_ACTION_IP_LIMIT=50,
+        FOODBACK_PENDING_ORDER_ACTION_WINDOW_SECONDS=600,
+        FOODBACK_PENDING_ORDER_ACTION_BLOCK_SECONDS=900,
+    )
+    def test_cancelar_pendiente_bloquea_flood_de_sesion(
+        self,
+    ):
+        for _ in range(2):
+            response = self.client.post(
+                reverse(
+                    "cancelar_pedido_pendiente",
+                    args=[
+                        uuid.uuid4()
+                    ],
+                ),
+                REMOTE_ADDR="192.0.2.240",
+            )
+
+            self.assertEqual(
+                response.status_code,
+                404,
+            )
+
+        response = self.client.post(
+            reverse(
+                "cancelar_pedido_pendiente",
+                args=[
+                    uuid.uuid4()
+                ],
+            ),
+            REMOTE_ADDR="192.0.2.240",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            429,
+        )
+
+        self.assertIn(
+            "Retry-After",
+            response.headers,
+        )
+        
 class PaymentPendingHideTests(
     FoodBackTestBase
 ):
@@ -5190,6 +5235,63 @@ class PaymentPendingHideTests(
                 "ultimo_pedido_activo"
             ].id,
             pedido.id,
+        )
+        
+
+    @override_settings(
+        FOODBACK_PENDING_ORDER_ACTION_SESSION_LIMIT=50,
+        FOODBACK_PENDING_ORDER_ACTION_IP_LIMIT=2,
+        FOODBACK_PENDING_ORDER_ACTION_WINDOW_SECONDS=600,
+        FOODBACK_PENDING_ORDER_ACTION_BLOCK_SECONDS=900,
+    )
+    def test_cancelar_y_ocultar_comparten_limite_ip(
+        self,
+    ):
+        ip = "192.0.2.241"
+
+        response = self.client.post(
+            reverse(
+                "cancelar_pedido_pendiente",
+                args=[
+                    uuid.uuid4()
+                ],
+            ),
+            REMOTE_ADDR=ip,
+        )
+
+        self.assertEqual(
+            response.status_code,
+            404,
+        )
+
+        response = self.client.post(
+            reverse(
+                "ocultar_pedido_pendiente",
+                args=[
+                    uuid.uuid4()
+                ],
+            ),
+            REMOTE_ADDR=ip,
+        )
+
+        self.assertEqual(
+            response.status_code,
+            404,
+        )
+
+        response = self.client.post(
+            reverse(
+                "cancelar_pedido_pendiente",
+                args=[
+                    uuid.uuid4()
+                ],
+            ),
+            REMOTE_ADDR=ip,
+        )
+
+        self.assertEqual(
+            response.status_code,
+            429,
         )
         
 class MultipleActiveOrdersVisibilityTests(

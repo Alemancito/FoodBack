@@ -25,6 +25,8 @@ from pedidos.security import (
     consumir_rate_limit,
 )
 
+from django.db import connection
+
 from django.db import (
     DatabaseError,
     IntegrityError,
@@ -6599,6 +6601,141 @@ class TenantContextResolverTests(TestCase):
         self.assertEqual(
             contexto_capturado["db_sucursal"],
             str(sucursal.pk),
+        )
+        
+    @patch(
+    "pedidos.middleware.resolver_sucursal"
+)
+    def test_middleware_establece_tenant_db_antes_de_resolver_sucursal(
+        self,
+        mock_resolver_sucursal,
+    ):
+        sucursal = Sucursal.objects.create(
+            tenant=self.tenant,
+            nombre="Sucursal Contexto DB",
+            slug="contexto-db",
+            estado=Sucursal.Estado.ACTIVA,
+        )
+
+        request = self.factory.get(
+            "/dashboard/"
+        )
+
+        request.user = self.user
+        request.session = SessionStore()
+
+        contexto_capturado = {}
+
+        def resolver_sucursal_fake(
+            request_recibido,
+            tenant_recibido,
+        ):
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT current_setting(
+                        'foodback.tenant_id',
+                        true
+                    )
+                    """
+                )
+
+                contexto_capturado[
+                    "tenant_durante_resolucion"
+                ] = cursor.fetchone()[0]
+
+            contexto_capturado[
+                "tenant_argumento"
+            ] = tenant_recibido
+
+            return sucursal
+
+        mock_resolver_sucursal.side_effect = (
+            resolver_sucursal_fake
+        )
+
+        def vista_falsa(req):
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                        current_setting(
+                            'foodback.tenant_id',
+                            true
+                        ),
+                        current_setting(
+                            'foodback.sucursal_id',
+                            true
+                        )
+                    """
+                )
+
+                (
+                    tenant_db,
+                    sucursal_db,
+                ) = cursor.fetchone()
+
+            contexto_capturado[
+                "tenant_vista"
+            ] = tenant_db
+
+            contexto_capturado[
+                "sucursal_vista"
+            ] = sucursal_db
+
+            return HttpResponse(
+                "OK"
+            )
+
+        middleware = TenantContextMiddleware(
+            vista_falsa
+        )
+
+        response = middleware(
+            request
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        # CRÍTICO:
+        # resolver_sucursal ya se ejecutó dentro
+        # del contexto Tenant de PostgreSQL.
+        self.assertEqual(
+            contexto_capturado[
+                "tenant_durante_resolucion"
+            ],
+            str(
+                self.tenant.id
+            ),
+        )
+
+        self.assertEqual(
+            contexto_capturado[
+                "tenant_argumento"
+            ],
+            self.tenant,
+        )
+
+        # Y la vista obtiene ambos contextos.
+        self.assertEqual(
+            contexto_capturado[
+                "tenant_vista"
+            ],
+            str(
+                self.tenant.id
+            ),
+        )
+
+        self.assertEqual(
+            contexto_capturado[
+                "sucursal_vista"
+            ],
+            str(
+                sucursal.id
+            ),
         )
         
     @override_settings(

@@ -2,7 +2,8 @@ from .db_tenant_context import (
     tenant_database_context,
 )
 from .tenant_context import (
-    obtener_tenant_context,
+    resolver_sucursal,
+    resolver_tenant,
 )
 
 
@@ -13,12 +14,19 @@ class TenantContextMiddleware:
     request.tenant
     request.sucursal
 
-    El Tenant/Sucursal se resuelven primero mediante las
-    reglas de autorización existentes.
+    Orden de seguridad:
 
-    Después se exponen a PostgreSQL únicamente durante
-    el procesamiento del request para que RLS pueda
-    utilizarlos.
+    1. Resolver Tenant usando únicamente las tablas
+       bootstrap necesarias.
+
+    2. Establecer inmediatamente foodback.tenant_id
+       en PostgreSQL.
+
+    3. Resolver Sucursal y asignaciones mientras el
+       contexto Tenant ya está activo.
+
+    4. Establecer también foodback.sucursal_id y
+       ejecutar la vista.
     """
 
     def __init__(
@@ -34,53 +42,69 @@ class TenantContextMiddleware:
         request.tenant = None
         request.sucursal = None
 
-        # -------------------------------------------------
-        # BOOTSTRAP
-        # -------------------------------------------------
-        # Estas consultas ocurren antes del contexto RLS.
+        # =============================================
+        # BOOTSTRAP MINIMO
+        # =============================================
         #
-        # Por eso Tenant, Membership, Sucursal y las tablas
-        # de asignaciones todavía NO recibirán RLS.
-        # -------------------------------------------------
+        # Todavía no existe contexto RLS.
+        #
+        # Únicamente se permite resolver el Tenant.
+        # En esta etapa intervienen Tenant/Membership.
+        # =============================================
 
-        context = obtener_tenant_context(
+        tenant = resolver_tenant(
             request
         )
 
-        if context:
-            request.tenant = (
-                context.tenant
-            )
+        request.tenant = tenant
 
-            request.sucursal = (
-                context.sucursal
-            )
+        # =============================================
+        # SIN TENANT
+        # =============================================
+        #
+        # Seguimos fail-closed:
+        # foodback.tenant_id = ""
+        # foodback.sucursal_id = ""
+        # =============================================
 
-        # -------------------------------------------------
-        # CONTEXTO POSTGRESQL
-        # -------------------------------------------------
+        if not tenant:
+            with tenant_database_context():
+                return self.get_response(
+                    request
+                )
+
+        # =============================================
+        # CONTEXTO TENANT
+        # =============================================
         #
-        # Todo lo que ocurra desde aquí dentro puede usar:
+        # Desde este punto PostgreSQL ya conoce:
         #
-        # current_setting(
-        #     'foodback.tenant_id',
-        #     true,
-        # )
+        # foodback.tenant_id
         #
-        # y
-        #
-        # current_setting(
-        #     'foodback.sucursal_id',
-        #     true,
-        # )
-        # -------------------------------------------------
+        # Por tanto resolver_sucursal() puede consultar
+        # tablas protegidas mediante RLS.
+        # =============================================
 
         with tenant_database_context(
-            tenant=request.tenant,
-            sucursal=request.sucursal,
+            tenant=tenant,
         ):
-            response = self.get_response(
-                request
+            sucursal = resolver_sucursal(
+                request,
+                tenant,
             )
+
+            request.sucursal = sucursal
+
+            # =========================================
+            # CONTEXTO TENANT + SUCURSAL
+            # =========================================
+
+            with tenant_database_context(
+                tenant=tenant,
+                sucursal=sucursal,
+            ):
+                response = self.get_response(
+                    request
+                )
 
         return response

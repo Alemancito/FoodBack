@@ -6501,6 +6501,8 @@ class PostgreSQLRowLevelSecurityTests(
     "pedidos_producto",
     "pedidos_opcionproducto",
     "pedidos_producto_extras",
+    "pedidos_configuracionnegocio",
+    "pedidos_diaespecial",
     )
 
     def setUp(self):
@@ -6531,6 +6533,20 @@ class PostgreSQLRowLevelSecurityTests(
             nombre="RLS Tenant B",
             slug="rls-tenant-b",
             habilitado=True,
+        )
+        
+        self.sucursal_a = Sucursal.objects.create(
+            tenant=self.tenant_a,
+            nombre="RLS Sucursal A",
+            slug="rls-sucursal-a",
+            estado=Sucursal.Estado.ACTIVA,
+        )
+
+        self.sucursal_b = Sucursal.objects.create(
+            tenant=self.tenant_b,
+            nombre="RLS Sucursal B",
+            slug="rls-sucursal-b",
+            estado=Sucursal.Estado.ACTIVA,
         )
 
         with tenant_database_context(
@@ -6584,6 +6600,21 @@ class PostgreSQLRowLevelSecurityTests(
             self.producto_a.extras.add(
                 self.extra_a
             )
+            
+            self.config_a = (
+                ConfiguracionNegocio.objects.create(
+                    sucursal=self.sucursal_a,
+                )
+            )
+
+            self.dia_a = (
+                DiaEspecial.objects.create(
+                    sucursal=self.sucursal_a,
+                    fecha=date.today(),
+                    abierto=False,
+                    motivo="Tenant A",
+                )
+            )
 
         with tenant_database_context(
             tenant=self.tenant_b
@@ -6634,6 +6665,21 @@ class PostgreSQLRowLevelSecurityTests(
             
             self.producto_b.extras.add(
                 self.extra_b
+            )
+            
+            self.config_b = (
+                ConfiguracionNegocio.objects.create(
+                    sucursal=self.sucursal_b,
+                )
+            )
+
+            self.dia_b = (
+                DiaEspecial.objects.create(
+                    sucursal=self.sucursal_b,
+                    fecha=date.today(),
+                    abierto=False,
+                    motivo="Tenant B",
+                )
             )
 
     def tearDown(self):
@@ -6949,6 +6995,88 @@ class PostgreSQLRowLevelSecurityTests(
                 through.objects.count(),
                 0,
             ) 
+            
+    
+    def test_rls_configuracion_y_dia_solo_ven_tenant_activo(
+        self,
+    ):
+        with tenant_database_context(
+            tenant=self.tenant_a
+        ):
+            configuraciones = set(
+                ConfiguracionNegocio.objects.values_list(
+                    "id",
+                    flat=True,
+                )
+            )
+
+            dias = set(
+                DiaEspecial.objects.values_list(
+                    "id",
+                    flat=True,
+                )
+            )
+
+        self.assertEqual(
+            configuraciones,
+            {self.config_a.id},
+        )
+
+        self.assertEqual(
+            dias,
+            {self.dia_a.id},
+        )
+
+
+    def test_rls_impide_configuracion_y_dia_en_sucursal_ajena(
+        self,
+    ):
+        with self.assertRaises(
+            DatabaseError
+        ):
+            with tenant_database_context(
+                tenant=self.tenant_a
+            ):
+                DiaEspecial.objects.create(
+                    sucursal=self.sucursal_b,
+                    fecha=(
+                        date.today()
+                        + timedelta(days=1)
+                    ),
+                    abierto=False,
+                    motivo="Infiltrado",
+                )
+
+        with self.assertRaises(
+            DatabaseError
+        ):
+            with tenant_database_context(
+                tenant=self.tenant_a
+            ):
+                (
+                    ConfiguracionNegocio.objects
+                    .filter(
+                        pk=self.config_a.pk
+                    )
+                    .update(
+                        sucursal=self.sucursal_b
+                    )
+                )
+
+
+    def test_rls_configuracion_y_dia_sin_tenant_no_ve_filas(
+        self,
+    ):
+        with tenant_database_context():
+            self.assertEqual(
+                ConfiguracionNegocio.objects.count(),
+                0,
+            )
+
+            self.assertEqual(
+                DiaEspecial.objects.count(),
+                0,
+            )
             
             
 class SucursalBusinessStateIsolationTests(TestCase):

@@ -3,6 +3,11 @@ from unittest.mock import patch
 
 import hashlib
 
+from concurrent.futures import (
+    ThreadPoolExecutor,
+)
+from threading import Barrier
+
 from datetime import date, timedelta, time
 from decimal import Decimal
 
@@ -32,6 +37,7 @@ from django.db import (
     IntegrityError,
     transaction,
     connection,
+    close_old_connections,
 )
 
 from django.utils import timezone
@@ -11935,5 +11941,161 @@ class AdminSettingsValidationTests(
                 sucursal=self.sucursal,
                 fecha=fecha_objetivo,
             ).exists()
+        )
+        
+        
+class PostgreSQLConcurrencyTests(
+    TransactionTestCase
+):
+    """
+    Pruebas reales de concurrencia PostgreSQL.
+
+    TransactionTestCase es obligatorio porque necesitamos
+    transacciones independientes y conexiones distintas.
+    """
+
+    def setUp(self):
+        super().setUp()
+
+        if connection.vendor != "postgresql":
+            self.skipTest(
+                "Estas pruebas requieren PostgreSQL."
+            )
+
+        self.tenant = Tenant.objects.create(
+            nombre="Concurrency Tenant",
+            slug="concurrency-tenant",
+            habilitado=True,
+        )
+
+        fecha_inicial = (
+            date.today()
+            + timedelta(days=10)
+        )
+
+        self.fecha_inicial = fecha_inicial
+
+        with tenant_database_context(
+            tenant=self.tenant
+        ):
+            self.suscripcion = (
+                SuscripcionTenant.objects.create(
+                    tenant=self.tenant,
+                    estado=(
+                        SuscripcionTenant
+                        .Estado
+                        .ACTIVA
+                    ),
+                    fecha_vencimiento=(
+                        fecha_inicial
+                    ),
+                )
+            )
+
+            self.pago = (
+                PagoWompi.objects.create(
+                    tipo="SUSCRIPCION",
+                    tenant=self.tenant,
+                    referencia=(
+                        "SUBS-CONCURRENCY-TEST"
+                    ),
+                    monto=Decimal("50.00"),
+                    estado="PENDIENTE",
+                )
+            )
+
+    def test_dos_aprobaciones_simultaneas_renuevan_solo_una_vez(
+        self,
+    ):
+        barrera = Barrier(2)
+
+        def aprobar_pago():
+            # Cada hilo debe obtener su propia conexión
+            # PostgreSQL.
+            close_old_connections()
+
+            try:
+                with tenant_database_context(
+                    tenant=self.tenant
+                ):
+                    # Ambos hilos llegan hasta aquí antes
+                    # de intentar bloquear PagoWompi.
+                    barrera.wait(
+                        timeout=10
+                    )
+
+                    return (
+                        _procesar_pago_wompi_aprobado(
+                            self.pago.referencia,
+                            id_transaccion=(
+                                "TX-CONCURRENCY-001"
+                            ),
+                            monto="50.00",
+                            raw_payload={
+                                "test":
+                                    "concurrency",
+                            },
+                            origen="WEBHOOK",
+                        )
+                    )
+
+            finally:
+                close_old_connections()
+
+        with ThreadPoolExecutor(
+            max_workers=2
+        ) as executor:
+            futuros = [
+                executor.submit(
+                    aprobar_pago
+                )
+                for _ in range(2)
+            ]
+
+            resultados = [
+                futuro.result(
+                    timeout=20
+                )
+                for futuro in futuros
+            ]
+
+        self.pago.refresh_from_db()
+        self.suscripcion.refresh_from_db()
+
+        # Las dos llamadas son legítimas:
+        #
+        # una aprueba;
+        # la otra descubre el replay después
+        # de esperar el row lock.
+        self.assertTrue(
+            all(
+                resultado[0]
+                for resultado in resultados
+            )
+        )
+
+        self.assertEqual(
+            self.pago.estado,
+            "APROBADO",
+        )
+
+        self.assertTrue(
+            self.pago.es_aprobada
+        )
+
+        self.assertEqual(
+            self.pago.id_transaccion,
+            "TX-CONCURRENCY-001",
+        )
+
+        # CRÍTICO:
+        # dos webhooks simultáneos NO deben sumar
+        # 60 días.
+        self.assertEqual(
+            self.suscripcion.fecha_vencimiento,
+            (
+                self.fecha_inicial
+                + timedelta(days=30)
+            ),
         )
 

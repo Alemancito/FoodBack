@@ -6500,6 +6500,7 @@ class PostgreSQLRowLevelSecurityTests(
     "pedidos_cliente",
     "pedidos_producto",
     "pedidos_opcionproducto",
+    "pedidos_producto_extras",
     )
 
     def setUp(self):
@@ -6579,6 +6580,10 @@ class PostgreSQLRowLevelSecurityTests(
                     disponible=True,
                 )
             )
+            
+            self.producto_a.extras.add(
+                self.extra_a
+            )
 
         with tenant_database_context(
             tenant=self.tenant_b
@@ -6625,6 +6630,10 @@ class PostgreSQLRowLevelSecurityTests(
                     precio_extra=Decimal("2.00"),
                     disponible=True,
                 )
+            )
+            
+            self.producto_b.extras.add(
+                self.extra_b
             )
 
     def tearDown(self):
@@ -6888,7 +6897,58 @@ class PostgreSQLRowLevelSecurityTests(
                     .update(
                         producto=self.producto_b
                     )
-                )     
+                )    
+                
+    def test_rls_producto_extras_solo_ve_tenant_activo(
+        self,
+    ):
+        through = Producto.extras.through
+
+        with tenant_database_context(
+            tenant=self.tenant_a
+        ):
+            relaciones = set(
+                through.objects.values_list(
+                    "producto_id",
+                    "extra_id",
+                )
+            )
+
+        self.assertEqual(
+            relaciones,
+            {
+                (
+                    self.producto_a.id,
+                    self.extra_a.id,
+                )
+            },
+        )
+
+
+    def test_rls_producto_no_puede_recibir_extra_de_otro_tenant(
+        self,
+    ):
+        with self.assertRaises(
+            DatabaseError
+        ):
+            with tenant_database_context(
+                tenant=self.tenant_a
+            ):
+                self.producto_a.extras.add(
+                    self.extra_b
+                )
+
+
+    def test_rls_producto_extras_sin_tenant_no_ve_relaciones(
+        self,
+    ):
+        through = Producto.extras.through
+
+        with tenant_database_context():
+            self.assertEqual(
+                through.objects.count(),
+                0,
+            ) 
             
             
 class SucursalBusinessStateIsolationTests(TestCase):

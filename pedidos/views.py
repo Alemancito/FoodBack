@@ -7344,6 +7344,149 @@ def wompi_suscripcion_respuesta_view(request):
 
 
 
+def _procesar_wompi_webhook_validado(
+    *,
+    raw_body,
+    data,
+    transaccion,
+    referencia,
+):
+    """
+    Procesa un webhook Wompi cuya firma ya fue validada.
+
+    IMPORTANTE:
+    esta función debe ejecutarse dentro de
+    tenant_database_context().
+    """
+
+    es_aprobada = _valor_bool_wompi(
+        _get_any(
+            transaccion,
+            'esAprobada',
+            'EsAprobada',
+            'approved',
+            'status',
+            'ResultadoTransaccion',
+            'resultadoTransaccion',
+        )
+    )
+
+    id_transaccion = _get_any(
+        transaccion,
+        'idTransaccion',
+        'IdTransaccion',
+        'id',
+        'Id',
+    )
+
+    monto = (
+        _get_any(
+            transaccion,
+            'monto',
+            'Monto',
+        )
+        or
+        _get_any(
+            data,
+            'monto',
+            'Monto',
+        )
+    )
+
+    if not referencia:
+        return JsonResponse(
+            {
+                'status': 'ok',
+                'msg': (
+                    'Webhook recibido sin referencia'
+                ),
+            }
+        )
+
+    pago = (
+        PagoWompi.objects
+        .filter(
+            referencia=referencia
+        )
+        .first()
+    )
+
+    if pago:
+        pago.raw_webhook = data
+        pago.save()
+
+    if es_aprobada:
+        ok, msg = (
+            _procesar_pago_wompi_aprobado(
+                referencia,
+                id_transaccion=id_transaccion,
+                monto=monto,
+                raw_payload=data,
+                origen='WEBHOOK',
+            )
+        )
+
+        return JsonResponse(
+            {
+                'status':
+                    'ok'
+                    if ok
+                    else 'warning',
+
+                'msg': msg,
+            }
+        )
+
+    if (
+        pago
+        and pago.estado != 'APROBADO'
+    ):
+        pago.estado = 'RECHAZADO'
+        pago.es_aprobada = False
+
+        pago.ultimo_error = (
+            'Webhook recibido, pero la '
+            'transacción no venía aprobada.'
+        )
+
+        pago.save()
+
+        cuerpo_hash = hashlib.sha256(
+            raw_body
+        ).hexdigest()
+
+        identificador_evento = (
+            str(id_transaccion).strip()
+            if id_transaccion
+            else cuerpo_hash
+        )
+
+        _registrar_evento_pago(
+            pago,
+            categoria='RECHAZO_CLIENTE',
+            origen='WEBHOOK',
+            codigo='WOMPI_RECHAZADO',
+            mensaje=(
+                'Wompi informó que la '
+                'transacción no fue aprobada.'
+            ),
+            cuenta_para_cliente=True,
+            cuenta_para_global=False,
+            clave_evento=(
+                f"RECHAZO:"
+                f"{pago.id}:"
+                f"{identificador_evento}"
+            ),
+        )
+
+    return JsonResponse(
+        {
+            'status': 'ok',
+            'msg': 'Webhook recibido',
+        }
+    )
+
+
 @csrf_exempt
 @never_cache
 @require_POST
@@ -7518,100 +7661,17 @@ def wompi_webhook_view(request):
                     status=403,
                 )
 
-        es_aprobada = _valor_bool_wompi(
-            _get_any(
-                transaccion,
-                'esAprobada',
-                'EsAprobada',
-                'approved',
-                'status',
-                'ResultadoTransaccion',
-                'resultadoTransaccion',
-            )
-        )
-
-        id_transaccion = _get_any(
-            transaccion,
-            'idTransaccion',
-            'IdTransaccion',
-            'id',
-            'Id',
-        )
-
-        monto = (
-            _get_any(
-                transaccion,
-                'monto',
-                'Monto',
-            )
-            or
-            _get_any(
-                data,
-                'monto',
-                'Monto',
-            )
-        )
-
-        if not referencia:
-            return JsonResponse({'status': 'ok', 'msg': 'Webhook recibido sin referencia'})
-
-        pago = PagoWompi.objects.filter(referencia=referencia).first()
-        if pago:
-            pago.raw_webhook = data
-            pago.save()
-
-        if es_aprobada:
-            ok, msg = _procesar_pago_wompi_aprobado(
-                referencia,
-                id_transaccion=id_transaccion,
-                monto=monto,
-                raw_payload=data,
-                origen='WEBHOOK'
-            )
-            return JsonResponse({'status': 'ok' if ok else 'warning', 'msg': msg})
-
-        if pago and pago.estado != 'APROBADO':
-
-            pago.estado = 'RECHAZADO'
-            pago.es_aprobada = False
-
-            pago.ultimo_error = (
-                'Webhook recibido, pero la '
-                'transacción no venía aprobada.'
-            )
-
-            pago.save()
-
-            cuerpo_hash = hashlib.sha256(
-                raw_body
-            ).hexdigest()
-
-            identificador_evento = (
-                str(id_transaccion).strip()
-                if id_transaccion
-                else cuerpo_hash
-            )
-
-            _registrar_evento_pago(
-                pago,
-                categoria='RECHAZO_CLIENTE',
-                origen='WEBHOOK',
-                codigo='WOMPI_RECHAZADO',
-                mensaje=(
-                    'Wompi informó que la '
-                    'transacción no fue aprobada.'
-                ),
-                cuenta_para_cliente=True,
-                cuenta_para_global=False,
-                clave_evento=(
-                    f"RECHAZO:"
-                    f"{pago.id}:"
-                    f"{identificador_evento}"
-                ),
-            )
-
-        return JsonResponse({'status': 'ok', 'msg': 'Webhook recibido'})
-    
+        with tenant_database_context(
+            tenant=tenant_webhook
+        ):
+            return (
+                _procesar_wompi_webhook_validado(
+                    raw_body=raw_body,
+                    data=data,
+                    transaccion=transaccion,
+                    referencia=referencia,
+                )
+            )    
     except (
         UnicodeDecodeError,
         json.JSONDecodeError,

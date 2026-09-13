@@ -3540,6 +3540,7 @@ class PaymentResilienceLoggingTests(
         pedido.save()
 
         return pedido
+    
 
     def crear_pago(
         self,
@@ -3767,6 +3768,128 @@ class PaymentResilienceLoggingTests(
                 pago.cliente_token_hash
             ),
             64,
+        )
+    
+    @override_settings(
+    FOODBACK_DEFAULT_TENANT_SLUG="",
+    FOODBACK_BASE_DOMAIN="foodbacksv.com",
+    )
+    @patch(
+        "pedidos.views._validar_hash_webhook_wompi",
+        return_value=True,
+    )
+    def test_webhook_firmado_establece_tenant_db_sin_contexto_http(
+        self,
+        mock_hash,
+    ):
+        pedido = self.crear_pedido_tarjeta(
+            "79990001"
+        )
+
+        pago = self.crear_pago(
+            pedido
+        )
+
+        referencia = (
+            _wompi_crear_referencia(
+                "ORDEN",
+                pago.tenant_id,
+                pedido.id,
+            )
+        )
+
+        pago.referencia = referencia
+        pago.save(
+            update_fields=[
+                "referencia",
+            ]
+        )
+
+        pedido.wompi_referencia = referencia
+        pedido.save(
+            update_fields=[
+                "wompi_referencia",
+            ]
+        )
+
+        contexto_capturado = {}
+
+        def procesar_fake(
+            referencia_recibida,
+            **kwargs,
+        ):
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT current_setting(
+                        'foodback.tenant_id',
+                        true
+                    )
+                    """
+                )
+
+                contexto_capturado[
+                    "tenant_id"
+                ] = cursor.fetchone()[0]
+
+            return (
+                True,
+                "Pago procesado.",
+            )
+
+        body = {
+            "transaccion": {
+                "identificadorEnlaceComercio":
+                    referencia,
+
+                "esAprobada":
+                    True,
+
+                "idTransaccion":
+                    "TX-TENANT-CONTEXT",
+
+                "monto":
+                    str(pago.monto),
+            }
+        }
+
+        with patch(
+            "pedidos.views."
+            "_procesar_pago_wompi_aprobado",
+            side_effect=procesar_fake,
+        ):
+            response = self.client.post(
+                reverse(
+                    "wompi_webhook"
+                ),
+                data=json.dumps(
+                    body
+                ),
+                content_type=(
+                    "application/json"
+                ),
+            )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        # El middleware no pudo resolver Tenant
+        # por sesión/host.
+        self.assertIsNone(
+            response.wsgi_request.tenant
+        )
+
+        # Pero el webhook firmado sí estableció
+        # correctamente el Tenant en PostgreSQL.
+        self.assertEqual(
+            contexto_capturado[
+                "tenant_id"
+            ],
+            str(
+                pago.tenant_id
+            ),
         )
         
 class PaymentUserCooldownSecurityTests(

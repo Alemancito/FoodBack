@@ -117,12 +117,63 @@ WSGI_APPLICATION = 'core.wsgi.application'
 # ===============================
 # BASE DE DATOS
 # ===============================
-DATABASES = {
-    'default': dj_database_url.config(
-        default='sqlite:///' + str(BASE_DIR / 'db.sqlite3'),
-        conn_max_age=600
-    )
-}
+
+if 'RAILWAY_ENVIRONMENT' in os.environ:
+    # Producción: Railway administra DATABASE_URL.
+    DATABASES = {
+        'default': dj_database_url.config(
+            default=os.getenv('DATABASE_URL'),
+            conn_max_age=600,
+        )
+    }
+
+else:
+    # Desarrollo local: PostgreSQL con separación de privilegios.
+    DB_MODE = os.getenv('FOODBACK_DB_MODE', 'app').strip().lower()
+
+    DB_ROLES = {
+        'app': (
+            'FOODBACK_DB_APP_USER',
+            'FOODBACK_DB_APP_PASSWORD',
+        ),
+        'migrator': (
+            'FOODBACK_DB_MIGRATOR_USER',
+            'FOODBACK_DB_MIGRATOR_PASSWORD',
+        ),
+        'test': (
+            'FOODBACK_DB_TEST_USER',
+            'FOODBACK_DB_TEST_PASSWORD',
+        ),
+    }
+
+    if DB_MODE not in DB_ROLES:
+        raise RuntimeError(
+            f"FOODBACK_DB_MODE inválido: {DB_MODE!r}. "
+            "Valores permitidos: app, migrator, test."
+        )
+
+    user_env, password_env = DB_ROLES[DB_MODE]
+
+    db_user = os.getenv(user_env)
+    db_password = os.getenv(password_env)
+
+    if not db_user or not db_password:
+        raise RuntimeError(
+            f"Faltan credenciales PostgreSQL para el modo {DB_MODE!r}. "
+            f"Revisa {user_env} y {password_env}."
+        )
+
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.getenv('FOODBACK_DB_NAME', 'foodback_local'),
+            'USER': db_user,
+            'PASSWORD': db_password,
+            'HOST': os.getenv('FOODBACK_DB_HOST', '127.0.0.1'),
+            'PORT': os.getenv('FOODBACK_DB_PORT', '5432'),
+            'CONN_MAX_AGE': 600,
+        }
+    }
 
 # ===============================
 # PASSWORDS

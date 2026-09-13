@@ -6848,6 +6848,9 @@ class PostgreSQLRowLevelSecurityTests(
     "pedidos_estadopasarelapago",
     "pedidos_pagowompi",
     "pedidos_eventopagowompi",
+    "pedidos_sucursal",
+    "pedidos_membershipsucursal",
+    "pedidos_repartidorsucursal",
     )
 
     def setUp(self):
@@ -6880,32 +6883,63 @@ class PostgreSQLRowLevelSecurityTests(
             habilitado=True,
         )
         
-        self.sucursal_a = Sucursal.objects.create(
-            tenant=self.tenant_a,
-            nombre="RLS Sucursal A",
-            slug="rls-sucursal-a",
-            estado=Sucursal.Estado.ACTIVA,
+        self.usuario_a = User.objects.create(
+            username="rls-user-a",
         )
 
-        self.sucursal_b = Sucursal.objects.create(
+        self.usuario_b = User.objects.create(
+            username="rls-user-b",
+        )
+
+        self.delivery_a = User.objects.create(
+            username="rls-delivery-a",
+        )
+
+        self.delivery_b = User.objects.create(
+            username="rls-delivery-b",
+        )
+
+        self.membership_a = Membership.objects.create(
+            tenant=self.tenant_a,
+            usuario=self.usuario_a,
+            rol=Membership.ROLE_MANAGER,
+            activo=True,
+        )
+
+        self.membership_b = Membership.objects.create(
             tenant=self.tenant_b,
-            nombre="RLS Sucursal B",
-            slug="rls-sucursal-b",
-            estado=Sucursal.Estado.ACTIVA,
+            usuario=self.usuario_b,
+            rol=Membership.ROLE_MANAGER,
+            activo=True,
         )
         
-        self.sucursal_b_extra = (
-            Sucursal.objects.create(
-                tenant=self.tenant_b,
-                nombre="RLS Sucursal B Extra",
-                slug="rls-sucursal-b-extra",
-                estado=Sucursal.Estado.ACTIVA,
-            )
-        )
 
         with tenant_database_context(
             tenant=self.tenant_a
         ):
+            
+            self.sucursal_a = Sucursal.objects.create(
+                tenant=self.tenant_a,
+                nombre="RLS Sucursal A",
+                slug="rls-sucursal-a",
+                estado=Sucursal.Estado.ACTIVA,
+            )
+            
+            self.membership_sucursal_a = (
+                MembershipSucursal.objects.create(
+                    membership=self.membership_a,
+                    sucursal=self.sucursal_a,
+                    activo=True,
+                )
+            )
+
+            self.repartidor_sucursal_a = (
+                RepartidorSucursal.objects.create(
+                    usuario=self.delivery_a,
+                    sucursal=self.sucursal_a,
+                    activo=True,
+                )
+            )
             
             self.categoria_a = (
                 Categoria.objects.create(
@@ -7038,6 +7072,41 @@ class PostgreSQLRowLevelSecurityTests(
         with tenant_database_context(
             tenant=self.tenant_b
         ):
+            
+            self.sucursal_b = Sucursal.objects.create(
+                tenant=self.tenant_b,
+                nombre="RLS Sucursal B",
+                slug="rls-sucursal-b",
+                estado=Sucursal.Estado.ACTIVA,
+            )
+            
+            
+            self.membership_sucursal_b = (
+                MembershipSucursal.objects.create(
+                    membership=self.membership_b,
+                    sucursal=self.sucursal_b,
+                    activo=True,
+                )
+            )
+
+            self.repartidor_sucursal_b = (
+                RepartidorSucursal.objects.create(
+                    usuario=self.delivery_b,
+                    sucursal=self.sucursal_b,
+                    activo=True,
+                )
+            )
+            
+            
+            self.sucursal_b_extra = (
+                Sucursal.objects.create(
+                    tenant=self.tenant_b,
+                    nombre="RLS Sucursal B Extra",
+                    slug="rls-sucursal-b-extra",
+                    estado=Sucursal.Estado.ACTIVA,
+                )
+            )
+            
             
             self.categoria_b = (
                 Categoria.objects.create(
@@ -7999,6 +8068,113 @@ class PostgreSQLRowLevelSecurityTests(
                     codigo="RLS_CROSS",
                     mensaje="Debe bloquearse",
                     clave_evento="RLS-EVENT-CROSS",
+                )
+                
+                
+    def test_rls_sucursal_y_asignaciones_solo_ven_tenant_activo(
+        self,
+    ):
+        with tenant_database_context(
+            tenant=self.tenant_a
+        ):
+            sucursales = set(
+                Sucursal.objects.values_list(
+                    "id",
+                    flat=True,
+                )
+            )
+
+            memberships = set(
+                MembershipSucursal.objects.values_list(
+                    "id",
+                    flat=True,
+                )
+            )
+
+            repartidores = set(
+                RepartidorSucursal.objects.values_list(
+                    "id",
+                    flat=True,
+                )
+            )
+
+        self.assertEqual(
+            sucursales,
+            {self.sucursal_a.id},
+        )
+
+        self.assertEqual(
+            memberships,
+            {self.membership_sucursal_a.id},
+        )
+
+        self.assertEqual(
+            repartidores,
+            {self.repartidor_sucursal_a.id},
+        )
+
+
+    def test_rls_sucursal_y_asignaciones_sin_tenant_no_ven_filas(
+        self,
+    ):
+        with tenant_database_context():
+            self.assertEqual(
+                Sucursal.objects.count(),
+                0,
+            )
+
+            self.assertEqual(
+                MembershipSucursal.objects.count(),
+                0,
+            )
+
+            self.assertEqual(
+                RepartidorSucursal.objects.count(),
+                0,
+            )
+
+
+    def test_rls_membership_sucursal_impide_cruce_de_tenants(
+        self,
+    ):
+        with self.assertRaises(
+            DatabaseError
+        ):
+            with tenant_database_context(
+                tenant=self.tenant_a
+            ):
+                MembershipSucursal.objects.create(
+                    membership=self.membership_a,
+                    sucursal=self.sucursal_b,
+                    activo=True,
+                )
+
+        with self.assertRaises(
+            DatabaseError
+        ):
+            with tenant_database_context(
+                tenant=self.tenant_a
+            ):
+                MembershipSucursal.objects.create(
+                    membership=self.membership_b,
+                    sucursal=self.sucursal_a,
+                    activo=True,
+                )
+
+
+    def test_rls_repartidor_sucursal_impide_sucursal_ajena(
+        self,
+    ):
+        with self.assertRaises(
+            DatabaseError
+        ):
+            with tenant_database_context(
+                tenant=self.tenant_a
+            ):
+                RepartidorSucursal.objects.create(
+                    usuario=self.delivery_a,
+                    sucursal=self.sucursal_b,
+                    activo=True,
                 )
             
             

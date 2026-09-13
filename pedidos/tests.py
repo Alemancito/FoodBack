@@ -6495,9 +6495,11 @@ class PostgreSQLRowLevelSecurityTests(
     """
 
     RLS_TABLES = (
-        "pedidos_categoria",
-        "pedidos_extra",
-        "pedidos_cliente",
+    "pedidos_categoria",
+    "pedidos_extra",
+    "pedidos_cliente",
+    "pedidos_producto",
+    "pedidos_opcionproducto",
     )
 
     def setUp(self):
@@ -6516,6 +6518,7 @@ class PostgreSQLRowLevelSecurityTests(
                     FORCE ROW LEVEL SECURITY
                     """
                 )
+                
 
         self.tenant_a = Tenant.objects.create(
             nombre="RLS Tenant A",
@@ -6532,6 +6535,7 @@ class PostgreSQLRowLevelSecurityTests(
         with tenant_database_context(
             tenant=self.tenant_a
         ):
+            
             self.categoria_a = (
                 Categoria.objects.create(
                     tenant=self.tenant_a,
@@ -6557,10 +6561,29 @@ class PostgreSQLRowLevelSecurityTests(
                     apellido="A",
                 )
             )
+            
+            self.producto_a = (
+                Producto.objects.create(
+                    categoria=self.categoria_a,
+                    nombre="Producto A",
+                    precio=Decimal("10.00"),
+                    disponible=True,
+                )
+            )
+
+            self.opcion_a = (
+                OpcionProducto.objects.create(
+                    producto=self.producto_a,
+                    nombre="Opcion A",
+                    precio_extra=Decimal("1.00"),
+                    disponible=True,
+                )
+            )
 
         with tenant_database_context(
             tenant=self.tenant_b
         ):
+            
             self.categoria_b = (
                 Categoria.objects.create(
                     tenant=self.tenant_b,
@@ -6584,6 +6607,23 @@ class PostgreSQLRowLevelSecurityTests(
                     telefono="78000002",
                     nombre="Cliente",
                     apellido="B",
+                )
+            )
+            self.producto_b = (
+                Producto.objects.create(
+                    categoria=self.categoria_b,
+                    nombre="Producto B",
+                    precio=Decimal("20.00"),
+                    disponible=True,
+                )
+            )
+
+            self.opcion_b = (
+                OpcionProducto.objects.create(
+                    producto=self.producto_b,
+                    nombre="Opcion B",
+                    precio_extra=Decimal("2.00"),
+                    disponible=True,
                 )
             )
 
@@ -6748,9 +6788,109 @@ class PostgreSQLRowLevelSecurityTests(
                 Categoria.objects.filter(
                     pk=self.categoria_b.pk
                 ).exists()
-            )        
-        
-        
+            )   
+            
+    def test_rls_producto_y_opcion_solo_ven_tenant_activo(
+        self,
+    ):
+        with tenant_database_context(
+            tenant=self.tenant_a
+        ):
+            productos = set(
+                Producto.objects.values_list(
+                    "id",
+                    flat=True,
+                )
+            )
+
+            opciones = set(
+                OpcionProducto.objects.values_list(
+                    "id",
+                    flat=True,
+                )
+            )
+
+        self.assertEqual(
+            productos,
+            {self.producto_a.id},
+        )
+
+        self.assertEqual(
+            opciones,
+            {self.opcion_a.id},
+        )
+
+
+    def test_rls_impide_producto_con_categoria_ajena(
+        self,
+    ):
+        with self.assertRaises(
+            DatabaseError
+        ):
+            with tenant_database_context(
+                tenant=self.tenant_a
+            ):
+                Producto.objects.create(
+                    categoria=self.categoria_b,
+                    nombre="Producto infiltrado",
+                    precio=Decimal("99.00"),
+                    disponible=True,
+                )
+
+
+    def test_rls_impide_opcion_con_producto_ajeno(
+        self,
+    ):
+        with self.assertRaises(
+            DatabaseError
+        ):
+            with tenant_database_context(
+                tenant=self.tenant_a
+            ):
+                OpcionProducto.objects.create(
+                    producto=self.producto_b,
+                    nombre="Opcion infiltrada",
+                    precio_extra=Decimal("99.00"),
+                    disponible=True,
+                )
+
+
+    def test_rls_impide_mover_producto_y_opcion_a_otro_tenant(
+        self,
+    ):
+        with self.assertRaises(
+            DatabaseError
+        ):
+            with tenant_database_context(
+                tenant=self.tenant_a
+            ):
+                (
+                    Producto.objects
+                    .filter(
+                        pk=self.producto_a.pk
+                    )
+                    .update(
+                        categoria=self.categoria_b
+                    )
+                )
+
+        with self.assertRaises(
+            DatabaseError
+        ):
+            with tenant_database_context(
+                tenant=self.tenant_a
+            ):
+                (
+                    OpcionProducto.objects
+                    .filter(
+                        pk=self.opcion_a.pk
+                    )
+                    .update(
+                        producto=self.producto_b
+                    )
+                )     
+            
+            
 class SucursalBusinessStateIsolationTests(TestCase):
 
     def setUp(self):

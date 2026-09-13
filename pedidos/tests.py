@@ -7,7 +7,11 @@ from datetime import date, timedelta, time
 from decimal import Decimal
 
 from django.contrib.auth.models import Group, User
-from django.test import Client, TestCase
+from django.test import (
+    Client,
+    TestCase,
+    TransactionTestCase,
+)
 from django.urls import reverse
 
 from django.test import override_settings
@@ -22,6 +26,7 @@ from pedidos.security import (
 )
 
 from django.db import (
+    DatabaseError,
     IntegrityError,
     transaction,
     connection,
@@ -64,6 +69,10 @@ from pedidos.views import (
 from pedidos.tenant_context import (
     resolver_tenant,
     resolver_sucursal,
+)
+
+from pedidos.db_tenant_context import (
+    tenant_database_context,
 )
 
 from .models import (
@@ -6466,6 +6475,280 @@ class TenantContextResolverTests(TestCase):
             contexto_capturado["db_sucursal"],
             "",
         )
+        
+        
+        
+class PostgreSQLRowLevelSecurityTests(
+    TransactionTestCase
+):
+    """
+    Verifica RLS real de PostgreSQL.
+
+    IMPORTANTE:
+    El usuario foodback_test es propietario de las tablas
+    dentro de la BD temporal creada por Django.
+
+    PostgreSQL permite normalmente al owner omitir RLS.
+
+    Por eso estos tests activan FORCE RLS únicamente
+    dentro de la BD descartable de pruebas.
+    """
+
+    RLS_TABLES = (
+        "pedidos_categoria",
+        "pedidos_extra",
+        "pedidos_cliente",
+    )
+
+    def setUp(self):
+        super().setUp()
+
+        if connection.vendor != "postgresql":
+            self.skipTest(
+                "RLS requiere PostgreSQL."
+            )
+
+        with connection.cursor() as cursor:
+            for table in self.RLS_TABLES:
+                cursor.execute(
+                    f"""
+                    ALTER TABLE {table}
+                    FORCE ROW LEVEL SECURITY
+                    """
+                )
+
+        self.tenant_a = Tenant.objects.create(
+            nombre="RLS Tenant A",
+            slug="rls-tenant-a",
+            habilitado=True,
+        )
+
+        self.tenant_b = Tenant.objects.create(
+            nombre="RLS Tenant B",
+            slug="rls-tenant-b",
+            habilitado=True,
+        )
+
+        with tenant_database_context(
+            tenant=self.tenant_a
+        ):
+            self.categoria_a = (
+                Categoria.objects.create(
+                    tenant=self.tenant_a,
+                    nombre="Categoria A",
+                    orden=1,
+                )
+            )
+
+            self.extra_a = (
+                Extra.objects.create(
+                    tenant=self.tenant_a,
+                    nombre="Extra A",
+                    precio=Decimal("1.00"),
+                    disponible=True,
+                )
+            )
+
+            self.cliente_a = (
+                Cliente.objects.create(
+                    tenant=self.tenant_a,
+                    telefono="78000001",
+                    nombre="Cliente",
+                    apellido="A",
+                )
+            )
+
+        with tenant_database_context(
+            tenant=self.tenant_b
+        ):
+            self.categoria_b = (
+                Categoria.objects.create(
+                    tenant=self.tenant_b,
+                    nombre="Categoria B",
+                    orden=1,
+                )
+            )
+
+            self.extra_b = (
+                Extra.objects.create(
+                    tenant=self.tenant_b,
+                    nombre="Extra B",
+                    precio=Decimal("2.00"),
+                    disponible=True,
+                )
+            )
+
+            self.cliente_b = (
+                Cliente.objects.create(
+                    tenant=self.tenant_b,
+                    telefono="78000002",
+                    nombre="Cliente",
+                    apellido="B",
+                )
+            )
+
+    def tearDown(self):
+        # Quitamos FORCE antes de que Django haga
+        # la limpieza normal de su BD temporal.
+        with connection.cursor() as cursor:
+            for table in self.RLS_TABLES:
+                cursor.execute(
+                    f"""
+                    ALTER TABLE {table}
+                    NO FORCE ROW LEVEL SECURITY
+                    """
+                )
+
+        super().tearDown()
+
+    def test_rls_select_solo_ve_tenant_activo(
+        self,
+    ):
+        with tenant_database_context(
+            tenant=self.tenant_a
+        ):
+            categorias = set(
+                Categoria.objects.values_list(
+                    "id",
+                    flat=True,
+                )
+            )
+
+            extras = set(
+                Extra.objects.values_list(
+                    "id",
+                    flat=True,
+                )
+            )
+
+            clientes = set(
+                Cliente.objects.values_list(
+                    "id",
+                    flat=True,
+                )
+            )
+
+        self.assertEqual(
+            categorias,
+            {self.categoria_a.id},
+        )
+
+        self.assertEqual(
+            extras,
+            {self.extra_a.id},
+        )
+
+        self.assertEqual(
+            clientes,
+            {self.cliente_a.id},
+        )
+
+    def test_rls_sin_tenant_no_ve_filas(
+        self,
+    ):
+        with tenant_database_context():
+            self.assertEqual(
+                Categoria.objects.count(),
+                0,
+            )
+
+            self.assertEqual(
+                Extra.objects.count(),
+                0,
+            )
+
+            self.assertEqual(
+                Cliente.objects.count(),
+                0,
+            )
+
+    def test_rls_impide_insertar_otro_tenant(
+        self,
+    ):
+        with self.assertRaises(
+            DatabaseError
+        ):
+            with tenant_database_context(
+                tenant=self.tenant_a
+            ):
+                Categoria.objects.create(
+                    tenant=self.tenant_b,
+                    nombre="Categoria infiltrada",
+                    orden=99,
+                )
+
+        with self.assertRaises(
+            DatabaseError
+        ):
+            with tenant_database_context(
+                tenant=self.tenant_a
+            ):
+                Extra.objects.create(
+                    tenant=self.tenant_b,
+                    nombre="Extra infiltrado",
+                    precio=Decimal("99.00"),
+                    disponible=True,
+                )
+
+        with self.assertRaises(
+            DatabaseError
+        ):
+            with tenant_database_context(
+                tenant=self.tenant_a
+            ):
+                Cliente.objects.create(
+                    tenant=self.tenant_b,
+                    telefono="78009999",
+                    nombre="Intruso",
+                    apellido="RLS",
+                )
+
+    def test_rls_impide_mover_fila_a_otro_tenant(
+        self,
+    ):
+        with self.assertRaises(
+            DatabaseError
+        ):
+            with tenant_database_context(
+                tenant=self.tenant_a
+            ):
+                (
+                    Categoria.objects
+                    .filter(
+                        pk=self.categoria_a.pk
+                    )
+                    .update(
+                        tenant=self.tenant_b
+                    )
+                )
+
+    def test_rls_no_elimina_fila_de_otro_tenant(
+        self,
+    ):
+        with tenant_database_context(
+            tenant=self.tenant_a
+        ):
+            eliminados, _ = (
+                Categoria.objects
+                .filter(
+                    pk=self.categoria_b.pk
+                )
+                .delete()
+            )
+
+        self.assertEqual(
+            eliminados,
+            0,
+        )
+
+        with tenant_database_context(
+            tenant=self.tenant_b
+        ):
+            self.assertTrue(
+                Categoria.objects.filter(
+                    pk=self.categoria_b.pk
+                ).exists()
+            )        
         
         
 class SucursalBusinessStateIsolationTests(TestCase):

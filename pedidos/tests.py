@@ -6504,6 +6504,8 @@ class PostgreSQLRowLevelSecurityTests(
     "pedidos_configuracionnegocio",
     "pedidos_diaespecial",
     "pedidos_pedido",
+    "pedidos_detallepedido",
+    "pedidos_detallepedido_extras",
     )
 
     def setUp(self):
@@ -6624,6 +6626,21 @@ class PostgreSQLRowLevelSecurityTests(
                     direccion_entrega="Direccion Tenant A",
                 )
             )
+            
+            self.detalle_a = (
+                DetallePedido.objects.create(
+                    pedido=self.pedido_a,
+                    producto=self.producto_a,
+                    opcion=self.opcion_a,
+                    cantidad=1,
+                    precio_unitario=Decimal("11.00"),
+                    subtotal=Decimal("11.00"),
+                )
+            )
+
+            self.detalle_a.extras.add(
+                self.extra_a
+            )
 
         with tenant_database_context(
             tenant=self.tenant_b
@@ -6697,6 +6714,21 @@ class PostgreSQLRowLevelSecurityTests(
                     cliente=self.cliente_b,
                     direccion_entrega="Direccion Tenant B",
                 )
+            )
+            
+            self.detalle_b = (
+                DetallePedido.objects.create(
+                    pedido=self.pedido_b,
+                    producto=self.producto_b,
+                    opcion=self.opcion_b,
+                    cantidad=1,
+                    precio_unitario=Decimal("22.00"),
+                    subtotal=Decimal("22.00"),
+                )
+            )
+
+            self.detalle_b.extras.add(
+                self.extra_b
             )
 
     def tearDown(self):
@@ -7191,6 +7223,142 @@ class PostgreSQLRowLevelSecurityTests(
                         cliente=self.cliente_b
                     )
             )
+                
+    def test_rls_detalle_y_extras_solo_ven_tenant_activo(
+        self,
+    ):
+        through = DetallePedido.extras.through
+
+        with tenant_database_context(
+            tenant=self.tenant_a
+        ):
+            detalles = set(
+                DetallePedido.objects.values_list(
+                    "id",
+                    flat=True,
+                )
+            )
+
+            extras_detalle = set(
+                through.objects.values_list(
+                    "detallepedido_id",
+                    "extra_id",
+                )
+            )
+
+        self.assertEqual(
+            detalles,
+            {self.detalle_a.id},
+        )
+
+        self.assertEqual(
+            extras_detalle,
+            {
+                (
+                    self.detalle_a.id,
+                    self.extra_a.id,
+                )
+            },
+        )
+
+
+    def test_rls_detalle_y_extras_sin_tenant_no_ven_filas(
+        self,
+    ):
+        through = DetallePedido.extras.through
+
+        with tenant_database_context():
+            self.assertEqual(
+                DetallePedido.objects.count(),
+                0,
+            )
+
+            self.assertEqual(
+                through.objects.count(),
+                0,
+            )
+
+
+    def test_rls_impide_detalle_con_pedido_o_producto_ajeno(
+        self,
+    ):
+        with self.assertRaises(
+            DatabaseError
+        ):
+            with tenant_database_context(
+                tenant=self.tenant_a
+            ):
+                DetallePedido.objects.create(
+                    pedido=self.pedido_a,
+                    producto=self.producto_b,
+                    cantidad=1,
+                    precio_unitario=Decimal("99.00"),
+                    subtotal=Decimal("99.00"),
+                )
+
+        with self.assertRaises(
+            DatabaseError
+        ):
+            with tenant_database_context(
+                tenant=self.tenant_a
+            ):
+                DetallePedido.objects.create(
+                    pedido=self.pedido_b,
+                    producto=self.producto_a,
+                    cantidad=1,
+                    precio_unitario=Decimal("99.00"),
+                    subtotal=Decimal("99.00"),
+                )
+
+
+    def test_rls_impide_opcion_que_no_corresponde_al_producto(
+        self,
+    ):
+        with tenant_database_context(
+            tenant=self.tenant_a
+        ):
+            producto_2 = Producto.objects.create(
+                categoria=self.categoria_a,
+                nombre="Producto A2",
+                precio=Decimal("15.00"),
+                disponible=True,
+            )
+
+            opcion_2 = OpcionProducto.objects.create(
+                producto=producto_2,
+                nombre="Opcion A2",
+                precio_extra=Decimal("1.00"),
+                disponible=True,
+            )
+
+        with self.assertRaises(
+            DatabaseError
+        ):
+            with tenant_database_context(
+                tenant=self.tenant_a
+            ):
+                DetallePedido.objects.create(
+                    pedido=self.pedido_a,
+                    producto=self.producto_a,
+                    opcion=opcion_2,
+                    cantidad=1,
+                    precio_unitario=Decimal("11.00"),
+                    subtotal=Decimal("11.00"),
+                )
+
+
+    def test_rls_impide_extra_de_otro_tenant_en_detalle(
+        self,
+    ):
+        with self.assertRaises(
+            DatabaseError
+        ):
+            with tenant_database_context(
+                tenant=self.tenant_a
+            ):
+                self.detalle_a.extras.add(
+                    self.extra_b
+                )
             
             
 class SucursalBusinessStateIsolationTests(TestCase):

@@ -12309,4 +12309,129 @@ class PostgreSQLConcurrencyTests(
             len(resultados),
             2,
         )
+        
+    def test_checkout_token_concurrente_crea_un_solo_pedido(
+        self,
+    ):
+        with tenant_database_context(
+            tenant=self.tenant
+        ):
+            sucursal = Sucursal.objects.create(
+                tenant=self.tenant,
+                nombre="Sucursal Checkout Concurrente",
+                slug="checkout-concurrente",
+                estado=Sucursal.Estado.ACTIVA,
+            )
+
+            cliente = Cliente.objects.create(
+                tenant=self.tenant,
+                telefono="70000999",
+                nombre="Cliente",
+                apellido="Concurrente",
+            )
+
+        checkout_token = uuid.uuid4()
+
+        barrera = Barrier(2)
+
+        def crear_pedido():
+            close_old_connections()
+
+            try:
+                with tenant_database_context(
+                    tenant=self.tenant
+                ):
+                    barrera.wait(
+                        timeout=10
+                    )
+
+                    try:
+                        with transaction.atomic():
+                            pedido = (
+                                Pedido.objects.create(
+                                    sucursal_id=sucursal.id,
+                                    cliente_id=cliente.id,
+                                    direccion_entrega=(
+                                        "Direccion concurrente"
+                                    ),
+                                    metodo_pago="EFECTIVO",
+                                    estado="RECIBIDO",
+                                    checkout_token=(
+                                        checkout_token
+                                    ),
+                                )
+                            )
+
+                        return (
+                            "creado",
+                            pedido.id,
+                        )
+
+                    except IntegrityError:
+                        return (
+                            "duplicado",
+                            None,
+                        )
+
+            finally:
+                close_old_connections()
+
+        with ThreadPoolExecutor(
+            max_workers=2
+        ) as executor:
+            futuros = [
+                executor.submit(
+                    crear_pedido
+                )
+                for _ in range(2)
+            ]
+
+            resultados = [
+                futuro.result(
+                    timeout=20
+                )
+                for futuro in futuros
+            ]
+
+        with tenant_database_context(
+            tenant=self.tenant
+        ):
+            pedidos = list(
+                Pedido.objects.filter(
+                    checkout_token=checkout_token
+                )
+            )
+
+        # PostgreSQL permitió exactamente uno.
+        self.assertEqual(
+            len(pedidos),
+            1,
+        )
+
+        resultados_creados = [
+            resultado
+            for resultado in resultados
+            if resultado[0] == "creado"
+        ]
+
+        resultados_duplicados = [
+            resultado
+            for resultado in resultados
+            if resultado[0] == "duplicado"
+        ]
+
+        self.assertEqual(
+            len(resultados_creados),
+            1,
+        )
+
+        self.assertEqual(
+            len(resultados_duplicados),
+            1,
+        )
+
+        self.assertEqual(
+            resultados_creados[0][1],
+            pedidos[0].id,
+        )
 

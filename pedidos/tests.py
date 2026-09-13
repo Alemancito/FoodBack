@@ -6709,6 +6709,8 @@ class PostgreSQLRowLevelSecurityTests(
     "pedidos_detallepedido_extras",
     "pedidos_suscripciontenant",
     "pedidos_estadopasarelapago",
+    "pedidos_pagowompi",
+    "pedidos_eventopagowompi",
     )
 
     def setUp(self):
@@ -6871,6 +6873,30 @@ class PostgreSQLRowLevelSecurityTests(
                     configuracion_negocio=self.config_a,
                 )
             )
+            
+            self.pago_a = PagoWompi.objects.create(
+                tipo="PEDIDO",
+                tenant=self.tenant_a,
+                pedido=self.pedido_a,
+                configuracion_negocio=self.config_a,
+                referencia="RLS-WOMPI-A",
+                cliente_token_hash="a" * 64,
+                monto=Decimal("11.00"),
+                estado="PENDIENTE",
+            )
+
+            self.evento_a = EventoPagoWompi.objects.create(
+                pago=self.pago_a,
+                pedido=self.pedido_a,
+                tenant=self.tenant_a,
+                configuracion_negocio=self.config_a,
+                cliente_token_hash="a" * 64,
+                categoria="INFO",
+                origen="SISTEMA",
+                codigo="RLS_A",
+                mensaje="Evento Tenant A",
+                clave_evento="RLS-EVENT-A",
+            )
 
         with tenant_database_context(
             tenant=self.tenant_b
@@ -6983,6 +7009,30 @@ class PostgreSQLRowLevelSecurityTests(
                 ConfiguracionNegocio.objects.create(
                     sucursal=self.sucursal_b_extra,
                 )
+            )
+            
+            self.pago_b = PagoWompi.objects.create(
+                tipo="PEDIDO",
+                tenant=self.tenant_b,
+                pedido=self.pedido_b,
+                configuracion_negocio=self.config_b,
+                referencia="RLS-WOMPI-B",
+                cliente_token_hash="b" * 64,
+                monto=Decimal("22.00"),
+                estado="PENDIENTE",
+            )
+
+            self.evento_b = EventoPagoWompi.objects.create(
+                pago=self.pago_b,
+                pedido=self.pedido_b,
+                tenant=self.tenant_b,
+                configuracion_negocio=self.config_b,
+                cliente_token_hash="b" * 64,
+                categoria="INFO",
+                origen="SISTEMA",
+                codigo="RLS_B",
+                mensaje="Evento Tenant B",
+                clave_evento="RLS-EVENT-B",
             )
 
     def tearDown(self):
@@ -7704,6 +7754,114 @@ class PostgreSQLRowLevelSecurityTests(
                         configuracion_negocio=
                             self.config_b_extra
                     )
+                )
+                
+    def test_rls_pago_y_evento_wompi_solo_ven_tenant_activo(
+        self,
+    ):
+        with tenant_database_context(
+            tenant=self.tenant_a
+        ):
+            pagos = set(
+                PagoWompi.objects.values_list(
+                    "id",
+                    flat=True,
+                )
+            )
+
+            eventos = set(
+                EventoPagoWompi.objects.values_list(
+                    "id",
+                    flat=True,
+                )
+            )
+
+        self.assertEqual(
+            pagos,
+            {self.pago_a.id},
+        )
+
+        self.assertEqual(
+            eventos,
+            {self.evento_a.id},
+        )
+
+
+    def test_rls_pago_y_evento_wompi_sin_tenant_no_ven_filas(
+        self,
+    ):
+        with tenant_database_context():
+            self.assertEqual(
+                PagoWompi.objects.count(),
+                0,
+            )
+
+            self.assertEqual(
+                EventoPagoWompi.objects.count(),
+                0,
+            )
+
+
+    def test_rls_pago_wompi_no_acepta_pedido_de_otro_tenant(
+        self,
+    ):
+        with self.assertRaises(
+            DatabaseError
+        ):
+            with tenant_database_context(
+                tenant=self.tenant_a
+            ):
+                PagoWompi.objects.create(
+                    tipo="PEDIDO",
+                    tenant=self.tenant_a,
+                    pedido=self.pedido_b,
+                    referencia="RLS-CROSS-PEDIDO",
+                    cliente_token_hash="c" * 64,
+                    monto=Decimal("50.00"),
+                    estado="PENDIENTE",
+                )
+
+
+    def test_rls_pago_wompi_no_acepta_configuracion_de_otro_tenant(
+        self,
+    ):
+        with self.assertRaises(
+            DatabaseError
+        ):
+            with tenant_database_context(
+                tenant=self.tenant_a
+            ):
+                PagoWompi.objects.create(
+                    tipo="SUSCRIPCION",
+                    tenant=self.tenant_a,
+                    configuracion_negocio=self.config_b,
+                    referencia="RLS-CROSS-CONFIG",
+                    cliente_token_hash="d" * 64,
+                    monto=Decimal("60.00"),
+                    estado="PENDIENTE",
+                )
+
+
+    def test_rls_evento_wompi_no_acepta_relaciones_de_otro_tenant(
+        self,
+    ):
+        with self.assertRaises(
+            DatabaseError
+        ):
+            with tenant_database_context(
+                tenant=self.tenant_a
+            ):
+                EventoPagoWompi.objects.create(
+                    pago=self.pago_b,
+                    pedido=self.pedido_b,
+                    tenant=self.tenant_a,
+                    configuracion_negocio=self.config_b,
+                    cliente_token_hash="e" * 64,
+                    categoria="SEGURIDAD",
+                    origen="SISTEMA",
+                    codigo="RLS_CROSS",
+                    mensaje="Debe bloquearse",
+                    clave_evento="RLS-EVENT-CROSS",
                 )
             
             

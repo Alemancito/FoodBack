@@ -6503,6 +6503,7 @@ class PostgreSQLRowLevelSecurityTests(
     "pedidos_producto_extras",
     "pedidos_configuracionnegocio",
     "pedidos_diaespecial",
+    "pedidos_pedido",
     )
 
     def setUp(self):
@@ -6615,6 +6616,14 @@ class PostgreSQLRowLevelSecurityTests(
                     motivo="Tenant A",
                 )
             )
+            
+            self.pedido_a = (
+                Pedido.objects.create(
+                    sucursal=self.sucursal_a,
+                    cliente=self.cliente_a,
+                    direccion_entrega="Direccion Tenant A",
+                )
+            )
 
         with tenant_database_context(
             tenant=self.tenant_b
@@ -6679,6 +6688,14 @@ class PostgreSQLRowLevelSecurityTests(
                     fecha=date.today(),
                     abierto=False,
                     motivo="Tenant B",
+                )
+            )
+            
+            self.pedido_b = (
+                Pedido.objects.create(
+                    sucursal=self.sucursal_b,
+                    cliente=self.cliente_b,
+                    direccion_entrega="Direccion Tenant B",
                 )
             )
 
@@ -7076,6 +7093,103 @@ class PostgreSQLRowLevelSecurityTests(
             self.assertEqual(
                 DiaEspecial.objects.count(),
                 0,
+            )
+            
+            
+    def test_rls_pedido_solo_ve_tenant_activo(
+        self,
+    ):
+        with tenant_database_context(
+            tenant=self.tenant_a
+        ):
+            pedidos = set(
+                Pedido.objects.values_list(
+                    "id",
+                    flat=True,
+                )
+            )
+
+        self.assertEqual(
+            pedidos,
+            {self.pedido_a.id},
+        )
+
+
+    def test_rls_pedido_sin_tenant_no_ve_filas(
+        self,
+    ):
+        with tenant_database_context():
+            self.assertEqual(
+                Pedido.objects.count(),
+                0,
+            )
+
+
+    def test_rls_impide_pedido_hibrido_entre_tenants(
+        self,
+    ):
+        with self.assertRaises(
+            DatabaseError
+        ):
+            with tenant_database_context(
+                tenant=self.tenant_a
+            ):
+                Pedido.objects.create(
+                    sucursal=self.sucursal_a,
+                    cliente=self.cliente_b,
+                    direccion_entrega=(
+                        "Cliente B infiltrado"
+                    ),
+                )
+
+        with self.assertRaises(
+            DatabaseError
+        ):
+            with tenant_database_context(
+                tenant=self.tenant_a
+            ):
+                Pedido.objects.create(
+                    sucursal=self.sucursal_b,
+                    cliente=self.cliente_a,
+                    direccion_entrega=(
+                        "Sucursal B infiltrada"
+                    ),
+                )
+
+
+    def test_rls_impide_mover_pedido_a_otro_tenant(
+        self,
+    ):
+        with self.assertRaises(
+            DatabaseError
+        ):
+            with tenant_database_context(
+                tenant=self.tenant_a
+            ):
+                (
+                    Pedido.objects
+                    .filter(
+                        pk=self.pedido_a.pk
+                    )
+                    .update(
+                        sucursal=self.sucursal_b
+                    )
+                )
+
+        with self.assertRaises(
+            DatabaseError
+        ):
+            with tenant_database_context(
+                tenant=self.tenant_a
+            ):
+                (
+                    Pedido.objects
+                    .filter(
+                        pk=self.pedido_a.pk
+                    )
+                    .update(
+                        cliente=self.cliente_b
+                    )
             )
             
             

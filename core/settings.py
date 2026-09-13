@@ -6,7 +6,6 @@ Django 4.2 LTS
 
 from pathlib import Path
 import os
-import dj_database_url
 from dotenv import load_dotenv
 from decouple import config
 
@@ -17,24 +16,135 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+FOODBACK_ENVIRONMENT = os.getenv(
+    "FOODBACK_ENVIRONMENT",
+    "development",
+).strip().lower()
+
+if FOODBACK_ENVIRONMENT not in {
+    "development",
+    "production",
+}:
+    raise RuntimeError(
+        "FOODBACK_ENVIRONMENT inválido: "
+        f"{FOODBACK_ENVIRONMENT!r}. "
+        "Valores permitidos: development, production."
+    )
+
+IS_PRODUCTION = (
+    FOODBACK_ENVIRONMENT == "production"
+)
+
 # ===============================
 # SEGURIDAD
 # ===============================
-SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-dev-key')
 
-DEBUG = 'RAILWAY_ENVIRONMENT' not in os.environ
+SECRET_KEY = os.getenv(
+    "SECRET_KEY",
+    "",
+).strip()
 
-ALLOWED_HOSTS = ['*']
+if IS_PRODUCTION:
+    if not SECRET_KEY:
+        raise RuntimeError(
+            "SECRET_KEY es obligatoria en producción."
+        )
 
-CSRF_TRUSTED_ORIGINS = [
-    'https://*.railway.app',
-    'https://*.up.railway.app',
-    'https://*.ngrok-free.app',
-    'https://*.ngrok-free.dev',
-    'https://*.devtunnels.ms',
-    'https://foodbacksv.com',
-    'https://*.foodbacksv.com',
-]
+    if SECRET_KEY == "django-insecure-dev-key":
+        raise RuntimeError(
+            "SECRET_KEY insegura en producción."
+        )
+
+else:
+    # Solo desarrollo local.
+    if not SECRET_KEY:
+        SECRET_KEY = "django-insecure-dev-key"
+
+
+DEBUG = not IS_PRODUCTION
+
+
+def _lista_env(
+    nombre,
+    default="",
+):
+    return [
+        valor.strip()
+        for valor in os.getenv(
+            nombre,
+            default,
+        ).split(",")
+        if valor.strip()
+    ]
+
+
+if IS_PRODUCTION:
+    ALLOWED_HOSTS = _lista_env(
+        "FOODBACK_ALLOWED_HOSTS"
+    )
+
+    if not ALLOWED_HOSTS:
+        raise RuntimeError(
+            "FOODBACK_ALLOWED_HOSTS es obligatorio "
+            "en producción."
+        )
+
+    CSRF_TRUSTED_ORIGINS = _lista_env(
+        "FOODBACK_CSRF_TRUSTED_ORIGINS"
+    )
+
+    if not CSRF_TRUSTED_ORIGINS:
+        raise RuntimeError(
+            "FOODBACK_CSRF_TRUSTED_ORIGINS es obligatorio "
+            "en producción."
+        )
+
+else:
+    ALLOWED_HOSTS = [
+        "localhost",
+        "127.0.0.1",
+        "[::1]",
+        "testserver",
+        ".ngrok-free.app",
+        ".ngrok-free.dev",
+        ".devtunnels.ms",
+        ".foodbacksv.com",
+    ]
+
+    CSRF_TRUSTED_ORIGINS = [
+        "https://*.ngrok-free.app",
+        "https://*.ngrok-free.dev",
+        "https://*.devtunnels.ms",
+        "https://foodbacksv.com",
+        "https://*.foodbacksv.com",
+    ]
+
+
+SECURE_PROXY_SSL_HEADER = (
+    "HTTP_X_FORWARDED_PROTO",
+    "https",
+)
+
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_SAMESITE = "Lax"
+
+if IS_PRODUCTION:
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+
+    # Railway/proxy termina TLS, pero Django debe
+    # tratar toda la aplicación pública como HTTPS.
+    SECURE_SSL_REDIRECT = True
+
+    # Empezamos con HSTS corto. Cuando producción
+    # haya sido validada podremos aumentarlo.
+    SECURE_HSTS_SECONDS = 3600
+
+    # No activamos todavía estas opciones más agresivas.
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = False
+    SECURE_HSTS_PRELOAD = False
 
 SECURE_PROXY_SSL_HEADER = (
     'HTTP_X_FORWARDED_PROTO',
@@ -118,62 +228,143 @@ WSGI_APPLICATION = 'core.wsgi.application'
 # BASE DE DATOS
 # ===============================
 
-if 'RAILWAY_ENVIRONMENT' in os.environ:
-    # Producción: Railway administra DATABASE_URL.
-    DATABASES = {
-        'default': dj_database_url.config(
-            default=os.getenv('DATABASE_URL'),
-            conn_max_age=600,
+DB_MODE = os.getenv(
+    "FOODBACK_DB_MODE",
+    "app",
+).strip().lower()
+
+DB_ROLES = {
+    "app": (
+        "FOODBACK_DB_APP_USER",
+        "FOODBACK_DB_APP_PASSWORD",
+    ),
+    "migrator": (
+        "FOODBACK_DB_MIGRATOR_USER",
+        "FOODBACK_DB_MIGRATOR_PASSWORD",
+    ),
+    "test": (
+        "FOODBACK_DB_TEST_USER",
+        "FOODBACK_DB_TEST_PASSWORD",
+    ),
+}
+
+if DB_MODE not in DB_ROLES:
+    raise RuntimeError(
+        f"FOODBACK_DB_MODE inválido: {DB_MODE!r}. "
+        "Valores permitidos: app, migrator, test."
+    )
+
+if (
+    IS_PRODUCTION
+    and DB_MODE == "test"
+):
+    raise RuntimeError(
+        "FOODBACK_DB_MODE='test' no está permitido "
+        "en producción."
+    )
+
+user_env, password_env = (
+    DB_ROLES[DB_MODE]
+)
+
+db_user = os.getenv(
+    user_env
+)
+
+db_password = os.getenv(
+    password_env
+)
+
+if not db_user or not db_password:
+    raise RuntimeError(
+        "Faltan credenciales PostgreSQL "
+        f"para el modo {DB_MODE!r}. "
+        f"Revisa {user_env} y {password_env}."
+    )
+
+
+if IS_PRODUCTION:
+    db_name = os.getenv(
+        "FOODBACK_DB_NAME"
+    )
+
+    db_host = os.getenv(
+        "FOODBACK_DB_HOST"
+    )
+
+    db_port = os.getenv(
+        "FOODBACK_DB_PORT"
+    )
+
+    valores_faltantes = [
+        nombre
+        for nombre, valor in (
+            (
+                "FOODBACK_DB_NAME",
+                db_name,
+            ),
+            (
+                "FOODBACK_DB_HOST",
+                db_host,
+            ),
+            (
+                "FOODBACK_DB_PORT",
+                db_port,
+            ),
         )
-    }
+        if not valor
+    ]
+
+    if valores_faltantes:
+        raise RuntimeError(
+            "Faltan variables PostgreSQL "
+            "de producción: "
+            + ", ".join(
+                valores_faltantes
+            )
+        )
 
 else:
-    # Desarrollo local: PostgreSQL con separación de privilegios.
-    DB_MODE = os.getenv('FOODBACK_DB_MODE', 'app').strip().lower()
+    db_name = os.getenv(
+        "FOODBACK_DB_NAME",
+        "foodback_local",
+    )
 
-    DB_ROLES = {
-        'app': (
-            'FOODBACK_DB_APP_USER',
-            'FOODBACK_DB_APP_PASSWORD',
-        ),
-        'migrator': (
-            'FOODBACK_DB_MIGRATOR_USER',
-            'FOODBACK_DB_MIGRATOR_PASSWORD',
-        ),
-        'test': (
-            'FOODBACK_DB_TEST_USER',
-            'FOODBACK_DB_TEST_PASSWORD',
-        ),
+    db_host = os.getenv(
+        "FOODBACK_DB_HOST",
+        "127.0.0.1",
+    )
+
+    db_port = os.getenv(
+        "FOODBACK_DB_PORT",
+        "5432",
+    )
+
+
+DATABASES = {
+    "default": {
+        "ENGINE":
+            "django.db.backends.postgresql",
+
+        "NAME":
+            db_name,
+
+        "USER":
+            db_user,
+
+        "PASSWORD":
+            db_password,
+
+        "HOST":
+            db_host,
+
+        "PORT":
+            db_port,
+
+        "CONN_MAX_AGE":
+            600,
     }
-
-    if DB_MODE not in DB_ROLES:
-        raise RuntimeError(
-            f"FOODBACK_DB_MODE inválido: {DB_MODE!r}. "
-            "Valores permitidos: app, migrator, test."
-        )
-
-    user_env, password_env = DB_ROLES[DB_MODE]
-
-    db_user = os.getenv(user_env)
-    db_password = os.getenv(password_env)
-
-    if not db_user or not db_password:
-        raise RuntimeError(
-            f"Faltan credenciales PostgreSQL para el modo {DB_MODE!r}. "
-            f"Revisa {user_env} y {password_env}."
-        )
-
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.postgresql',
-            'NAME': os.getenv('FOODBACK_DB_NAME', 'foodback_local'),
-            'USER': db_user,
-            'PASSWORD': db_password,
-            'HOST': os.getenv('FOODBACK_DB_HOST', '127.0.0.1'),
-            'PORT': os.getenv('FOODBACK_DB_PORT', '5432'),
-            'CONN_MAX_AGE': 600,
-        }
-    }
+}
 
 # ===============================
 # PASSWORDS

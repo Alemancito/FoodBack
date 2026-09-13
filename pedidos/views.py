@@ -21,6 +21,7 @@ from .models import (
     EstadoPasarelaPago,
     SuscripcionTenant,
     Membership,
+    Tenant,
 )
 from django.db import IntegrityError, transaction
 from django.contrib import messages
@@ -43,6 +44,11 @@ from .authz import (
 from .tenant_context import (
     _sucursales_accesibles_usuario,
 )
+
+from .db_tenant_context import (
+    tenant_database_context,
+)
+
 from django.urls import reverse
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import (
@@ -3124,8 +3130,157 @@ def _wompi_obtener_token(tipo_pago=None, referencia=None):
     return token
 
 
-def _wompi_crear_referencia(prefijo, objeto_id):
-    return f"{prefijo}-{objeto_id}-{uuid.uuid4().hex[:12].upper()}"
+def _wompi_crear_referencia(
+    prefijo,
+    tenant_id,
+    objeto_id=None,
+):
+    """
+    Genera referencias Wompi que incluyen explícitamente
+    el Tenant.
+
+    PEDIDO:
+        ORDEN-T12-P450-ABCDEF123456
+
+    SUSCRIPCION:
+        SUBS-T12-ABCDEF123456
+
+    El tenant incluido aquí NO autoriza por sí solo nada.
+    En el webhook solamente se utilizará después de validar
+    criptográficamente la firma de Wompi.
+    """
+
+    prefijo = str(
+        prefijo or ""
+    ).strip().upper()
+
+    try:
+        tenant_id = int(
+            tenant_id
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        raise ValueError(
+            "tenant_id Wompi inválido."
+        )
+
+    if tenant_id <= 0:
+        raise ValueError(
+            "tenant_id Wompi inválido."
+        )
+
+    token = (
+        uuid.uuid4()
+        .hex[:12]
+        .upper()
+    )
+
+    if prefijo == "ORDEN":
+        try:
+            objeto_id = int(
+                objeto_id
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            raise ValueError(
+                "pedido_id Wompi inválido."
+            )
+
+        if objeto_id <= 0:
+            raise ValueError(
+                "pedido_id Wompi inválido."
+            )
+
+        return (
+            f"ORDEN-"
+            f"T{tenant_id}-"
+            f"P{objeto_id}-"
+            f"{token}"
+        )
+
+    if prefijo == "SUBS":
+        return (
+            f"SUBS-"
+            f"T{tenant_id}-"
+            f"{token}"
+        )
+
+    raise ValueError(
+        "Prefijo Wompi no permitido."
+    )
+
+
+def _wompi_tenant_id_desde_referencia(
+    referencia,
+):
+    """
+    Extrae únicamente el tenant_id de las referencias
+    Wompi del formato nuevo.
+
+    Referencias legacy o manipuladas devuelven None.
+    """
+
+    referencia = str(
+        referencia or ""
+    ).strip().upper()
+
+    partes = referencia.split(
+        "-"
+    )
+
+    tenant_raw = None
+
+    if (
+        len(partes) == 4
+        and partes[0] == "ORDEN"
+        and partes[1].startswith("T")
+        and partes[2].startswith("P")
+    ):
+        tenant_raw = partes[1][1:]
+        pedido_raw = partes[2][1:]
+        token = partes[3]
+
+        if (
+            not pedido_raw.isdigit()
+            or int(pedido_raw) <= 0
+        ):
+            return None
+
+    elif (
+        len(partes) == 3
+        and partes[0] == "SUBS"
+        and partes[1].startswith("T")
+    ):
+        tenant_raw = partes[1][1:]
+        token = partes[2]
+
+    else:
+        return None
+
+    if (
+        not tenant_raw
+        or not tenant_raw.isdigit()
+        or int(tenant_raw) <= 0
+    ):
+        return None
+
+    if (
+        len(token) != 12
+        or any(
+            caracter
+            not in "0123456789ABCDEF"
+            for caracter in token
+        )
+    ):
+        return None
+
+    return int(
+        tenant_raw
+    )
 
 
 def _base_url(request):
@@ -3894,8 +4049,9 @@ def _iniciar_pago_wompi_pedido(request, pedido):
 
             referencia = (
                 _wompi_crear_referencia(
-                    'ORDEN',
-                    pedido.id
+                    "ORDEN",
+                    tenant_pago.id,
+                    pedido.id,
                 )
             )
 
@@ -7293,6 +7449,74 @@ def wompi_webhook_view(request):
                 },
                 status=403
             )
+
+        tenant_id_referencia = (
+            _wompi_tenant_id_desde_referencia(
+                referencia
+            )
+        )
+
+        tenant_request = getattr(
+            request,
+            "tenant",
+            None,
+        )
+
+        tenant_webhook = None
+
+        if tenant_id_referencia:
+            tenant_webhook = (
+                Tenant.objects
+                .filter(
+                    pk=tenant_id_referencia
+                )
+                .first()
+            )
+
+            if not tenant_webhook:
+                return JsonResponse(
+                    {
+                        "status": "error",
+                        "msg": "Tenant Wompi inválido",
+                    },
+                    status=403,
+                )
+
+            # Si el host/sesión ya resolvió un Tenant,
+            # debe coincidir con el Tenant incluido en
+            # la referencia criptográficamente validada.
+            if (
+                tenant_request
+                and tenant_request.pk
+                != tenant_webhook.pk
+            ):
+                return JsonResponse(
+                    {
+                        "status": "error",
+                        "msg": "Contexto Wompi inválido",
+                    },
+                    status=403,
+                )
+
+        else:
+            # Compatibilidad temporal con referencias antiguas:
+            # solo pueden procesarse cuando el middleware YA
+            # resolvió un Tenant confiable.
+            tenant_webhook = (
+                tenant_request
+            )
+
+            if not tenant_webhook:
+                return JsonResponse(
+                    {
+                        "status": "error",
+                        "msg": (
+                            "No fue posible determinar "
+                            "el Tenant del pago."
+                        ),
+                    },
+                    status=403,
+                )
 
         es_aprobada = _valor_bool_wompi(
             _get_any(

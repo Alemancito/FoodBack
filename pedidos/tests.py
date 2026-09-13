@@ -63,7 +63,8 @@ from pedidos.views import (
     _estado_bloqueo_pasarela_tenant,
     CART_MAX_ITEM_QUANTITY,
     CART_MAX_LINES,
-    
+    _wompi_crear_referencia,
+    _wompi_tenant_id_desde_referencia,
 )
 
 from pedidos.tenant_context import (
@@ -2919,6 +2920,83 @@ class PaymentHttpSecurityTests(FoodBackTestBase):
         ):
             with transaction.atomic():
                 pago_2.save()
+                
+                
+                
+class WompiTenantReferenceTests(
+    TestCase
+):
+
+    def test_referencia_pedido_incluye_tenant(
+        self,
+    ):
+        referencia = (
+            _wompi_crear_referencia(
+                "ORDEN",
+                17,
+                250,
+            )
+        )
+
+        self.assertTrue(
+            referencia.startswith(
+                "ORDEN-T17-P250-"
+            )
+        )
+
+        self.assertEqual(
+            _wompi_tenant_id_desde_referencia(
+                referencia
+            ),
+            17,
+        )
+
+    def test_referencia_suscripcion_incluye_tenant(
+        self,
+    ):
+        referencia = (
+            _wompi_crear_referencia(
+                "SUBS",
+                23,
+            )
+        )
+
+        self.assertTrue(
+            referencia.startswith(
+                "SUBS-T23-"
+            )
+        )
+
+        self.assertEqual(
+            _wompi_tenant_id_desde_referencia(
+                referencia
+            ),
+            23,
+        )
+
+    def test_referencia_legacy_o_manipulada_no_inventa_tenant(
+        self,
+    ):
+        referencias_invalidas = [
+            "ORDEN-123-ABCDEF123456",
+            "SUBS-5-ABCDEF123456",
+            "ORDEN-T0-P1-ABCDEF123456",
+            "ORDEN-T5-P0-ABCDEF123456",
+            "ORDEN-T5-P10-TOKENINVALIDO",
+            "cualquier-cosa",
+            "",
+        ]
+
+        for referencia in referencias_invalidas:
+            with self.subTest(
+                referencia=referencia
+            ):
+                self.assertIsNone(
+                    _wompi_tenant_id_desde_referencia(
+                        referencia
+                    )
+                )
+             
                 
 class PaymentRecoverySecurityTests(FoodBackTestBase):
     """

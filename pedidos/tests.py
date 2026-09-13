@@ -12098,4 +12098,215 @@ class PostgreSQLConcurrencyTests(
                 + timedelta(days=30)
             ),
         )
+        
+    def test_misma_transaccion_concurrente_no_aprueba_dos_pagos(
+        self,
+    ):
+        with tenant_database_context(
+            tenant=self.tenant
+        ):
+            sucursal = Sucursal.objects.create(
+                tenant=self.tenant,
+                nombre="Sucursal Concurrency",
+                slug="sucursal-concurrency",
+                estado=Sucursal.Estado.ACTIVA,
+            )
+
+            cliente_1 = Cliente.objects.create(
+                tenant=self.tenant,
+                telefono="70000001",
+                nombre="Cliente",
+                apellido="Uno",
+            )
+
+            cliente_2 = Cliente.objects.create(
+                tenant=self.tenant,
+                telefono="70000002",
+                nombre="Cliente",
+                apellido="Dos",
+            )
+
+            pedido_1 = Pedido.objects.create(
+                sucursal=sucursal,
+                cliente=cliente_1,
+                direccion_entrega=(
+                    "Direccion concurrency 1"
+                ),
+                metodo_pago="TARJETA",
+                estado="PENDIENTE",
+                total_final=Decimal("50.00"),
+            )
+
+            pedido_2 = Pedido.objects.create(
+                sucursal=sucursal,
+                cliente=cliente_2,
+                direccion_entrega=(
+                    "Direccion concurrency 2"
+                ),
+                metodo_pago="TARJETA",
+                estado="PENDIENTE",
+                total_final=Decimal("50.00"),
+            )
+
+            pago_1 = PagoWompi.objects.create(
+                tipo="PEDIDO",
+                tenant=self.tenant,
+                pedido=pedido_1,
+                referencia=(
+                    "ORDEN-CONCURRENCY-1"
+                ),
+                monto=Decimal("50.00"),
+                estado="PENDIENTE",
+            )
+
+            pago_2 = PagoWompi.objects.create(
+                tipo="PEDIDO",
+                tenant=self.tenant,
+                pedido=pedido_2,
+                referencia=(
+                    "ORDEN-CONCURRENCY-2"
+                ),
+                monto=Decimal("50.00"),
+                estado="PENDIENTE",
+            )
+
+        barrera = Barrier(2)
+
+        def aprobar_pago(
+            referencia,
+        ):
+            close_old_connections()
+
+            try:
+                with tenant_database_context(
+                    tenant=self.tenant
+                ):
+                    barrera.wait(
+                        timeout=10
+                    )
+
+                    try:
+                        resultado = (
+                            _procesar_pago_wompi_aprobado(
+                                referencia,
+                                id_transaccion=(
+                                    "TX-COMPARTIDA-001"
+                                ),
+                                monto="50.00",
+                                raw_payload={
+                                    "test":
+                                        "concurrency-shared-tx",
+                                },
+                                origen="WEBHOOK",
+                            )
+                        )
+
+                        return (
+                            "resultado",
+                            resultado,
+                        )
+
+                    except IntegrityError:
+                        # Esta también es una defensa válida:
+                        # id_transaccion tiene UNIQUE en
+                        # PostgreSQL.
+                        return (
+                            "integrity_error",
+                            None,
+                        )
+
+            finally:
+                close_old_connections()
+
+        with ThreadPoolExecutor(
+            max_workers=2
+        ) as executor:
+            futuros = [
+                executor.submit(
+                    aprobar_pago,
+                    pago_1.referencia,
+                ),
+                executor.submit(
+                    aprobar_pago,
+                    pago_2.referencia,
+                ),
+            ]
+
+            resultados = [
+                futuro.result(
+                    timeout=20
+                )
+                for futuro in futuros
+            ]
+
+        with tenant_database_context(
+            tenant=self.tenant
+        ):
+            pago_1.refresh_from_db()
+            pago_2.refresh_from_db()
+
+            pedido_1.refresh_from_db()
+            pedido_2.refresh_from_db()
+
+        pagos_aprobados = [
+            pago
+            for pago in (
+                pago_1,
+                pago_2,
+            )
+            if pago.estado == "APROBADO"
+        ]
+
+        self.assertEqual(
+            len(pagos_aprobados),
+            1,
+        )
+
+        self.assertEqual(
+            pagos_aprobados[0].id_transaccion,
+            "TX-COMPARTIDA-001",
+        )
+
+        pedidos_pagados = [
+            pedido
+            for pedido in (
+                pedido_1,
+                pedido_2,
+            )
+            if pedido.pago_verificado
+        ]
+
+        self.assertEqual(
+            len(pedidos_pagados),
+            1,
+        )
+
+        # La base de datos jamás debe terminar con
+        # dos pagos usando la misma transacción Wompi.
+        with tenant_database_context(
+            tenant=self.tenant
+        ):
+            cantidad = (
+                PagoWompi.objects
+                .filter(
+                    id_transaccion=(
+                        "TX-COMPARTIDA-001"
+                    )
+                )
+                .count()
+            )
+
+        self.assertEqual(
+            cantidad,
+            1,
+        )
+
+        # Ambas ejecuciones terminaron de manera
+        # controlada: una puede haber sido rechazada
+        # por nuestra lógica, o por la constraint UNIQUE
+        # si la carrera fue extremadamente cerrada.
+        self.assertEqual(
+            len(resultados),
+            2,
+        )
 

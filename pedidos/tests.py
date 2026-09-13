@@ -6506,6 +6506,8 @@ class PostgreSQLRowLevelSecurityTests(
     "pedidos_pedido",
     "pedidos_detallepedido",
     "pedidos_detallepedido_extras",
+    "pedidos_suscripciontenant",
+    "pedidos_estadopasarelapago",
     )
 
     def setUp(self):
@@ -6550,6 +6552,15 @@ class PostgreSQLRowLevelSecurityTests(
             nombre="RLS Sucursal B",
             slug="rls-sucursal-b",
             estado=Sucursal.Estado.ACTIVA,
+        )
+        
+        self.sucursal_b_extra = (
+            Sucursal.objects.create(
+                tenant=self.tenant_b,
+                nombre="RLS Sucursal B Extra",
+                slug="rls-sucursal-b-extra",
+                estado=Sucursal.Estado.ACTIVA,
+            )
         )
 
         with tenant_database_context(
@@ -6641,6 +6652,24 @@ class PostgreSQLRowLevelSecurityTests(
             self.detalle_a.extras.add(
                 self.extra_a
             )
+            
+            self.suscripcion_a = (
+                SuscripcionTenant.objects.create(
+                    tenant=self.tenant_a,
+                    estado=SuscripcionTenant.Estado.ACTIVA,
+                    fecha_vencimiento=(
+                        date.today()
+                        + timedelta(days=30)
+                    ),
+                )
+            )
+
+            self.estado_pasarela_a = (
+                EstadoPasarelaPago.objects.create(
+                    tenant=self.tenant_a,
+                    configuracion_negocio=self.config_a,
+                )
+            )
 
         with tenant_database_context(
             tenant=self.tenant_b
@@ -6729,6 +6758,30 @@ class PostgreSQLRowLevelSecurityTests(
 
             self.detalle_b.extras.add(
                 self.extra_b
+            )
+            
+            self.suscripcion_b = (
+                SuscripcionTenant.objects.create(
+                    tenant=self.tenant_b,
+                    estado=SuscripcionTenant.Estado.ACTIVA,
+                    fecha_vencimiento=(
+                        date.today()
+                        + timedelta(days=30)
+                    ),
+                )
+            )
+
+            self.estado_pasarela_b = (
+                EstadoPasarelaPago.objects.create(
+                    tenant=self.tenant_b,
+                    configuracion_negocio=self.config_b,
+                )
+            )
+            
+            self.config_b_extra = (
+                ConfiguracionNegocio.objects.create(
+                    sucursal=self.sucursal_b_extra,
+                )
             )
 
     def tearDown(self):
@@ -7358,6 +7411,98 @@ class PostgreSQLRowLevelSecurityTests(
             ):
                 self.detalle_a.extras.add(
                     self.extra_b
+                )
+                
+                
+    def test_rls_suscripcion_y_estado_solo_ven_tenant_activo(
+        self,
+    ):
+        with tenant_database_context(
+            tenant=self.tenant_a
+        ):
+            suscripciones = set(
+                SuscripcionTenant.objects.values_list(
+                    "id",
+                    flat=True,
+                )
+            )
+
+            estados = set(
+                EstadoPasarelaPago.objects.values_list(
+                    "id",
+                    flat=True,
+                )
+            )
+
+        self.assertEqual(
+            suscripciones,
+            {self.suscripcion_a.id},
+        )
+
+        self.assertEqual(
+            estados,
+            {self.estado_pasarela_a.id},
+        )
+
+
+    def test_rls_suscripcion_y_estado_sin_tenant_no_ven_filas(
+        self,
+    ):
+        with tenant_database_context():
+            self.assertEqual(
+                SuscripcionTenant.objects.count(),
+                0,
+            )
+
+            self.assertEqual(
+                EstadoPasarelaPago.objects.count(),
+                0,
+            )
+
+
+    def test_rls_impide_suscripcion_para_otro_tenant(
+        self,
+    ):
+        tenant_c = Tenant.objects.create(
+            nombre="RLS Tenant C",
+            slug="rls-tenant-c",
+            habilitado=True,
+        )
+
+        with self.assertRaises(
+            DatabaseError
+        ):
+            with tenant_database_context(
+                tenant=self.tenant_a
+            ):
+                SuscripcionTenant.objects.create(
+                    tenant=tenant_c,
+                    estado=SuscripcionTenant.Estado.ACTIVA,
+                    fecha_vencimiento=(
+                        date.today()
+                        + timedelta(days=30)
+                    ),
+                )
+
+
+    def test_rls_estado_pasarela_no_acepta_configuracion_de_otro_tenant(
+        self,
+    ):
+        with self.assertRaises(
+            DatabaseError
+        ):
+            with tenant_database_context(
+                tenant=self.tenant_a
+            ):
+                (
+                    EstadoPasarelaPago.objects
+                    .filter(
+                        pk=self.estado_pasarela_a.pk
+                    )
+                    .update(
+                        configuracion_negocio=
+                            self.config_b_extra
+                    )
                 )
             
             

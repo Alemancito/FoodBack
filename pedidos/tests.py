@@ -21,7 +21,11 @@ from pedidos.security import (
     consumir_rate_limit,
 )
 
-from django.db import IntegrityError, transaction
+from django.db import (
+    IntegrityError,
+    transaction,
+    connection,
+)
 
 from django.utils import timezone
 
@@ -6324,8 +6328,33 @@ class TenantContextResolverTests(TestCase):
         contexto_capturado = {}
 
         def vista_falsa(req):
-            contexto_capturado["tenant"] = req.tenant
-            contexto_capturado["sucursal"] = req.sucursal
+            contexto_capturado["tenant"] = (
+                req.tenant
+            )
+
+            contexto_capturado["sucursal"] = (
+                req.sucursal
+            )
+
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                        current_setting(
+                            'foodback.tenant_id',
+                            true
+                        ),
+                        current_setting(
+                            'foodback.sucursal_id',
+                            true
+                        )
+                    """
+                )
+
+                (
+                    contexto_capturado["db_tenant"],
+                    contexto_capturado["db_sucursal"],
+                ) = cursor.fetchone()
 
             return HttpResponse("OK")
 
@@ -6352,6 +6381,16 @@ class TenantContextResolverTests(TestCase):
             sucursal,
         )
         
+        self.assertEqual(
+            contexto_capturado["db_tenant"],
+            str(self.tenant.pk),
+        )
+
+        self.assertEqual(
+            contexto_capturado["db_sucursal"],
+            str(sucursal.pk),
+        )
+        
     @override_settings(
     FOODBACK_DEFAULT_TENANT_SLUG=""
 )
@@ -6367,8 +6406,33 @@ class TenantContextResolverTests(TestCase):
         contexto_capturado = {}
 
         def vista_falsa(req):
-            contexto_capturado["tenant"] = req.tenant
-            contexto_capturado["sucursal"] = req.sucursal
+            contexto_capturado["tenant"] = (
+                req.tenant
+            )
+
+            contexto_capturado["sucursal"] = (
+                req.sucursal
+            )
+
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                        current_setting(
+                            'foodback.tenant_id',
+                            true
+                        ),
+                        current_setting(
+                            'foodback.sucursal_id',
+                            true
+                        )
+                    """
+                )
+
+                (
+                    contexto_capturado["db_tenant"],
+                    contexto_capturado["db_sucursal"],
+                ) = cursor.fetchone()
 
             return HttpResponse("OK")
 
@@ -6391,6 +6455,16 @@ class TenantContextResolverTests(TestCase):
 
         self.assertIsNone(
             contexto_capturado["sucursal"]
+        )
+        
+        self.assertEqual(
+            contexto_capturado["db_tenant"],
+            "",
+        )
+
+        self.assertEqual(
+            contexto_capturado["db_sucursal"],
+            "",
         )
         
         

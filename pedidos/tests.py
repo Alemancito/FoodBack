@@ -3,6 +3,8 @@ from unittest.mock import patch
 
 import hashlib
 
+from django.conf import settings
+
 from concurrent.futures import (
     ThreadPoolExecutor,
 )
@@ -12479,5 +12481,224 @@ class PostgreSQLConcurrencyTests(
         self.assertEqual(
             resultados_creados[0][1],
             pedidos[0].id,
+        )
+        
+        
+class SessionSecurityTests(
+    FoodBackTestBase
+):
+    """
+    Seguridad de sesiones autenticadas.
+
+    Verifica que una sesión conocida antes del login
+    no pueda reutilizarse después de autenticarse
+    y que logout invalide la sesión autenticada.
+    """
+
+    PASSWORD = "PasswordSeguro123!"
+
+    def _crear_owner(
+        self,
+        username,
+    ):
+        user = User.objects.create_user(
+            username=username,
+            password=self.PASSWORD,
+        )
+
+        Membership.objects.create(
+            tenant=self.tenant,
+            usuario=user,
+            rol=Membership.ROLE_OWNER,
+            activo=True,
+        )
+
+        return user
+
+    def test_login_rota_session_key(
+        self,
+    ):
+        """
+        Protección contra session fixation.
+
+        El identificador conocido antes del login
+        debe dejar de ser el identificador usado
+        por la sesión autenticada.
+        """
+
+        owner = self._crear_owner(
+            "session_fixation_owner"
+        )
+
+        session = self.client.session
+
+        session[
+            "prelogin_marker"
+        ] = "valor-anonimo"
+
+        session.save()
+
+        session_key_antes = (
+            session.session_key
+        )
+
+        self.assertIsNotNone(
+            session_key_antes
+        )
+
+        response = self.client.post(
+            reverse("login_custom"),
+            {
+                "username":
+                    owner.username,
+
+                "password":
+                    self.PASSWORD,
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        session_key_despues = (
+            self.client.session.session_key
+        )
+
+        self.assertIsNotNone(
+            session_key_despues
+        )
+
+        self.assertNotEqual(
+            session_key_antes,
+            session_key_despues,
+        )
+
+        self.assertEqual(
+            self.client.session.get(
+                "_auth_user_id"
+            ),
+            str(owner.id),
+        )
+
+        # Incluso si alguien conocía la cookie
+        # anterior, esa sesión no debe darle
+        # acceso al dashboard autenticado.
+        atacante = Client()
+
+        atacante.cookies[
+            settings.SESSION_COOKIE_NAME
+        ] = session_key_antes
+
+        response_atacante = (
+            atacante.get(
+                reverse(
+                    "dashboard_admin"
+                )
+            )
+        )
+
+        self.assertEqual(
+            response_atacante.status_code,
+            302,
+        )
+
+        self.assertTrue(
+            response_atacante[
+                "Location"
+            ].startswith(
+                reverse(
+                    "login_custom"
+                )
+            )
+        )
+
+    def test_logout_invalida_session_autenticada(
+        self,
+    ):
+        """
+        La cookie conocida antes del logout
+        no debe continuar autenticando después.
+        """
+
+        owner = self._crear_owner(
+            "logout_session_owner"
+        )
+
+        response_login = (
+            self.client.post(
+                reverse(
+                    "login_custom"
+                ),
+                {
+                    "username":
+                        owner.username,
+
+                    "password":
+                        self.PASSWORD,
+                },
+            )
+        )
+
+        self.assertEqual(
+            response_login.status_code,
+            302,
+        )
+
+        session_key_autenticada = (
+            self.client.session.session_key
+        )
+
+        self.assertIsNotNone(
+            session_key_autenticada
+        )
+
+        response_logout = (
+            self.client.post(
+                reverse("logout")
+            )
+        )
+
+        self.assertEqual(
+            response_logout.status_code,
+            302,
+        )
+
+        self.assertIsNone(
+            self.client.session.get(
+                "_auth_user_id"
+            )
+        )
+
+        # Simulamos que alguien intenta reutilizar
+        # exactamente la cookie de sesión anterior.
+        atacante = Client()
+
+        atacante.cookies[
+            settings.SESSION_COOKIE_NAME
+        ] = session_key_autenticada
+
+        response_atacante = (
+            atacante.get(
+                reverse(
+                    "dashboard_admin"
+                )
+            )
+        )
+
+        self.assertEqual(
+            response_atacante.status_code,
+            302,
+        )
+
+        self.assertTrue(
+            response_atacante[
+                "Location"
+            ].startswith(
+                reverse(
+                    "login_custom"
+                )
+            )
         )
 

@@ -7,13 +7,8 @@
 *.backup_*
 *.bak
 
-
-# VS Code local workspace
+# --- VS Code local workspace ---
 .vscode/
-
-# --- SEGURIDAD (¡Lo más importante!) ---
-.env
-.env.local
 
 # --- Python ---
 __pycache__/
@@ -21,17 +16,14 @@ __pycache__/
 *.pyo
 
 # --- Base de Datos Local ---
-# (No queremos subir la base de datos de prueba a GitHub)
 db.sqlite3
 
 # --- Entornos Virtuales ---
-# (Tu carpeta con las librerías instaladas)
 venv/
 env/
 .venv/
 
 # --- Archivos Estáticos y Media ---
-# (Estos se generan solos o viven en Cloudinary)
 staticfiles/
 media/
 

@@ -78,6 +78,7 @@ from pedidos.views import (
 from pedidos.tenant_context import (
     resolver_tenant,
     resolver_sucursal,
+    _resolver_tenant_desarrollo,
 )
 
 from pedidos.db_tenant_context import (
@@ -6818,6 +6819,51 @@ class TenantContextResolverTests(TestCase):
         self.assertEqual(
             contexto_capturado["db_sucursal"],
             "",
+        )
+        
+    @override_settings(
+        IS_PRODUCTION=True,
+        FOODBACK_DEFAULT_TENANT_SLUG="rancheritos",
+    )
+    def test_produccion_no_usa_tenant_default_de_desarrollo(
+        self,
+    ):
+        Tenant.objects.create(
+            nombre="Rancheritos",
+            slug="rancheritos",
+            habilitado=True,
+        )
+
+        tenant = (
+            _resolver_tenant_desarrollo()
+        )
+
+        self.assertIsNone(
+            tenant
+        )
+        
+    @override_settings(
+        IS_PRODUCTION=False,
+        FOODBACK_DEFAULT_TENANT_SLUG="tenant-dev",
+    )
+    def test_desarrollo_si_permite_tenant_default_explicito(
+        self,
+    ):
+        tenant_esperado = (
+            Tenant.objects.create(
+                nombre="Tenant Dev",
+                slug="tenant-dev",
+                habilitado=True,
+            )
+        )
+
+        tenant = (
+            _resolver_tenant_desarrollo()
+        )
+
+        self.assertEqual(
+            tenant,
+            tenant_esperado,
         )
         
         

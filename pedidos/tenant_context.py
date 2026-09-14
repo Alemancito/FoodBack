@@ -117,10 +117,18 @@ def _resolver_tenant_host(request):
 
 def _resolver_tenant_desarrollo():
     """
-    Fallback explícito para localhost/ngrok durante desarrollo.
+    Fallback explícito únicamente para desarrollo local.
 
-    NO usamos Tenant.objects.first().
+    En producción jamás se selecciona automáticamente
+    un Tenant por configuración.
     """
+
+    if getattr(
+        settings,
+        "IS_PRODUCTION",
+        False,
+    ):
+        return None
 
     slug = getattr(
         settings,

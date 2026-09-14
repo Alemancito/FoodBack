@@ -12701,4 +12701,87 @@ class SessionSecurityTests(
                 )
             )
         )
+        
+    def test_login_elimina_estado_anonimo_previo(
+        self,
+    ):
+        """
+        Un login administrativo exitoso establece
+        una frontera entre la sesión pública de cliente
+        y la sesión autenticada del personal.
+
+        Estado de carrito, pedidos y pagos anónimos
+        no debe cruzar esa frontera.
+        """
+
+        owner = self._crear_owner(
+            "session_boundary_owner"
+        )
+
+        session = self.client.session
+
+        estado_anonimo = {
+            "cart": {
+                "producto-demo": 1,
+            },
+            "foodback_checkout_token":
+                "11111111-1111-1111-1111-111111111111",
+            "ultimo_pedido_id": 999,
+            "historial_pedidos": [
+                998,
+                999,
+            ],
+            "pedidos_pendientes_ocultos": [
+                997,
+            ],
+            "wompi_cliente_token":
+                "token-anonimo-prueba",
+            "sucursal_activa_public_id":
+                "22222222-2222-2222-2222-222222222222",
+        }
+
+        for clave, valor in (
+            estado_anonimo.items()
+        ):
+            session[
+                clave
+            ] = valor
+
+        session.save()
+
+        response = self.client.post(
+            reverse("login_custom"),
+            {
+                "username":
+                    owner.username,
+
+                "password":
+                    self.PASSWORD,
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        session_autenticada = (
+            self.client.session
+        )
+
+        self.assertEqual(
+            session_autenticada.get(
+                "_auth_user_id"
+            ),
+            str(owner.id),
+        )
+
+        for clave in estado_anonimo:
+            with self.subTest(
+                clave=clave
+            ):
+                self.assertNotIn(
+                    clave,
+                    session_autenticada,
+                )
 

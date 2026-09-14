@@ -365,11 +365,15 @@ class CustomLoginView(LoginView):
         form,
     ):
         """
-        Si finalmente existe un login válido,
-        eliminamos cualquier marca visual vieja.
+        Un login válido crea una frontera de seguridad
+        entre la sesión pública/anónima y la sesión
+        autenticada del personal.
+
+        Eliminamos completamente la sesión previa antes
+        de que Django cree la sesión autenticada.
         """
 
-        self._limpiar_estado_visual_rate_limit()
+        self.request.session.flush()
 
         return super().form_valid(
             form

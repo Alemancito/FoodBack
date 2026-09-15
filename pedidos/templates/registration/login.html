@@ -633,6 +633,59 @@
                 var(--fb-orange);
         }
 
+        .forgot-password-wrap {
+            margin:
+                -1px
+                0
+                15px;
+
+            text-align: center;
+        }
+
+        .forgot-password-link {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+
+            gap: 6px;
+
+            padding:
+                7px
+                10px;
+
+            border-radius: 10px;
+
+            color: #747D86;
+
+            font-size: 0.7rem;
+            font-weight: 600;
+
+            text-decoration: none;
+
+            transition:
+                color 0.15s ease,
+                background-color 0.15s ease,
+                transform 0.15s ease;
+        }
+
+        .forgot-password-link i {
+            color: #9AA1A8;
+            font-size: 0.78rem;
+
+            transition:
+                color 0.15s ease;
+        }
+
+        .forgot-password-link:hover {
+            color: var(--fb-orange);
+            background: var(--fb-orange-soft);
+            transform: translateY(-1px);
+        }
+
+        .forgot-password-link:hover i {
+            color: var(--fb-orange);
+        }
+
         /* =========================================================
            PIE DE SEGURIDAD
            ========================================================= */
@@ -975,22 +1028,18 @@
                 </div>
 
 
-                <div
-                        style="
-                            margin: -2px 2px 13px;
-                            text-align: right;
-                        "
-                            >
-                        <a
-                            href="{% url 'password_reset_request' %}"
-                            class="back-link"
-                        >
-                            <i
-                                class="bi bi-key"
-                                aria-hidden="true"
-                            ></i>
-                            ¿Olvidaste tu contraseña?
-                        </a>
+                <div class="forgot-password-wrap">
+                    <a
+                        href="{% url 'password_reset_request' %}"
+                        class="forgot-password-link"
+                    >
+                        <i
+                            class="bi bi-key"
+                            aria-hidden="true"
+                        ></i>
+
+                        ¿Olvidaste tu contraseña?
+                    </a>
                 </div>
 
 

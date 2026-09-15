@@ -12514,6 +12514,30 @@ class SessionSecurityTests(
         )
 
         return user
+    
+    def _crear_manager(
+        self,
+        username,
+    ):
+        user = User.objects.create_user(
+            username=username,
+            password=self.PASSWORD,
+        )
+
+        membership = Membership.objects.create(
+            tenant=self.tenant,
+            usuario=user,
+            rol=Membership.ROLE_MANAGER,
+            activo=True,
+        )
+
+        MembershipSucursal.objects.create(
+            membership=membership,
+            sucursal=self.sucursal,
+            activo=True,
+        )
+
+        return user, membership
 
     def test_login_rota_session_key(
         self,
@@ -12878,3 +12902,112 @@ class SessionSecurityTests(
             expiry_antes,
         )
 
+
+    def test_desactivar_membership_bloquea_sesion_existente(
+        self,
+    ):
+        manager, membership = (
+            self._crear_manager(
+                "manager_revocado"
+            )
+        )
+
+        response_login = self.client.post(
+            reverse("login_custom"),
+            {
+                "username":
+                    manager.username,
+
+                "password":
+                    self.PASSWORD,
+            },
+        )
+
+        self.assertEqual(
+            response_login.status_code,
+            302,
+        )
+
+        response_antes = self.client.get(
+            reverse("dashboard_admin")
+        )
+
+        self.assertEqual(
+            response_antes.status_code,
+            200,
+        )
+
+        membership.activo = False
+        membership.save(
+            update_fields=[
+                "activo",
+            ]
+        )
+
+        response_despues = self.client.get(
+            reverse("dashboard_admin")
+        )
+
+        self.assertEqual(
+            response_despues.status_code,
+            403,
+        )
+
+
+    def test_desactivar_usuario_bloquea_sesion_existente(
+        self,
+    ):
+        owner = self._crear_owner(
+            "owner_desactivado"
+        )
+
+        response_login = self.client.post(
+            reverse("login_custom"),
+            {
+                "username":
+                    owner.username,
+
+                "password":
+                    self.PASSWORD,
+            },
+        )
+
+        self.assertEqual(
+            response_login.status_code,
+            302,
+        )
+
+        response_antes = self.client.get(
+            reverse("dashboard_admin")
+        )
+
+        self.assertEqual(
+            response_antes.status_code,
+            200,
+        )
+
+        owner.is_active = False
+        owner.save(
+            update_fields=[
+                "is_active",
+            ]
+        )
+
+        response_despues = self.client.get(
+            reverse("dashboard_admin")
+        )
+
+        self.assertEqual(
+            response_despues.status_code,
+            302,
+        )
+
+        self.assertTrue(
+            response_despues[
+                "Location"
+            ].startswith(
+                reverse(
+                    "login_custom"
+                )
+            )
+        )

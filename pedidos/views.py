@@ -28,9 +28,11 @@ from django.contrib import messages
 from decouple import config
 from django.contrib.auth.decorators import login_required
 from .security import (
+    consumir_password_reset_challenge,
     consumir_rate_limit,
     obtener_id_seguridad_cliente,
     obtener_ip_cliente,
+    solicitar_password_reset,
 )
 from django.utils import timezone
 from django.conf import settings
@@ -424,7 +426,251 @@ class CustomLoginView(LoginView):
         return reverse(
             "menu"
         )
+        
+        
+        
 
+PASSWORD_RESET_FLOW_SESSION_KEY = (
+    "foodback_password_reset_flow_id"
+)
+
+PASSWORD_RESET_GRANT_SESSION_KEY = (
+    "foodback_password_reset_grant"
+)
+
+
+@never_cache
+@require_http_methods(["GET", "POST"])
+def password_reset_request_view(request):
+    """
+    Solicita un código de recuperación.
+
+    La respuesta visible nunca revela si el correo
+    pertenece o no a una cuenta de FoodBack.
+    """
+
+    context = {}
+
+    if request.method == "POST":
+        email = (
+            request.POST.get(
+                "email",
+                "",
+            )
+            .strip()
+        )
+
+        resultado = solicitar_password_reset(
+            request=request,
+            email=email,
+        )
+
+        if not resultado["permitido"]:
+            retry_after = max(
+                int(
+                    resultado[
+                        "retry_after"
+                    ]
+                ),
+                1,
+            )
+
+            context[
+                "rate_limit_error"
+            ] = (
+                "Se realizaron demasiadas "
+                "solicitudes. Espera unos "
+                "minutos e inténtalo nuevamente."
+            )
+
+            context[
+                "retry_after"
+            ] = retry_after
+
+            response = render(
+                request,
+                "registration/password_reset_request.html",
+                context,
+                status=429,
+            )
+
+            response[
+                "Retry-After"
+            ] = str(
+                retry_after
+            )
+
+            return response
+
+        request.session[
+            PASSWORD_RESET_FLOW_SESSION_KEY
+        ] = str(
+            resultado["flow_id"]
+        )
+
+        request.session.pop(
+            PASSWORD_RESET_GRANT_SESSION_KEY,
+            None,
+        )
+
+        request.session.modified = True
+
+        return redirect(
+            "password_reset_verify"
+        )
+
+    return render(
+        request,
+        "registration/password_reset_request.html",
+        context,
+    )
+    
+    
+
+@never_cache
+@require_http_methods(["GET", "POST"])
+def password_reset_verify_view(request):
+    """
+    Verifica el código enviado por correo.
+
+    La existencia de una cuenta o challenge real
+    nunca se revela mediante mensajes diferentes.
+    """
+
+    flow_id = request.session.get(
+        PASSWORD_RESET_FLOW_SESSION_KEY
+    )
+
+    context = {
+        "mensaje_generico": (
+            "Si existe una cuenta asociada al correo "
+            "ingresado, recibirás un código de "
+            "6 dígitos. Escríbelo a continuación."
+        ),
+    }
+
+    if request.method == "GET":
+        return render(
+            request,
+            "registration/password_reset_verify.html",
+            context,
+        )
+
+    codigo = (
+        request.POST.get(
+            "codigo",
+            "",
+        )
+        .strip()
+    )
+
+    if not flow_id:
+        context[
+            "codigo_error"
+        ] = (
+            "El código no es válido, venció o "
+            "ya fue utilizado."
+        )
+
+        return render(
+            request,
+            "registration/password_reset_verify.html",
+            context,
+        )
+
+    resultado = (
+        consumir_password_reset_challenge(
+            public_id=flow_id,
+            codigo=codigo,
+        )
+    )
+
+    if not resultado["valido"]:
+        context[
+            "codigo_error"
+        ] = (
+            "El código no es válido, venció o "
+            "ya fue utilizado."
+        )
+
+        return render(
+            request,
+            "registration/password_reset_verify.html",
+            context,
+        )
+
+    challenge = resultado[
+        "challenge"
+    ]
+
+    identity = challenge.identity
+
+    if (
+        not identity.email_verified
+        or
+        not identity.user.is_active
+    ):
+        request.session.pop(
+            PASSWORD_RESET_FLOW_SESSION_KEY,
+            None,
+        )
+
+        context[
+            "codigo_error"
+        ] = (
+            "El código no es válido, venció o "
+            "ya fue utilizado."
+        )
+
+        return render(
+            request,
+            "registration/password_reset_verify.html",
+            context,
+        )
+
+    # El código ya otorgó una capacidad sensible.
+    # Rotamos nuevamente la session_key para que
+    # una sesión conocida anteriormente no herede
+    # la autorización de cambio de contraseña.
+    request.session.cycle_key()
+
+    request.session.pop(
+        PASSWORD_RESET_FLOW_SESSION_KEY,
+        None,
+    )
+
+    request.session[
+        PASSWORD_RESET_GRANT_SESSION_KEY
+    ] = {
+        "user_id":
+            identity.user_id,
+
+        "identity_id":
+            identity.id,
+
+        "challenge_public_id":
+            str(
+                challenge.public_id
+            ),
+
+        "expires_at": (
+            timezone.now().timestamp()
+            + settings
+            .FOODBACK_PASSWORD_RESET_CODE_TTL_SECONDS
+        ),
+    }
+
+    request.session.modified = True
+
+    context[
+        "codigo_verificado"
+    ] = True
+
+    return render(
+        request,
+        "registration/password_reset_verify.html",
+        context,
+    )    
 
 
 @require_POST

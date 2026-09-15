@@ -53,6 +53,18 @@ urlpatterns = [
     # Autenticación
     path('login/', CustomLoginView.as_view(), name='login_custom'),
     path('logout/', logout_view, name='logout'),
+    
+    path(
+        'password-reset/',
+        views.password_reset_request_view,
+        name='password_reset_request',
+    ),
+
+    path(
+        'password-reset/verificar/',
+        views.password_reset_verify_view,
+        name='password_reset_verify',
+    ),
 
     # Dashboards
     path('dashboard/', views.dashboard_admin_view, name='dashboard_admin'),

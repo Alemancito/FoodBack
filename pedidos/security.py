@@ -242,6 +242,7 @@ def solicitar_password_reset(
         return {
             "permitido": True,
             "retry_after": 0,
+            "flow_id": uuid.uuid4(),
         }
 
     ahora = timezone.now()
@@ -298,6 +299,7 @@ def solicitar_password_reset(
     return {
         "permitido": True,
         "retry_after": 0,
+        "flow_id": challenge.public_id,
     }
 
 

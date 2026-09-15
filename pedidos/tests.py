@@ -81,6 +81,8 @@ from pedidos.views import (
     CART_MAX_LINES,
     _wompi_crear_referencia,
     _wompi_tenant_id_desde_referencia,
+    PASSWORD_RESET_FLOW_SESSION_KEY,
+    PASSWORD_RESET_GRANT_SESSION_KEY,
 )
 
 from pedidos.tenant_context import (
@@ -13547,4 +13549,208 @@ class PasswordResetChallengeTests(TestCase):
         self.assertGreater(
             segundo["retry_after"],
             0,
+        )
+        
+        
+    
+    @override_settings(
+    EMAIL_BACKEND=(
+        "django.core.mail.backends.locmem.EmailBackend"
+    ),
+        FOODBACK_PASSWORD_RESET_REQUEST_IP_LIMIT=50,
+        FOODBACK_PASSWORD_RESET_REQUEST_EMAIL_LIMIT=50,
+    )
+    def test_vista_solicitud_redirige_a_verificacion(
+        self,
+    ):
+        response = self.client.post(
+            reverse(
+                "password_reset_request"
+            ),
+            {
+                "email":
+                    self.identity.email,
+            },
+            REMOTE_ADDR="192.0.2.120",
+        )
+
+        self.assertRedirects(
+            response,
+            reverse(
+                "password_reset_verify"
+            ),
+            fetch_redirect_response=False,
+        )
+
+        self.assertIn(
+            PASSWORD_RESET_FLOW_SESSION_KEY,
+            self.client.session,
+        )
+
+        self.assertEqual(
+            len(mail.outbox),
+            1,
+        )
+
+
+    @override_settings(
+        EMAIL_BACKEND=(
+            "django.core.mail.backends.locmem.EmailBackend"
+        ),
+        FOODBACK_PASSWORD_RESET_REQUEST_IP_LIMIT=50,
+        FOODBACK_PASSWORD_RESET_REQUEST_EMAIL_LIMIT=50,
+    )
+    def test_vista_correo_inexistente_redirige_igual(
+        self,
+    ):
+        response = self.client.post(
+            reverse(
+                "password_reset_request"
+            ),
+            {
+                "email":
+                    "nadie@foodback.test",
+            },
+            REMOTE_ADDR="192.0.2.121",
+        )
+
+        self.assertRedirects(
+            response,
+            reverse(
+                "password_reset_verify"
+            ),
+            fetch_redirect_response=False,
+        )
+
+        self.assertIn(
+            PASSWORD_RESET_FLOW_SESSION_KEY,
+            self.client.session,
+        )
+
+        self.assertEqual(
+            len(mail.outbox),
+            0,
+        )
+
+
+    @override_settings(
+        EMAIL_BACKEND=(
+            "django.core.mail.backends.locmem.EmailBackend"
+        ),
+        FOODBACK_PASSWORD_RESET_REQUEST_IP_LIMIT=50,
+        FOODBACK_PASSWORD_RESET_REQUEST_EMAIL_LIMIT=50,
+    )
+    def test_codigo_valido_crea_grant_y_rota_sesion(
+        self,
+    ):
+        self.client.post(
+            reverse(
+                "password_reset_request"
+            ),
+            {
+                "email":
+                    self.identity.email,
+            },
+            REMOTE_ADDR="192.0.2.122",
+        )
+
+        session_key_antes = (
+            self.client.session.session_key
+        )
+
+        import re
+
+        codigo = re.search(
+            r"\b\d{6}\b",
+            mail.outbox[0].body,
+        ).group(0)
+
+        response = self.client.post(
+            reverse(
+                "password_reset_verify"
+            ),
+            {
+                "codigo":
+                    codigo,
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.assertContains(
+            response,
+            "Código verificado correctamente",
+        )
+
+        session_despues = (
+            self.client.session
+        )
+
+        self.assertNotEqual(
+            session_key_antes,
+            session_despues.session_key,
+        )
+
+        self.assertNotIn(
+            PASSWORD_RESET_FLOW_SESSION_KEY,
+            session_despues,
+        )
+
+        self.assertIn(
+            PASSWORD_RESET_GRANT_SESSION_KEY,
+            session_despues,
+        )
+
+        grant = session_despues[
+            PASSWORD_RESET_GRANT_SESSION_KEY
+        ]
+
+        self.assertEqual(
+            grant["user_id"],
+            self.user.id,
+        )
+
+
+    def test_codigo_invalido_no_crea_grant(
+        self,
+    ):
+        session = self.client.session
+
+        session[
+            PASSWORD_RESET_FLOW_SESSION_KEY
+        ] = str(
+            uuid.uuid4()
+        )
+
+        session.save()
+
+        response = self.client.post(
+            reverse(
+                "password_reset_verify"
+            ),
+            {
+                "codigo":
+                    "123456",
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.assertContains(
+            response,
+            (
+                "El código no es válido, "
+                "venció o ya fue utilizado."
+            ),
+        )
+
+        self.assertNotIn(
+            PASSWORD_RESET_GRANT_SESSION_KEY,
+            self.client.session,
         )

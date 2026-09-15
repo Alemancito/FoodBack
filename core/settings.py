@@ -422,8 +422,36 @@ MEDIA_URL = '/media/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # --- CONFIGURACIÓN DE SESIÓN (MODO TURNO FIJO) ---
+
+# Duración máxima absoluta de una sesión autenticada
+# del personal de FoodBack.
+#
+# 54000 segundos = 15 horas.
+FOODBACK_STAFF_SESSION_MAX_AGE = config(
+    "FOODBACK_STAFF_SESSION_MAX_AGE",
+    default=54000,
+    cast=int,
+)
+
+if not (
+    3600
+    <= FOODBACK_STAFF_SESSION_MAX_AGE
+    <= 86400
+):
+    raise RuntimeError(
+        "FOODBACK_STAFF_SESSION_MAX_AGE debe estar "
+        "entre 3600 y 86400 segundos."
+    )
+
+# Duración predeterminada de cookies de sesión.
 SESSION_COOKIE_AGE = 54000
+
+# No convertir la sesión en sliding expiration
+# simplemente por recibir requests.
 SESSION_SAVE_EVERY_REQUEST = False
+
+# Cerrar el navegador o apagar la pantalla no debe
+# terminar el turno prematuramente.
 SESSION_EXPIRE_AT_BROWSER_CLOSE = False
 
 

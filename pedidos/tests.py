@@ -12784,4 +12784,97 @@ class SessionSecurityTests(
                     clave,
                     session_autenticada,
                 )
+                
+                
+    def test_session_autenticada_tiene_expiracion_absoluta(
+        self,
+    ):
+        owner = self._crear_owner(
+            "session_expiry_owner"
+        )
+
+        response = self.client.post(
+            reverse("login_custom"),
+            {
+                "username":
+                    owner.username,
+
+                "password":
+                    self.PASSWORD,
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        session = self.client.session
+
+        expiry_marker_antes = (
+            session.get(
+                "_session_expiry"
+            )
+        )
+
+        self.assertIsNotNone(
+            expiry_marker_antes
+        )
+
+        expiry_antes = (
+            session.get_expiry_date()
+        )
+
+        segundos_restantes = (
+            expiry_antes
+            - timezone.now()
+        ).total_seconds()
+
+        self.assertGreater(
+            segundos_restantes,
+            (
+                settings
+                .FOODBACK_STAFF_SESSION_MAX_AGE
+                - 10
+            ),
+        )
+
+        self.assertLessEqual(
+            segundos_restantes,
+            settings
+            .FOODBACK_STAFF_SESSION_MAX_AGE,
+        )
+
+        # Una modificación posterior de la sesión
+        # NO debe renovar el turno por otras 15 horas.
+        session[
+            "prueba_modificacion"
+        ] = True
+
+        session.save()
+
+        session_despues = (
+            self.client.session
+        )
+
+        expiry_marker_despues = (
+            session_despues.get(
+                "_session_expiry"
+            )
+        )
+
+        expiry_despues = (
+            session_despues
+            .get_expiry_date()
+        )
+
+        self.assertEqual(
+            expiry_marker_despues,
+            expiry_marker_antes,
+        )
+
+        self.assertEqual(
+            expiry_despues,
+            expiry_antes,
+        )
 

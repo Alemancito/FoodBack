@@ -369,15 +369,32 @@ class CustomLoginView(LoginView):
         entre la sesión pública/anónima y la sesión
         autenticada del personal.
 
-        Eliminamos completamente la sesión previa antes
-        de que Django cree la sesión autenticada.
+        La sesión autenticada recibe además un vencimiento
+        absoluto de turno. Su actividad posterior no puede
+        extender ese límite.
         """
 
         self.request.session.flush()
 
-        return super().form_valid(
+        response = super().form_valid(
             form
         )
+
+        expiracion_absoluta = (
+            timezone.now()
+            + timedelta(
+                seconds=(
+                    settings
+                    .FOODBACK_STAFF_SESSION_MAX_AGE
+                )
+            )
+        )
+
+        self.request.session.set_expiry(
+            expiracion_absoluta
+        )
+
+        return response
 
     def get_success_url(self):
         membership = obtener_membership_activo(

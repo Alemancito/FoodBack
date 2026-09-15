@@ -103,7 +103,70 @@ from .models import (
     SuscripcionTenant,
     RepartidorSucursal,
     MembershipSucursal,
+    StaffIdentity,
 )
+
+
+class StaffIdentityTests(TestCase):
+
+    def test_email_se_normaliza_al_guardar(
+        self,
+    ):
+        user = User.objects.create_user(
+            username="staff_email_normalizado",
+            password="PasswordSeguro123!",
+        )
+
+        identity = StaffIdentity.objects.create(
+            user=user,
+            email="  Staff.Test@Correo.COM  ",
+        )
+
+        identity.refresh_from_db()
+
+        self.assertEqual(
+            identity.email,
+            "staff.test@correo.com",
+        )
+
+        self.assertFalse(
+            identity.email_verified
+        )
+
+    def test_email_es_unico_sin_importar_mayusculas(
+        self,
+    ):
+        user_1 = User.objects.create_user(
+            username="staff_email_1",
+            password="PasswordSeguro123!",
+        )
+
+        user_2 = User.objects.create_user(
+            username="staff_email_2",
+            password="PasswordSeguro123!",
+        )
+
+        StaffIdentity.objects.create(
+            user=user_1,
+            email="usuario@correo.com",
+        )
+
+        # bulk_create() se usa intencionalmente:
+        # evita StaffIdentity.save() y demuestra
+        # que PostgreSQL también protege la
+        # unicidad case-insensitive por sí solo.
+        with self.assertRaises(
+            IntegrityError
+        ):
+            with transaction.atomic():
+                StaffIdentity.objects.bulk_create(
+                    [
+                        StaffIdentity(
+                            user=user_2,
+                            email="  USUARIO@CORREO.COM  ",
+                        ),
+                    ]
+                )
 
 
 class FoodBackTestBase(TestCase):

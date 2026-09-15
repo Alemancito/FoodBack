@@ -2,6 +2,10 @@ import uuid
 
 from django.db import models
 from django.db.models import Sum
+from django.db.models.functions import (
+    Lower,
+    Trim,
+)
 from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
 from django.contrib.auth.models import User
@@ -196,6 +200,92 @@ class Sucursal(models.Model):
             "tenant",
             "nombre",
         ]
+        
+        
+class StaffIdentity(models.Model):
+    """
+    Identidad global de seguridad para usuarios internos
+    de FoodBack: OWNER, MANAGER, DELIVERY y futuros
+    usuarios administrativos.
+
+    No pertenece a un Tenant porque debe poder localizarse
+    durante recuperación de contraseña antes de resolver
+    un contexto multi-tenant confiable.
+    """
+
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name="foodback_staff_identity",
+    )
+
+    email = models.EmailField(
+        max_length=254,
+    )
+
+    email_verified = models.BooleanField(
+        default=False,
+    )
+
+    creado_en = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    actualizado_en = models.DateTimeField(
+        auto_now=True,
+    )
+
+    def save(
+        self,
+        *args,
+        **kwargs,
+    ):
+        self.email = (
+            (self.email or "")
+            .strip()
+            .lower()
+        )
+
+        super().save(
+            *args,
+            **kwargs,
+        )
+
+    def __str__(self):
+        return (
+            f"{self.user.username} - "
+            f"{self.email}"
+        )
+
+    class Meta:
+        verbose_name = (
+            "Identidad de personal"
+        )
+
+        verbose_name_plural = (
+            "Identidades de personal"
+        )
+
+        constraints = [
+            models.UniqueConstraint(
+                Lower(
+                    Trim("email")
+                ),
+                name=(
+                    "staff_identity_"
+                    "email_ci_unique"
+                ),
+            ),
+            models.CheckConstraint(
+                check=~models.Q(
+                    email__regex=r"^\s*$"
+                ),
+                name=(
+                    "staff_identity_"
+                    "email_not_empty"
+                ),
+            ),
+        ]      
 
 
 class Membership(models.Model):

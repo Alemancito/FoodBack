@@ -277,6 +277,16 @@ def solicitar_password_reset(
     # "correo inexistente" y "SMTP falló".
     #
     # Phase 7 registrará estos fallos internamente.
+    ttl_minutos = max(
+        (
+            settings
+            .FOODBACK_PASSWORD_RESET_CODE_TTL_SECONDS
+            + 59
+        )
+        // 60,
+        1,
+    )
+
     send_mail(
         subject=(
             "Código de recuperación de FoodBack"
@@ -285,7 +295,8 @@ def solicitar_password_reset(
             "Tu código para recuperar tu "
             "contraseña de FoodBack es:\n\n"
             f"{codigo}\n\n"
-            "Este código vence en 10 minutos.\n"
+            f"Este código vence en {ttl_minutos} "
+            "minutos.\n"
             "Si no solicitaste este cambio, "
             "ignora este mensaje."
         ),
@@ -309,18 +320,26 @@ def password_reset_codigo_coincide(
     codigo,
 ):
     """
-    Solo comprueba criptográficamente el código.
+    Primitiva de comparación del código.
 
-    Todavía NO consume intentos ni marca el desafío
-    como usado; eso lo añadiremos en el siguiente
-    micro-sprint de validación transaccional.
+    No consume intentos ni modifica el challenge.
+    Los flujos reales deben usar
+    consumir_password_reset_challenge().
     """
 
-    if not codigo:
+    codigo = str(
+        codigo or ""
+    ).strip()
+
+    if not (
+        len(codigo) == 6
+        and codigo.isascii()
+        and codigo.isdigit()
+    ):
         return False
 
     return check_password(
-        str(codigo),
+        codigo,
         challenge.codigo_hash,
     )
     
@@ -408,11 +427,20 @@ def consumir_password_reset_challenge(
                 "challenge": challenge,
             }
 
+        codigo_normalizado = str(
+            codigo or ""
+        ).strip()
+
+        formato_valido = (
+            len(codigo_normalizado) == 6
+            and codigo_normalizado.isascii()
+            and codigo_normalizado.isdigit()
+        )
+
         codigo_valido = (
-            codigo
-            and
-            check_password(
-                str(codigo),
+            formato_valido
+            and check_password(
+                codigo_normalizado,
                 challenge.codigo_hash,
             )
         )

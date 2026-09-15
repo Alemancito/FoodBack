@@ -186,6 +186,12 @@ FOODBACK_PASSWORD_RESET_MAX_ATTEMPTS = config(
     cast=int,
 )
 
+FOODBACK_PASSWORD_RESET_GRANT_TTL_SECONDS = config(
+    "FOODBACK_PASSWORD_RESET_GRANT_TTL_SECONDS",
+    default=600,
+    cast=int,
+)
+
 if not (
     300
     <= FOODBACK_PASSWORD_RESET_CODE_TTL_SECONDS
@@ -205,9 +211,18 @@ if not (
         "FOODBACK_PASSWORD_RESET_MAX_ATTEMPTS "
         "debe estar entre 1 y 10."
     )
-    
-    
-    
+
+if not (
+    300
+    <= FOODBACK_PASSWORD_RESET_GRANT_TTL_SECONDS
+    <= 1800
+):
+    raise RuntimeError(
+        "FOODBACK_PASSWORD_RESET_GRANT_TTL_SECONDS "
+        "debe estar entre 300 y 1800 segundos."
+    )
+
+
 FOODBACK_PASSWORD_RESET_REQUEST_IP_LIMIT = config(
     "FOODBACK_PASSWORD_RESET_REQUEST_IP_LIMIT",
     default=10,
@@ -217,6 +232,12 @@ FOODBACK_PASSWORD_RESET_REQUEST_IP_LIMIT = config(
 FOODBACK_PASSWORD_RESET_REQUEST_EMAIL_LIMIT = config(
     "FOODBACK_PASSWORD_RESET_REQUEST_EMAIL_LIMIT",
     default=3,
+    cast=int,
+)
+
+FOODBACK_PASSWORD_RESET_VERIFY_IP_LIMIT = config(
+    "FOODBACK_PASSWORD_RESET_VERIFY_IP_LIMIT",
+    default=30,
     cast=int,
 )
 

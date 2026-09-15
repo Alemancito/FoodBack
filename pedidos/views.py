@@ -22,6 +22,8 @@ from .models import (
     SuscripcionTenant,
     Membership,
     Tenant,
+    PasswordResetChallenge,
+    StaffIdentity,
 )
 from django.db import IntegrityError, transaction
 from django.contrib import messages
@@ -62,10 +64,16 @@ from django.views.decorators.http import (
 from django.views.decorators.csrf import csrf_exempt  # IMPORTANTE PARA EL WEBHOOK
 from django.contrib.auth.views import LoginView
 from django.contrib.auth import logout
+from django.contrib.auth.password_validation import (
+    validate_password,
+)
 from django.http import JsonResponse, HttpResponseBadRequest, HttpResponseForbidden
 from django.template.loader import render_to_string
 from django.db.models import Sum, Count, F, Q, Max, Prefetch
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import (
+    PermissionDenied,
+    ValidationError,
+)
 from django.utils.dateparse import parse_datetime
 from django.utils.http import url_has_allowed_host_and_scheme
 # --- LÓGICA DE LOGIN Y SEGURIDAD ---
@@ -439,6 +447,86 @@ PASSWORD_RESET_GRANT_SESSION_KEY = (
 )
 
 
+def _limpiar_password_reset_grant(request):
+    request.session.pop(
+        PASSWORD_RESET_GRANT_SESSION_KEY,
+        None,
+    )
+
+    request.session.modified = True
+
+
+def _leer_password_reset_grant(request):
+    """
+    Lee y valida estructuralmente el grant temporal
+    creado después de verificar el código.
+
+    La sesión es solo un portador: la autorización
+    real vuelve a contrastarse contra la BD antes de
+    permitir el cambio de contraseña.
+    """
+
+    grant = request.session.get(
+        PASSWORD_RESET_GRANT_SESSION_KEY
+    )
+
+    if not isinstance(
+        grant,
+        dict,
+    ):
+        return None
+
+    try:
+        user_id = int(
+            grant["user_id"]
+        )
+
+        identity_id = int(
+            grant["identity_id"]
+        )
+
+        challenge_public_id = uuid.UUID(
+            str(
+                grant[
+                    "challenge_public_id"
+                ]
+            )
+        )
+
+        expires_at = float(
+            grant["expires_at"]
+        )
+
+    except (
+        KeyError,
+        TypeError,
+        ValueError,
+        AttributeError,
+    ):
+        _limpiar_password_reset_grant(
+            request
+        )
+        return None
+
+    if (
+        timezone.now().timestamp()
+        >= expires_at
+    ):
+        _limpiar_password_reset_grant(
+            request
+        )
+        return None
+
+    return {
+        "user_id": user_id,
+        "identity_id": identity_id,
+        "challenge_public_id": (
+            challenge_public_id
+        ),
+        "expires_at": expires_at,
+    }
+
+
 @never_cache
 @require_http_methods(["GET", "POST"])
 def password_reset_request_view(request):
@@ -449,7 +537,9 @@ def password_reset_request_view(request):
     pertenece o no a una cuenta de FoodBack.
     """
 
-    context = {}
+    context = {
+        "email_value": "",
+    }
 
     if request.method == "POST":
         email = (
@@ -458,7 +548,11 @@ def password_reset_request_view(request):
                 "",
             )
             .strip()
-        )
+        )[:254]
+
+        context[
+            "email_value"
+        ] = email
 
         resultado = solicitar_password_reset(
             request=request,
@@ -484,7 +578,7 @@ def password_reset_request_view(request):
             )
 
             context[
-                "retry_after"
+                "rate_limit_retry_after"
             ] = retry_after
 
             response = render(
@@ -501,6 +595,10 @@ def password_reset_request_view(request):
             )
 
             return response
+
+        # Rotamos también la sesión anónima antes de
+        # asociarle el identificador del flujo.
+        request.session.cycle_key()
 
         request.session[
             PASSWORD_RESET_FLOW_SESSION_KEY
@@ -524,8 +622,7 @@ def password_reset_request_view(request):
         "registration/password_reset_request.html",
         context,
     )
-    
-    
+
 
 @never_cache
 @require_http_methods(["GET", "POST"])
@@ -556,13 +653,67 @@ def password_reset_verify_view(request):
             context,
         )
 
-    codigo = (
+    limite_verificacion = consumir_rate_limit(
+        group="password-reset-verify-ip",
+        raw_key=obtener_ip_cliente(
+            request
+        ),
+        limite=(
+            settings
+            .FOODBACK_PASSWORD_RESET_VERIFY_IP_LIMIT
+        ),
+        ventana_segundos=(
+            settings
+            .FOODBACK_PASSWORD_RESET_REQUEST_WINDOW_SECONDS
+        ),
+        bloqueo_segundos=(
+            settings
+            .FOODBACK_PASSWORD_RESET_REQUEST_BLOCK_SECONDS
+        ),
+    )
+
+    if not limite_verificacion[
+        "permitido"
+    ]:
+        retry_after = max(
+            int(
+                limite_verificacion[
+                    "retry_after"
+                ]
+            ),
+            1,
+        )
+
+        context[
+            "codigo_error"
+        ] = (
+            "Se realizaron demasiados intentos de "
+            "verificación. Espera unos minutos e "
+            "inténtalo nuevamente."
+        )
+
+        response = render(
+            request,
+            "registration/password_reset_verify.html",
+            context,
+            status=429,
+        )
+
+        response[
+            "Retry-After"
+        ] = str(
+            retry_after
+        )
+
+        return response
+
+    codigo = str(
         request.POST.get(
             "codigo",
             "",
         )
-        .strip()
-    )
+        or ""
+    ).strip()[:32]
 
     if not flow_id:
         context[
@@ -607,8 +758,7 @@ def password_reset_verify_view(request):
 
     if (
         not identity.email_verified
-        or
-        not identity.user.is_active
+        or not identity.user.is_active
     ):
         request.session.pop(
             PASSWORD_RESET_FLOW_SESSION_KEY,
@@ -629,9 +779,8 @@ def password_reset_verify_view(request):
         )
 
     # El código ya otorgó una capacidad sensible.
-    # Rotamos nuevamente la session_key para que
-    # una sesión conocida anteriormente no herede
-    # la autorización de cambio de contraseña.
+    # Rotamos de nuevo la session_key para que una
+    # sesión conocida previamente no herede el grant.
     request.session.cycle_key()
 
     request.session.pop(
@@ -642,35 +791,273 @@ def password_reset_verify_view(request):
     request.session[
         PASSWORD_RESET_GRANT_SESSION_KEY
     ] = {
-        "user_id":
-            identity.user_id,
-
-        "identity_id":
-            identity.id,
-
-        "challenge_public_id":
-            str(
-                challenge.public_id
-            ),
-
+        "user_id": identity.user_id,
+        "identity_id": identity.id,
+        "challenge_public_id": str(
+            challenge.public_id
+        ),
         "expires_at": (
             timezone.now().timestamp()
             + settings
-            .FOODBACK_PASSWORD_RESET_CODE_TTL_SECONDS
+            .FOODBACK_PASSWORD_RESET_GRANT_TTL_SECONDS
         ),
     }
 
     request.session.modified = True
 
-    context[
-        "codigo_verificado"
-    ] = True
+    return redirect(
+        "password_reset_new"
+    )
 
-    return render(
+
+@never_cache
+@require_http_methods(["GET", "POST"])
+def password_reset_new_view(request):
+    """
+    Establece una contraseña nueva únicamente después
+    de verificar correctamente el código.
+
+    El grant está ligado a User + StaffIdentity +
+    PasswordResetChallenge, vence y solo puede
+    completarse una vez.
+    """
+
+    grant = _leer_password_reset_grant(
+        request
+    )
+
+    if grant is None:
+        return redirect(
+            "password_reset_request"
+        )
+
+    if request.method == "GET":
+        identity_valida = (
+            StaffIdentity.objects
+            .filter(
+                pk=grant["identity_id"],
+                user_id=grant["user_id"],
+                email_verified=True,
+                user__is_active=True,
+            )
+            .exists()
+        )
+
+        challenge_valido = (
+            PasswordResetChallenge.objects
+            .filter(
+                public_id=(
+                    grant[
+                        "challenge_public_id"
+                    ]
+                ),
+                identity_id=(
+                    grant[
+                        "identity_id"
+                    ]
+                ),
+                usado_en__isnull=False,
+                completado_en__isnull=True,
+            )
+            .exists()
+        )
+
+        if not (
+            identity_valida
+            and challenge_valido
+        ):
+            _limpiar_password_reset_grant(
+                request
+            )
+
+            return redirect(
+                "password_reset_request"
+            )
+
+        return render(
+            request,
+            "registration/password_reset_new.html",
+            {},
+        )
+
+    password1 = request.POST.get(
+        "password1",
+        "",
+    )
+
+    password2 = request.POST.get(
+        "password2",
+        "",
+    )
+
+    context = {}
+
+    if password1 != password2:
+        context[
+            "password_error"
+        ] = (
+            "Las contraseñas no coinciden."
+        )
+
+        return render(
+            request,
+            "registration/password_reset_new.html",
+            context,
+        )
+
+    if (
+        not password1
+        or len(password1) > 256
+    ):
+        context[
+            "password_error"
+        ] = (
+            "La contraseña indicada no es válida."
+        )
+
+        return render(
+            request,
+            "registration/password_reset_new.html",
+            context,
+        )
+
+    ahora = timezone.now()
+
+    with transaction.atomic():
+        # Revalidamos la expiración dentro de la
+        # transacción antes de tocar credenciales.
+        if (
+            ahora.timestamp()
+            >= grant["expires_at"]
+        ):
+            _limpiar_password_reset_grant(
+                request
+            )
+
+            return redirect(
+                "password_reset_request"
+            )
+
+        identity = (
+            StaffIdentity.objects
+            .select_for_update()
+            .select_related(
+                "user"
+            )
+            .filter(
+                pk=grant["identity_id"],
+                user_id=grant["user_id"],
+                email_verified=True,
+                user__is_active=True,
+            )
+            .first()
+        )
+
+        if identity is None:
+            _limpiar_password_reset_grant(
+                request
+            )
+
+            return redirect(
+                "password_reset_request"
+            )
+
+        challenge = (
+            PasswordResetChallenge.objects
+            .select_for_update()
+            .filter(
+                public_id=(
+                    grant[
+                        "challenge_public_id"
+                    ]
+                ),
+                identity=identity,
+                usado_en__isnull=False,
+                completado_en__isnull=True,
+            )
+            .first()
+        )
+
+        if challenge is None:
+            _limpiar_password_reset_grant(
+                request
+            )
+
+            return redirect(
+                "password_reset_request"
+            )
+
+        user = identity.user
+
+        if user.check_password(
+            password1
+        ):
+            context[
+                "password_error"
+            ] = (
+                "La nueva contraseña debe ser "
+                "diferente de la contraseña actual."
+            )
+
+            return render(
+                request,
+                "registration/password_reset_new.html",
+                context,
+            )
+
+        try:
+            validate_password(
+                password1,
+                user=user,
+            )
+
+        except ValidationError as exc:
+            context[
+                "password_errors"
+            ] = exc.messages
+
+            return render(
+                request,
+                "registration/password_reset_new.html",
+                context,
+            )
+
+        user.set_password(
+            password1
+        )
+
+        user.save(
+            update_fields=[
+                "password",
+            ]
+        )
+
+        challenge.completado_en = ahora
+
+        challenge.save(
+            update_fields=[
+                "completado_en",
+            ]
+        )
+
+    # Cambiar el password cambia el session auth hash de
+    # Django, invalidando las sesiones autenticadas con la
+    # credencial anterior en su siguiente request.
+    # Esta sesión de recuperación también se destruye.
+    request.session.flush()
+
+    messages.success(
         request,
-        "registration/password_reset_verify.html",
-        context,
-    )    
+        (
+            "Tu contraseña fue cambiada correctamente. "
+            "Ya puedes iniciar sesión con la nueva contraseña."
+        ),
+    )
+
+    return redirect(
+        "login_custom"
+    )
+
 
 
 @require_POST

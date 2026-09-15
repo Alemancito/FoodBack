@@ -66,6 +66,12 @@ urlpatterns = [
         name='password_reset_verify',
     ),
 
+    path(
+        'password-reset/nueva/',
+        views.password_reset_new_view,
+        name='password_reset_new',
+    ),
+
     # Dashboards
     path('dashboard/', views.dashboard_admin_view, name='dashboard_admin'),
     path('reparto/', views.dashboard_delivery_view, name='dashboard_delivery'),

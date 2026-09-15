@@ -50,7 +50,10 @@ from django.db import (
 
 from django.utils import timezone
 
-from django.contrib.auth import get_user_model
+from django.contrib.auth import (
+    get_user,
+    get_user_model,
+)
 from django.test import RequestFactory
 from pedidos.models import Tenant, Membership, Sucursal
 
@@ -13675,14 +13678,12 @@ class PasswordResetChallengeTests(TestCase):
             },
         )
 
-        self.assertEqual(
-            response.status_code,
-            200,
-        )
-
-        self.assertContains(
+        self.assertRedirects(
             response,
-            "Código verificado correctamente",
+            reverse(
+                "password_reset_new"
+            ),
+            fetch_redirect_response=False,
         )
 
         session_despues = (
@@ -13753,4 +13754,477 @@ class PasswordResetChallengeTests(TestCase):
         self.assertNotIn(
             PASSWORD_RESET_GRANT_SESSION_KEY,
             self.client.session,
+        )
+    @override_settings(
+        EMAIL_BACKEND=(
+            "django.core.mail.backends.locmem.EmailBackend"
+        ),
+        FOODBACK_PASSWORD_RESET_REQUEST_IP_LIMIT=50,
+        FOODBACK_PASSWORD_RESET_REQUEST_EMAIL_LIMIT=50,
+    )
+    def _obtener_grant_password_reset(
+        self,
+        ip="192.0.2.140",
+    ):
+        self.client.post(
+            reverse(
+                "password_reset_request"
+            ),
+            {
+                "email":
+                    self.identity.email,
+            },
+            REMOTE_ADDR=ip,
+        )
+
+        import re
+
+        codigo = re.search(
+            r"\b\d{6}\b",
+            mail.outbox[-1].body,
+        ).group(0)
+
+        response = self.client.post(
+            reverse(
+                "password_reset_verify"
+            ),
+            {
+                "codigo":
+                    codigo,
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            reverse(
+                "password_reset_new"
+            ),
+            fetch_redirect_response=False,
+        )
+
+        return dict(
+            self.client.session[
+                PASSWORD_RESET_GRANT_SESSION_KEY
+            ]
+        )
+
+
+    def test_challenge_no_puede_completarse_sin_codigo_usado(
+        self,
+    ):
+        challenge, _ = (
+            crear_password_reset_challenge(
+                self.identity
+            )
+        )
+
+        with self.assertRaises(
+            IntegrityError
+        ):
+            with transaction.atomic():
+                PasswordResetChallenge.objects.filter(
+                    pk=challenge.pk
+                ).update(
+                    completado_en=timezone.now()
+                )
+
+
+    def test_nueva_password_cambia_password_y_consume_grant(
+        self,
+    ):
+        self._obtener_grant_password_reset()
+
+        nueva_password = (
+            "FoodBackNuevaClave-9284!"
+        )
+
+        response = self.client.post(
+            reverse(
+                "password_reset_new"
+            ),
+            {
+                "password1":
+                    nueva_password,
+                "password2":
+                    nueva_password,
+            },
+            follow=True,
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.assertContains(
+            response,
+            "Tu contraseña fue cambiada correctamente.",
+        )
+
+        self.user.refresh_from_db()
+
+        self.assertTrue(
+            self.user.check_password(
+                nueva_password
+            )
+        )
+
+        self.assertFalse(
+            self.user.check_password(
+                "PasswordSeguro123!"
+            )
+        )
+
+        challenge = (
+            PasswordResetChallenge.objects
+            .get(
+                identity=self.identity
+            )
+        )
+
+        self.assertIsNotNone(
+            challenge.completado_en
+        )
+
+        self.assertNotIn(
+            PASSWORD_RESET_GRANT_SESSION_KEY,
+            self.client.session,
+        )
+
+
+    def test_password_distintas_no_cambian_password(
+        self,
+    ):
+        self._obtener_grant_password_reset()
+
+        response = self.client.post(
+            reverse(
+                "password_reset_new"
+            ),
+            {
+                "password1":
+                    "FoodBackNuevaClave-9284!",
+                "password2":
+                    "OtraClaveTotalmente-3842!",
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.assertContains(
+            response,
+            "Las contraseñas no coinciden.",
+        )
+
+        self.user.refresh_from_db()
+
+        self.assertTrue(
+            self.user.check_password(
+                "PasswordSeguro123!"
+            )
+        )
+
+
+    def test_password_debil_es_rechazada(
+        self,
+    ):
+        self._obtener_grant_password_reset()
+
+        response = self.client.post(
+            reverse(
+                "password_reset_new"
+            ),
+            {
+                "password1":
+                    "123",
+                "password2":
+                    "123",
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.user.refresh_from_db()
+
+        self.assertTrue(
+            self.user.check_password(
+                "PasswordSeguro123!"
+            )
+        )
+
+        self.assertIn(
+            PASSWORD_RESET_GRANT_SESSION_KEY,
+            self.client.session,
+        )
+
+
+    def test_password_actual_no_puede_reutilizarse(
+        self,
+    ):
+        self._obtener_grant_password_reset()
+
+        response = self.client.post(
+            reverse(
+                "password_reset_new"
+            ),
+            {
+                "password1":
+                    "PasswordSeguro123!",
+                "password2":
+                    "PasswordSeguro123!",
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.assertContains(
+            response,
+            (
+                "La nueva contraseña debe ser "
+                "diferente de la contraseña actual."
+            ),
+        )
+
+        challenge = (
+            PasswordResetChallenge.objects
+            .get(
+                identity=self.identity
+            )
+        )
+
+        self.assertIsNone(
+            challenge.completado_en
+        )
+
+
+    def test_grant_expirado_no_permite_cambiar_password(
+        self,
+    ):
+        self._obtener_grant_password_reset()
+
+        session = self.client.session
+
+        grant = dict(
+            session[
+                PASSWORD_RESET_GRANT_SESSION_KEY
+            ]
+        )
+
+        grant["expires_at"] = (
+            timezone.now().timestamp()
+            - 1
+        )
+
+        session[
+            PASSWORD_RESET_GRANT_SESSION_KEY
+        ] = grant
+
+        session.save()
+
+        response = self.client.get(
+            reverse(
+                "password_reset_new"
+            )
+        )
+
+        self.assertRedirects(
+            response,
+            reverse(
+                "password_reset_request"
+            ),
+            fetch_redirect_response=False,
+        )
+
+        self.assertNotIn(
+            PASSWORD_RESET_GRANT_SESSION_KEY,
+            self.client.session,
+        )
+
+
+    def test_cambio_password_revoca_sesion_anterior(
+        self,
+    ):
+        cliente_previo = Client()
+
+        login_ok = cliente_previo.login(
+            username=self.user.username,
+            password="PasswordSeguro123!",
+        )
+
+        self.assertTrue(
+            login_ok
+        )
+
+        sesion_anterior = (
+            cliente_previo.session
+        )
+
+        self._obtener_grant_password_reset()
+
+        nueva_password = (
+            "FoodBackRevocada-9284!"
+        )
+
+        self.client.post(
+            reverse(
+                "password_reset_new"
+            ),
+            {
+                "password1":
+                    nueva_password,
+                "password2":
+                    nueva_password,
+            },
+        )
+
+        request = RequestFactory().get(
+            "/"
+        )
+
+        request.session = (
+            sesion_anterior
+        )
+
+        usuario_anterior = get_user(
+            request
+        )
+
+        self.assertFalse(
+            usuario_anterior.is_authenticated
+        )
+
+
+    def test_grant_completado_no_puede_reutilizarse(
+        self,
+    ):
+        grant_guardado = (
+            self._obtener_grant_password_reset()
+        )
+
+        primera_password = (
+            "FoodBackPrimera-9284!"
+        )
+
+        self.client.post(
+            reverse(
+                "password_reset_new"
+            ),
+            {
+                "password1":
+                    primera_password,
+                "password2":
+                    primera_password,
+            },
+        )
+
+        replay_client = Client()
+        replay_session = replay_client.session
+
+        replay_session[
+            PASSWORD_RESET_GRANT_SESSION_KEY
+        ] = grant_guardado
+
+        replay_session.save()
+
+        segunda_password = (
+            "FoodBackReplay-7315!"
+        )
+
+        response = replay_client.post(
+            reverse(
+                "password_reset_new"
+            ),
+            {
+                "password1":
+                    segunda_password,
+                "password2":
+                    segunda_password,
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            reverse(
+                "password_reset_request"
+            ),
+            fetch_redirect_response=False,
+        )
+
+        self.user.refresh_from_db()
+
+        self.assertTrue(
+            self.user.check_password(
+                primera_password
+            )
+        )
+
+        self.assertFalse(
+            self.user.check_password(
+                segunda_password
+            )
+        )
+
+
+    @override_settings(
+        FOODBACK_PASSWORD_RESET_VERIFY_IP_LIMIT=1,
+        FOODBACK_PASSWORD_RESET_REQUEST_WINDOW_SECONDS=600,
+        FOODBACK_PASSWORD_RESET_REQUEST_BLOCK_SECONDS=600,
+    )
+    def test_verificacion_codigo_tiene_rate_limit_por_ip(
+        self,
+    ):
+        session = self.client.session
+
+        session[
+            PASSWORD_RESET_FLOW_SESSION_KEY
+        ] = str(
+            uuid.uuid4()
+        )
+
+        session.save()
+
+        primero = self.client.post(
+            reverse(
+                "password_reset_verify"
+            ),
+            {
+                "codigo":
+                    "123456",
+            },
+            REMOTE_ADDR="192.0.2.199",
+        )
+
+        segundo = self.client.post(
+            reverse(
+                "password_reset_verify"
+            ),
+            {
+                "codigo":
+                    "123456",
+            },
+            REMOTE_ADDR="192.0.2.199",
+        )
+
+        self.assertEqual(
+            primero.status_code,
+            200,
+        )
+
+        self.assertEqual(
+            segundo.status_code,
+            429,
+        )
+
+        self.assertIn(
+            "Retry-After",
+            segundo,
         )

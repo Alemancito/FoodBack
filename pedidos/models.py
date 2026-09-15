@@ -326,6 +326,11 @@ class PasswordResetChallenge(models.Model):
         blank=True,
     )
 
+    completado_en = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
     creado_en = models.DateTimeField(
         auto_now_add=True,
     )
@@ -353,6 +358,23 @@ class PasswordResetChallenge(models.Model):
                     "creado_en",
                 ],
                 name="pwdreset_identity_created_idx",
+            ),
+        ]
+
+        constraints = [
+            models.CheckConstraint(
+                check=(
+                    models.Q(
+                        completado_en__isnull=True
+                    )
+                    | models.Q(
+                        usado_en__isnull=False
+                    )
+                ),
+                name=(
+                    "pwdreset_complete_"
+                    "requires_used"
+                ),
             ),
         ]
 

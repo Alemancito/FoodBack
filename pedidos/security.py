@@ -101,9 +101,6 @@ def obtener_ip_cliente(request):
 
 
 
-PASSWORD_RESET_CODE_TTL_SECONDS = 600
-
-
 def crear_password_reset_challenge(
     identity,
 ):
@@ -129,7 +126,8 @@ def crear_password_reset_challenge(
                 timezone.now()
                 + timedelta(
                     seconds=(
-                        PASSWORD_RESET_CODE_TTL_SECONDS
+                        settings
+                        .FOODBACK_PASSWORD_RESET_CODE_TTL_SECONDS
                     )
                 )
             ),
@@ -158,6 +156,134 @@ def password_reset_codigo_coincide(
         str(codigo),
         challenge.codigo_hash,
     )
+    
+    
+def consumir_password_reset_challenge(
+    *,
+    public_id,
+    codigo,
+):
+    """
+    Verifica y consume un desafío de recuperación
+    dentro de una transacción.
+
+    Garantías:
+    - un código vencido nunca valida;
+    - un código usado nunca valida otra vez;
+    - los intentos incorrectos se contabilizan;
+    - al alcanzar el máximo queda bloqueado;
+    - dos requests concurrentes no pueden consumir
+      exitosamente el mismo desafío.
+    """
+
+    try:
+        challenge_public_id = uuid.UUID(
+            str(public_id)
+        )
+
+    except (
+        TypeError,
+        ValueError,
+        AttributeError,
+    ):
+        return {
+            "valido": False,
+            "estado": "NO_ENCONTRADO",
+            "challenge": None,
+        }
+
+    ahora = timezone.now()
+
+    with transaction.atomic():
+        challenge = (
+            PasswordResetChallenge.objects
+            .select_for_update()
+            .select_related(
+                "identity",
+                "identity__user",
+            )
+            .filter(
+                public_id=challenge_public_id
+            )
+            .first()
+        )
+
+        if challenge is None:
+            return {
+                "valido": False,
+                "estado": "NO_ENCONTRADO",
+                "challenge": None,
+            }
+
+        if challenge.usado_en is not None:
+            return {
+                "valido": False,
+                "estado": "USADO",
+                "challenge": challenge,
+            }
+
+        if challenge.expira_en <= ahora:
+            return {
+                "valido": False,
+                "estado": "EXPIRADO",
+                "challenge": challenge,
+            }
+
+        max_intentos = (
+            settings
+            .FOODBACK_PASSWORD_RESET_MAX_ATTEMPTS
+        )
+
+        if challenge.intentos >= max_intentos:
+            return {
+                "valido": False,
+                "estado": "BLOQUEADO",
+                "challenge": challenge,
+            }
+
+        codigo_valido = (
+            codigo
+            and
+            check_password(
+                str(codigo),
+                challenge.codigo_hash,
+            )
+        )
+
+        if not codigo_valido:
+            challenge.intentos += 1
+
+            challenge.save(
+                update_fields=[
+                    "intentos",
+                ]
+            )
+
+            estado = (
+                "BLOQUEADO"
+                if challenge.intentos >= max_intentos
+                else "INVALIDO"
+            )
+
+            return {
+                "valido": False,
+                "estado": estado,
+                "challenge": challenge,
+            }
+
+        challenge.usado_en = ahora
+
+        challenge.save(
+            update_fields=[
+                "usado_en",
+            ]
+        )
+
+        return {
+            "valido": True,
+            "estado": "VALIDO",
+            "challenge": challenge,
+        }
 
 
 def clave_ratelimit_ip(

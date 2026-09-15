@@ -27,6 +27,7 @@ from pedidos.security import (
     obtener_ip_cliente,
     crear_password_reset_challenge,
     password_reset_codigo_coincide,
+    consumir_password_reset_challenge,
 )
 
 
@@ -13161,4 +13162,196 @@ class PasswordResetChallengeTests(TestCase):
 
         self.assertIsNone(
             challenge.usado_en
+        )
+        
+    
+    @override_settings(
+    FOODBACK_PASSWORD_RESET_MAX_ATTEMPTS=3,
+    )
+    def test_codigo_incorrecto_incrementa_intentos_y_bloquea(
+        self,
+    ):
+        challenge, codigo = (
+            crear_password_reset_challenge(
+                self.identity
+            )
+        )
+
+        incorrecto = (
+            "000000"
+            if codigo != "000000"
+            else "999999"
+        )
+
+        primer_resultado = (
+            consumir_password_reset_challenge(
+                public_id=challenge.public_id,
+                codigo=incorrecto,
+            )
+        )
+
+        self.assertEqual(
+            primer_resultado["estado"],
+            "INVALIDO",
+        )
+
+        segundo_resultado = (
+            consumir_password_reset_challenge(
+                public_id=challenge.public_id,
+                codigo=incorrecto,
+            )
+        )
+
+        self.assertEqual(
+            segundo_resultado["estado"],
+            "INVALIDO",
+        )
+
+        tercer_resultado = (
+            consumir_password_reset_challenge(
+                public_id=challenge.public_id,
+                codigo=incorrecto,
+            )
+        )
+
+        self.assertEqual(
+            tercer_resultado["estado"],
+            "BLOQUEADO",
+        )
+
+        challenge.refresh_from_db()
+
+        self.assertEqual(
+            challenge.intentos,
+            3,
+        )
+
+        # Incluso el código correcto ya no sirve.
+        resultado_correcto = (
+            consumir_password_reset_challenge(
+                public_id=challenge.public_id,
+                codigo=codigo,
+            )
+        )
+
+        self.assertFalse(
+            resultado_correcto["valido"]
+        )
+
+        self.assertEqual(
+            resultado_correcto["estado"],
+            "BLOQUEADO",
+        )
+
+
+    def test_codigo_expirado_no_valida(
+        self,
+    ):
+        challenge, codigo = (
+            crear_password_reset_challenge(
+                self.identity
+            )
+        )
+
+        challenge.expira_en = (
+            timezone.now()
+            - timedelta(
+                seconds=1
+            )
+        )
+
+        challenge.save(
+            update_fields=[
+                "expira_en",
+            ]
+        )
+
+        resultado = (
+            consumir_password_reset_challenge(
+                public_id=challenge.public_id,
+                codigo=codigo,
+            )
+        )
+
+        self.assertFalse(
+            resultado["valido"]
+        )
+
+        self.assertEqual(
+            resultado["estado"],
+            "EXPIRADO",
+        )
+
+        challenge.refresh_from_db()
+
+        self.assertIsNone(
+            challenge.usado_en
+        )
+
+
+    def test_codigo_correcto_se_consume_una_sola_vez(
+        self,
+    ):
+        challenge, codigo = (
+            crear_password_reset_challenge(
+                self.identity
+            )
+        )
+
+        primer_resultado = (
+            consumir_password_reset_challenge(
+                public_id=challenge.public_id,
+                codigo=codigo,
+            )
+        )
+
+        self.assertTrue(
+            primer_resultado["valido"]
+        )
+
+        self.assertEqual(
+            primer_resultado["estado"],
+            "VALIDO",
+        )
+
+        challenge.refresh_from_db()
+
+        self.assertIsNotNone(
+            challenge.usado_en
+        )
+
+        segundo_resultado = (
+            consumir_password_reset_challenge(
+                public_id=challenge.public_id,
+                codigo=codigo,
+            )
+        )
+
+        self.assertFalse(
+            segundo_resultado["valido"]
+        )
+
+        self.assertEqual(
+            segundo_resultado["estado"],
+            "USADO",
+        )
+
+
+    def test_public_id_invalido_no_rompe_validacion(
+        self,
+    ):
+        resultado = (
+            consumir_password_reset_challenge(
+                public_id="esto-no-es-un-uuid",
+                codigo="123456",
+            )
+        )
+
+        self.assertFalse(
+            resultado["valido"]
+        )
+
+        self.assertEqual(
+            resultado["estado"],
+            "NO_ENCONTRADO",
         )

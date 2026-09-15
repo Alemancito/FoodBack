@@ -168,6 +168,45 @@ FOODBACK_DEFAULT_TENANT_SLUG = config(
     default="rancheritos",
 )
 
+
+
+# =========================================================
+# PASSWORD RESET
+# =========================================================
+
+FOODBACK_PASSWORD_RESET_CODE_TTL_SECONDS = config(
+    "FOODBACK_PASSWORD_RESET_CODE_TTL_SECONDS",
+    default=600,
+    cast=int,
+)
+
+FOODBACK_PASSWORD_RESET_MAX_ATTEMPTS = config(
+    "FOODBACK_PASSWORD_RESET_MAX_ATTEMPTS",
+    default=5,
+    cast=int,
+)
+
+if not (
+    300
+    <= FOODBACK_PASSWORD_RESET_CODE_TTL_SECONDS
+    <= 1800
+):
+    raise RuntimeError(
+        "FOODBACK_PASSWORD_RESET_CODE_TTL_SECONDS "
+        "debe estar entre 300 y 1800 segundos."
+    )
+
+if not (
+    1
+    <= FOODBACK_PASSWORD_RESET_MAX_ATTEMPTS
+    <= 10
+):
+    raise RuntimeError(
+        "FOODBACK_PASSWORD_RESET_MAX_ATTEMPTS "
+        "debe estar entre 1 y 10."
+    )
+
+
 # ===============================
 # APLICACIONES
 # ===============================

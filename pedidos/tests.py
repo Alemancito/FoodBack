@@ -21,13 +21,16 @@ from django.test import (
 )
 from django.urls import reverse
 
-from django.test import override_settings
+from django.test import override_settings, RequestFactory
+
+from django.core import mail
 
 from pedidos.security import (
     obtener_ip_cliente,
     crear_password_reset_challenge,
     password_reset_codigo_coincide,
     consumir_password_reset_challenge,
+    solicitar_password_reset,
 )
 
 
@@ -13354,4 +13357,194 @@ class PasswordResetChallengeTests(TestCase):
         self.assertEqual(
             resultado["estado"],
             "NO_ENCONTRADO",
+        )
+        
+        
+    @override_settings(
+        EMAIL_BACKEND=(
+            "django.core.mail.backends.locmem.EmailBackend"
+        ),
+        DEFAULT_FROM_EMAIL="no-reply@foodback.test",
+        FOODBACK_PASSWORD_RESET_REQUEST_IP_LIMIT=50,
+        FOODBACK_PASSWORD_RESET_REQUEST_EMAIL_LIMIT=50,
+    )
+    def test_solicitud_valida_envia_codigo_sin_guardarlo_plano(
+        self,
+    ):
+        request = RequestFactory().post(
+            "/password-reset/",
+            REMOTE_ADDR="192.0.2.100",
+        )
+
+        resultado = solicitar_password_reset(
+            request=request,
+            email="  RESET@FOODBACK.TEST ",
+        )
+
+        self.assertTrue(
+            resultado["permitido"]
+        )
+
+        self.assertEqual(
+            len(mail.outbox),
+            1,
+        )
+
+        challenge = (
+            PasswordResetChallenge.objects
+            .get(
+                identity=self.identity
+            )
+        )
+
+        cuerpo = mail.outbox[0].body
+
+        import re
+
+        coincidencia = re.search(
+            r"\b\d{6}\b",
+            cuerpo,
+        )
+
+        self.assertIsNotNone(
+            coincidencia
+        )
+
+        codigo = coincidencia.group(0)
+
+        self.assertNotEqual(
+            challenge.codigo_hash,
+            codigo,
+        )
+
+        self.assertTrue(
+            password_reset_codigo_coincide(
+                challenge,
+                codigo,
+            )
+        )
+
+
+    @override_settings(
+        EMAIL_BACKEND=(
+            "django.core.mail.backends.locmem.EmailBackend"
+        ),
+        FOODBACK_PASSWORD_RESET_REQUEST_IP_LIMIT=50,
+        FOODBACK_PASSWORD_RESET_REQUEST_EMAIL_LIMIT=50,
+    )
+    def test_correo_inexistente_da_respuesta_generica(
+        self,
+    ):
+        request = RequestFactory().post(
+            "/password-reset/",
+            REMOTE_ADDR="192.0.2.101",
+        )
+
+        resultado = solicitar_password_reset(
+            request=request,
+            email="no-existe@foodback.test",
+        )
+
+        self.assertTrue(
+            resultado["permitido"]
+        )
+
+        self.assertEqual(
+            len(mail.outbox),
+            0,
+        )
+
+        self.assertFalse(
+            PasswordResetChallenge.objects.exists()
+        )
+
+
+    @override_settings(
+        EMAIL_BACKEND=(
+            "django.core.mail.backends.locmem.EmailBackend"
+        ),
+        FOODBACK_PASSWORD_RESET_REQUEST_IP_LIMIT=50,
+        FOODBACK_PASSWORD_RESET_REQUEST_EMAIL_LIMIT=50,
+    )
+    def test_nueva_solicitud_invalida_codigo_anterior(
+        self,
+    ):
+        request = RequestFactory().post(
+            "/password-reset/",
+            REMOTE_ADDR="192.0.2.102",
+        )
+
+        solicitar_password_reset(
+            request=request,
+            email=self.identity.email,
+        )
+
+        primero = (
+            PasswordResetChallenge.objects
+            .get(
+                identity=self.identity
+            )
+        )
+
+        self.assertIsNone(
+            primero.usado_en
+        )
+
+        solicitar_password_reset(
+            request=request,
+            email=self.identity.email,
+        )
+
+        primero.refresh_from_db()
+
+        self.assertIsNotNone(
+            primero.usado_en
+        )
+
+        self.assertEqual(
+            PasswordResetChallenge.objects.filter(
+                identity=self.identity,
+            ).count(),
+            2,
+        )
+
+
+    @override_settings(
+        EMAIL_BACKEND=(
+            "django.core.mail.backends.locmem.EmailBackend"
+        ),
+        FOODBACK_PASSWORD_RESET_REQUEST_IP_LIMIT=50,
+        FOODBACK_PASSWORD_RESET_REQUEST_EMAIL_LIMIT=1,
+        FOODBACK_PASSWORD_RESET_REQUEST_WINDOW_SECONDS=600,
+        FOODBACK_PASSWORD_RESET_REQUEST_BLOCK_SECONDS=600,
+    )
+    def test_solicitud_repetida_por_correo_es_limitada(
+        self,
+    ):
+        request = RequestFactory().post(
+            "/password-reset/",
+            REMOTE_ADDR="192.0.2.103",
+        )
+
+        primero = solicitar_password_reset(
+            request=request,
+            email=self.identity.email,
+        )
+
+        segundo = solicitar_password_reset(
+            request=request,
+            email=self.identity.email,
+        )
+
+        self.assertTrue(
+            primero["permitido"]
+        )
+
+        self.assertFalse(
+            segundo["permitido"]
+        )
+
+        self.assertGreater(
+            segundo["retry_after"],
+            0,
         )

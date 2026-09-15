@@ -205,6 +205,85 @@ if not (
         "FOODBACK_PASSWORD_RESET_MAX_ATTEMPTS "
         "debe estar entre 1 y 10."
     )
+    
+    
+    
+FOODBACK_PASSWORD_RESET_REQUEST_IP_LIMIT = config(
+    "FOODBACK_PASSWORD_RESET_REQUEST_IP_LIMIT",
+    default=10,
+    cast=int,
+)
+
+FOODBACK_PASSWORD_RESET_REQUEST_EMAIL_LIMIT = config(
+    "FOODBACK_PASSWORD_RESET_REQUEST_EMAIL_LIMIT",
+    default=3,
+    cast=int,
+)
+
+FOODBACK_PASSWORD_RESET_REQUEST_WINDOW_SECONDS = config(
+    "FOODBACK_PASSWORD_RESET_REQUEST_WINDOW_SECONDS",
+    default=900,
+    cast=int,
+)
+
+FOODBACK_PASSWORD_RESET_REQUEST_BLOCK_SECONDS = config(
+    "FOODBACK_PASSWORD_RESET_REQUEST_BLOCK_SECONDS",
+    default=900,
+    cast=int,
+)
+
+
+# =========================================================
+# EMAIL
+# =========================================================
+
+EMAIL_BACKEND = config(
+    "FOODBACK_EMAIL_BACKEND",
+    default=(
+        "django.core.mail.backends.smtp.EmailBackend"
+        if IS_PRODUCTION
+        else
+        "django.core.mail.backends.console.EmailBackend"
+    ),
+)
+
+DEFAULT_FROM_EMAIL = config(
+    "FOODBACK_DEFAULT_FROM_EMAIL",
+    default="no-reply@foodback.local",
+)
+
+EMAIL_HOST = config(
+    "FOODBACK_EMAIL_HOST",
+    default="",
+)
+
+EMAIL_PORT = config(
+    "FOODBACK_EMAIL_PORT",
+    default=587,
+    cast=int,
+)
+
+EMAIL_HOST_USER = config(
+    "FOODBACK_EMAIL_HOST_USER",
+    default="",
+)
+
+EMAIL_HOST_PASSWORD = config(
+    "FOODBACK_EMAIL_HOST_PASSWORD",
+    default="",
+)
+
+EMAIL_USE_TLS = config(
+    "FOODBACK_EMAIL_USE_TLS",
+    default=True,
+    cast=bool,
+)
+
+EMAIL_TIMEOUT = config(
+    "FOODBACK_EMAIL_TIMEOUT",
+    default=10,
+    cast=int,
+)
 
 
 # ===============================

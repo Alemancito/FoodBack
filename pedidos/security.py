@@ -4,6 +4,8 @@ from django.conf import settings
 
 import hashlib
 
+from django.core.mail import send_mail
+
 from datetime import timedelta
 
 from django.db import (
@@ -16,6 +18,7 @@ from django.utils import timezone
 from .models import (
     PasswordResetChallenge,
     RateLimitBucket,
+    StaffIdentity,
 )
 
 import uuid
@@ -135,6 +138,168 @@ def crear_password_reset_challenge(
     )
 
     return challenge, codigo
+
+
+
+def solicitar_password_reset(
+    *,
+    request,
+    email,
+):
+    """
+    Solicita recuperación de contraseña sin revelar
+    si el correo pertenece o no a una cuenta.
+
+    Protecciones:
+    - rate limit por IP;
+    - rate limit por correo;
+    - únicamente usuarios activos;
+    - únicamente correos verificados;
+    - invalida challenges anteriores;
+    - nunca retorna el código;
+    - nunca revela existencia de cuenta.
+    """
+
+    email_normalizado = (
+        str(
+            email or ""
+        )
+        .strip()
+        .lower()
+    )[:254]
+
+    ip = obtener_ip_cliente(
+        request
+    )
+
+    limite_ip = consumir_rate_limit(
+        group="password-reset-request-ip",
+        raw_key=ip,
+        limite=(
+            settings
+            .FOODBACK_PASSWORD_RESET_REQUEST_IP_LIMIT
+        ),
+        ventana_segundos=(
+            settings
+            .FOODBACK_PASSWORD_RESET_REQUEST_WINDOW_SECONDS
+        ),
+        bloqueo_segundos=(
+            settings
+            .FOODBACK_PASSWORD_RESET_REQUEST_BLOCK_SECONDS
+        ),
+    )
+
+    limite_email = consumir_rate_limit(
+        group="password-reset-request-email",
+        raw_key=(
+            email_normalizado
+            or "<empty>"
+        ),
+        limite=(
+            settings
+            .FOODBACK_PASSWORD_RESET_REQUEST_EMAIL_LIMIT
+        ),
+        ventana_segundos=(
+            settings
+            .FOODBACK_PASSWORD_RESET_REQUEST_WINDOW_SECONDS
+        ),
+        bloqueo_segundos=(
+            settings
+            .FOODBACK_PASSWORD_RESET_REQUEST_BLOCK_SECONDS
+        ),
+    )
+
+    if (
+        not limite_ip["permitido"]
+        or
+        not limite_email["permitido"]
+    ):
+        return {
+            "permitido": False,
+            "retry_after": max(
+                limite_ip["retry_after"],
+                limite_email["retry_after"],
+            ),
+        }
+
+    identity = (
+        StaffIdentity.objects
+        .select_related(
+            "user"
+        )
+        .filter(
+            email=email_normalizado,
+            email_verified=True,
+            user__is_active=True,
+        )
+        .first()
+    )
+
+    # MUY IMPORTANTE:
+    # que no exista una cuenta produce exactamente
+    # la misma respuesta pública.
+    if identity is None:
+        return {
+            "permitido": True,
+            "retry_after": 0,
+        }
+
+    ahora = timezone.now()
+
+    with transaction.atomic():
+        identity = (
+            StaffIdentity.objects
+            .select_for_update()
+            .select_related(
+                "user"
+            )
+            .get(
+                pk=identity.pk
+            )
+        )
+
+        # Invalida códigos anteriores todavía utilizables.
+        PasswordResetChallenge.objects.filter(
+            identity=identity,
+            usado_en__isnull=True,
+        ).update(
+            usado_en=ahora
+        )
+
+        challenge, codigo = (
+            crear_password_reset_challenge(
+                identity
+            )
+        )
+
+    # No propagamos al usuario diferencias entre
+    # "correo inexistente" y "SMTP falló".
+    #
+    # Phase 7 registrará estos fallos internamente.
+    send_mail(
+        subject=(
+            "Código de recuperación de FoodBack"
+        ),
+        message=(
+            "Tu código para recuperar tu "
+            "contraseña de FoodBack es:\n\n"
+            f"{codigo}\n\n"
+            "Este código vence en 10 minutos.\n"
+            "Si no solicitaste este cambio, "
+            "ignora este mensaje."
+        ),
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=[
+            identity.email,
+        ],
+        fail_silently=True,
+    )
+
+    return {
+        "permitido": True,
+        "retry_after": 0,
+    }
+
 
 
 def password_reset_codigo_coincide(

@@ -288,6 +288,75 @@ class StaffIdentity(models.Model):
         ]      
 
 
+
+class PasswordResetChallenge(models.Model):
+    """
+    Desafío temporal para recuperar la contraseña
+    de una identidad de personal.
+
+    El código real nunca se persiste.
+    Únicamente almacenamos un hash seguro.
+    """
+
+    public_id = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True,
+    )
+
+    identity = models.ForeignKey(
+        StaffIdentity,
+        on_delete=models.CASCADE,
+        related_name="password_reset_challenges",
+    )
+
+    codigo_hash = models.CharField(
+        max_length=128,
+    )
+
+    expira_en = models.DateTimeField()
+
+    intentos = models.PositiveSmallIntegerField(
+        default=0,
+    )
+
+    usado_en = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    creado_en = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    def __str__(self):
+        return (
+            f"Password reset "
+            f"{self.identity.user.username} "
+            f"{self.public_id}"
+        )
+
+    class Meta:
+        verbose_name = (
+            "Desafío de recuperación de contraseña"
+        )
+
+        verbose_name_plural = (
+            "Desafíos de recuperación de contraseña"
+        )
+
+        indexes = [
+            models.Index(
+                fields=[
+                    "identity",
+                    "creado_en",
+                ],
+                name="pwdreset_identity_created_idx",
+            ),
+        ]
+
+
 class Membership(models.Model):
     """
     Relación segura entre un usuario de Django y un Tenant.

@@ -13,9 +13,19 @@ from django.db import (
 
 from django.utils import timezone
 
-from .models import RateLimitBucket
+from .models import (
+    PasswordResetChallenge,
+    RateLimitBucket,
+)
 
 import uuid
+
+import secrets
+
+from django.contrib.auth.hashers import (
+    check_password,
+    make_password,
+)
 
 
 def _normalizar_ip(valor):
@@ -87,6 +97,67 @@ def obtener_ip_cliente(request):
         return remote_addr
 
     return "0.0.0.0"
+
+
+
+
+PASSWORD_RESET_CODE_TTL_SECONDS = 600
+
+
+def crear_password_reset_challenge(
+    identity,
+):
+    """
+    Genera un código numérico de 6 dígitos.
+
+    El código en texto plano solo existe el tiempo
+    necesario para enviarlo por correo.
+    La BD recibe únicamente su hash.
+    """
+
+    codigo = (
+        f"{secrets.randbelow(1_000_000):06d}"
+    )
+
+    challenge = (
+        PasswordResetChallenge.objects.create(
+            identity=identity,
+            codigo_hash=make_password(
+                codigo
+            ),
+            expira_en=(
+                timezone.now()
+                + timedelta(
+                    seconds=(
+                        PASSWORD_RESET_CODE_TTL_SECONDS
+                    )
+                )
+            ),
+        )
+    )
+
+    return challenge, codigo
+
+
+def password_reset_codigo_coincide(
+    challenge,
+    codigo,
+):
+    """
+    Solo comprueba criptográficamente el código.
+
+    Todavía NO consume intentos ni marca el desafío
+    como usado; eso lo añadiremos en el siguiente
+    micro-sprint de validación transaccional.
+    """
+
+    if not codigo:
+        return False
+
+    return check_password(
+        str(codigo),
+        challenge.codigo_hash,
+    )
 
 
 def clave_ratelimit_ip(

@@ -25,6 +25,8 @@ from django.test import override_settings
 
 from pedidos.security import (
     obtener_ip_cliente,
+    crear_password_reset_challenge,
+    password_reset_codigo_coincide,
 )
 
 
@@ -104,6 +106,7 @@ from .models import (
     RepartidorSucursal,
     MembershipSucursal,
     StaffIdentity,
+    PasswordResetChallenge,
 )
 
 
@@ -13073,4 +13076,89 @@ class SessionSecurityTests(
                     "login_custom"
                 )
             )
+        )
+        
+        
+class PasswordResetChallengeTests(TestCase):
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="password_reset_user",
+            password="PasswordSeguro123!",
+        )
+
+        self.identity = (
+            StaffIdentity.objects.create(
+                user=self.user,
+                email="reset@foodback.test",
+                email_verified=True,
+            )
+        )
+
+    def test_codigo_generado_no_se_guarda_en_texto_plano(
+        self,
+    ):
+        challenge, codigo = (
+            crear_password_reset_challenge(
+                self.identity
+            )
+        )
+
+        challenge.refresh_from_db()
+
+        self.assertEqual(
+            len(codigo),
+            6,
+        )
+
+        self.assertTrue(
+            codigo.isdigit()
+        )
+
+        self.assertNotEqual(
+            challenge.codigo_hash,
+            codigo,
+        )
+
+        self.assertNotIn(
+            codigo,
+            challenge.codigo_hash,
+        )
+
+        self.assertTrue(
+            password_reset_codigo_coincide(
+                challenge,
+                codigo,
+            )
+        )
+
+    def test_codigo_incorrecto_no_valida(
+        self,
+    ):
+        challenge, codigo = (
+            crear_password_reset_challenge(
+                self.identity
+            )
+        )
+
+        codigo_incorrecto = (
+            "000000"
+            if codigo != "000000"
+            else "999999"
+        )
+
+        self.assertFalse(
+            password_reset_codigo_coincide(
+                challenge,
+                codigo_incorrecto,
+            )
+        )
+
+        self.assertEqual(
+            challenge.intentos,
+            0,
+        )
+
+        self.assertIsNone(
+            challenge.usado_en
         )

@@ -60,6 +60,7 @@ from django.db import (
     IntegrityError,
     transaction,
     connection,
+    connections,
     close_old_connections,
 )
 
@@ -348,7 +349,7 @@ class FoodBackTestBase(TestCase):
         cls.delivery_2.groups.add(
             cls.grupo_delivery
         )
-        
+
         RepartidorSucursal.objects.create(
             usuario=cls.delivery_1,
             sucursal=cls.sucursal,
@@ -360,8 +361,8 @@ class FoodBackTestBase(TestCase):
             sucursal=cls.sucursal,
             activo=True,
         )
-        
-    
+
+
     def _crear_checkout_token_test(
         self,
     ):
@@ -383,8 +384,8 @@ class FoodBackTestBase(TestCase):
 
         session.save()
 
-        return token    
-    
+        return token
+
 
     def crear_pedido(
         self,
@@ -525,7 +526,7 @@ class PublicBaselineTests(FoodBackTestBase):
             cart[clave],
             CART_MAX_ITEM_QUANTITY,
         )
-    
+
     def test_menu_descarta_carrito_de_sesion_malformado(
         self,
     ):
@@ -693,7 +694,7 @@ class AdminBaselineTests(FoodBackTestBase):
             pedido.estado,
             "COCINA",
         )
-        
+
     def test_admin_rechaza_accion_y_pedido_id_invalidos(
         self,
     ):
@@ -748,8 +749,8 @@ class AdminBaselineTests(FoodBackTestBase):
             pedido.estado,
             "RECIBIDO",
         )
-        
-        
+
+
     def test_admin_no_puede_revivir_pedido_entregado(
         self,
     ):
@@ -872,7 +873,7 @@ class DeliveryBaselineTests(FoodBackTestBase):
             pedido.repartidor,
             self.delivery_2,
         )
-        
+
     def test_delivery_rechaza_accion_y_pedido_id_invalidos(
         self,
     ):
@@ -1024,7 +1025,7 @@ class DeliveryBaselineTests(FoodBackTestBase):
             pedido.estado,
             "RUTA",
         )
-        
+
 class PublicTrackingSecurityTests(FoodBackTestBase):
     """
     FB-SEC-001:
@@ -1097,8 +1098,8 @@ class PublicTrackingSecurityTests(FoodBackTestBase):
             data["estado_codigo"],
             pedido.estado,
         )
-        
-    
+
+
     def test_api_estado_sin_cambios_responde_ligero(
         self,
     ):
@@ -1201,7 +1202,7 @@ class PublicTrackingSecurityTests(FoodBackTestBase):
         )
 
         self.assertEqual(response.status_code, 404)
-    
+
 class CartIntegritySecurityTests(FoodBackTestBase):
     """
     FB-SEC-002:
@@ -1455,7 +1456,7 @@ class CartIntegritySecurityTests(FoodBackTestBase):
         }
 
         session.save()
-        
+
         checkout_token = (
             self._crear_checkout_token_test()
         )
@@ -1482,7 +1483,7 @@ class CartIntegritySecurityTests(FoodBackTestBase):
             ).count(),
             0,
         )
-        
+
 class HttpMethodSecurityTests(FoodBackTestBase):
     """
     FB-SEC-003:
@@ -1634,7 +1635,7 @@ class HttpMethodSecurityTests(FoodBackTestBase):
                 id=excepcion_pasada.id
             ).exists()
         )
-        
+
     def test_get_no_debe_agregar_producto_al_carrito(self):
         response = self.client.get(
         reverse(
@@ -1657,7 +1658,7 @@ class HttpMethodSecurityTests(FoodBackTestBase):
             cart,
             {},
         )
-        
+
     def test_post_si_debe_vaciar_carrito(self):
         session = self.client.session
         clave = f"{self.producto.id}-0-0"
@@ -1801,8 +1802,8 @@ class HttpMethodSecurityTests(FoodBackTestBase):
                 "_auth_user_id"
             )
         )
-    
-    
+
+
     def test_put_no_debe_operar_dashboard_admin(self):
         pedido = self.crear_pedido(
             estado="RECIBIDO",
@@ -1915,7 +1916,7 @@ class CsrfSecurityTests(FoodBackTestBase):
             response.status_code,
             403,
         )
-        
+
 
 class PaymentHttpSecurityTests(FoodBackTestBase):
     """
@@ -1927,7 +1928,7 @@ class PaymentHttpSecurityTests(FoodBackTestBase):
     """
 
     WOMPI_URL_FAKE = "https://wompi.test/enlace-seguro"
-    
+
     @patch(
     "pedidos.views."
     "_validar_hash_webhook_wompi"
@@ -1950,7 +1951,7 @@ class PaymentHttpSecurityTests(FoodBackTestBase):
         )
 
         mock_validar_hash.assert_not_called()
-    
+
     @patch(
     "pedidos.views."
     "_validar_hash_webhook_wompi"
@@ -1973,7 +1974,7 @@ class PaymentHttpSecurityTests(FoodBackTestBase):
         )
 
         mock_validar_hash.assert_not_called()
-    
+
     @override_settings(
         FOODBACK_WOMPI_WEBHOOK_MAX_BYTES=128,
     )
@@ -2005,7 +2006,7 @@ class PaymentHttpSecurityTests(FoodBackTestBase):
         )
 
         mock_validar_hash.assert_not_called()
-    
+
     @patch(
     "pedidos.views._validar_hash_webhook_wompi",
     return_value=True,
@@ -2089,7 +2090,7 @@ class PaymentHttpSecurityTests(FoodBackTestBase):
         self.assertTrue(
             bool(pago.raw_webhook)
         )
-    
+
     @patch(
         "pedidos.views._wompi_crear_enlace_pago"
     )
@@ -2594,7 +2595,7 @@ class PaymentHttpSecurityTests(FoodBackTestBase):
             pago.estado,
             "APROBADO",
         )
-        
+
     @patch(
         "pedidos.views._validar_hash_webhook_wompi",
         return_value=True,
@@ -2997,7 +2998,7 @@ class PaymentHttpSecurityTests(FoodBackTestBase):
                 tipo="SUSCRIPCION"
             ).exists()
         )
-        
+
     def test_base_datos_impide_id_transaccion_duplicado(self):
         pedido_1 = self.crear_pedido_tarjeta(
             "79000014"
@@ -3029,9 +3030,9 @@ class PaymentHttpSecurityTests(FoodBackTestBase):
         ):
             with transaction.atomic():
                 pago_2.save()
-                
-                
-                
+
+
+
 class WompiTenantReferenceTests(
     TestCase
 ):
@@ -3105,8 +3106,8 @@ class WompiTenantReferenceTests(
                         referencia
                     )
                 )
-             
-                
+
+
 class PaymentRecoverySecurityTests(FoodBackTestBase):
     """
     FB-SEC-003B2:
@@ -3565,7 +3566,7 @@ class PaymentRecoverySecurityTests(FoodBackTestBase):
         }
 
         session.save()
-        
+
         checkout_token = (
             self._crear_checkout_token_test()
         )
@@ -3626,7 +3627,7 @@ class PaymentRecoverySecurityTests(FoodBackTestBase):
             response,
             "Pago pendiente",
         )
-        
+
 class PaymentResilienceLoggingTests(
     FoodBackTestBase
 ):
@@ -3649,7 +3650,7 @@ class PaymentResilienceLoggingTests(
         pedido.save()
 
         return pedido
-    
+
 
     def crear_pago(
         self,
@@ -3834,7 +3835,7 @@ class PaymentResilienceLoggingTests(
                 "fecha_creacion"
             )
         )
-        
+
         pago.refresh_from_db()
         pedido.refresh_from_db()
 
@@ -3878,7 +3879,7 @@ class PaymentResilienceLoggingTests(
             ),
             64,
         )
-    
+
     @override_settings(
     FOODBACK_DEFAULT_TENANT_SLUG="",
     FOODBACK_BASE_DOMAIN="foodbacksv.com",
@@ -4000,7 +4001,7 @@ class PaymentResilienceLoggingTests(
                 pago.tenant_id
             ),
         )
-        
+
 class PaymentUserCooldownSecurityTests(
     FoodBackTestBase
 ):
@@ -4324,7 +4325,7 @@ class PaymentUserCooldownSecurityTests(
         }
 
         session.save()
-        
+
         checkout_token = (
             self._crear_checkout_token_test()
         )
@@ -4395,7 +4396,7 @@ class PaymentUserCooldownSecurityTests(
         }
 
         session.save()
-        
+
         checkout_token = (
             self._crear_checkout_token_test()
         )
@@ -4616,7 +4617,7 @@ class PaymentUserCooldownSecurityTests(
                 "no disponible"
             ),
         )
-        
+
 
 class PaymentGlobalCircuitBreakerTests(
     FoodBackTestBase
@@ -4633,7 +4634,7 @@ class PaymentGlobalCircuitBreakerTests(
         "https://wompi.test/"
         "global-breaker"
     )
-    
+
     def test_bd_impide_evento_wompi_sin_tenant(
         self,
     ):
@@ -4692,7 +4693,7 @@ class PaymentGlobalCircuitBreakerTests(
                 f"{numero}"
             ),
         )
-        
+
     def test_errores_de_otro_tenant_no_bloquean_este_tenant(
         self,
     ):
@@ -5013,7 +5014,7 @@ class PaymentGlobalCircuitBreakerTests(
         }
 
         session.save()
-        
+
         checkout_token = (
             self._crear_checkout_token_test()
         )
@@ -5192,7 +5193,7 @@ class PaymentGlobalCircuitBreakerTests(
         )
 
         mock_wompi.assert_not_called()
-        
+
 class PaymentMethodPriceParityTests(
     FoodBackTestBase
 ):
@@ -5337,7 +5338,7 @@ class PaymentMethodPriceParityTests(
                 Decimal("0.01")
             ),
         )
-        
+
 class PaymentTrackerRecoveryTests(
     FoodBackTestBase
 ):
@@ -5415,7 +5416,7 @@ class PaymentTrackerRecoveryTests(
             response,
             "Retomar pago",
         )
-        
+
     @override_settings(
         FOODBACK_PAYMENT_RESUME_SESSION_LIMIT=2,
         FOODBACK_PAYMENT_RESUME_IP_LIMIT=50,
@@ -5513,7 +5514,7 @@ class PaymentTrackerRecoveryTests(
             "Retry-After",
             response.headers,
         )
-    
+
 
     def test_retomar_pago_regresa_al_checkout(
         self
@@ -5609,7 +5610,7 @@ class PaymentTrackerRecoveryTests(
             response,
             "Retomar pago",
         )
-        
+
 
 class PaymentPendingCancellationTests(
     FoodBackTestBase
@@ -5836,7 +5837,7 @@ class PaymentPendingCancellationTests(
             pedido.estado,
             "RECIBIDO",
         )
-        
+
     @override_settings(
         FOODBACK_PENDING_ORDER_ACTION_SESSION_LIMIT=2,
         FOODBACK_PENDING_ORDER_ACTION_IP_LIMIT=50,
@@ -5881,7 +5882,7 @@ class PaymentPendingCancellationTests(
             "Retry-After",
             response.headers,
         )
-        
+
 class PaymentPendingHideTests(
     FoodBackTestBase
 ):
@@ -6104,7 +6105,7 @@ class PaymentPendingHideTests(
             ].id,
             pedido.id,
         )
-        
+
 
     @override_settings(
         FOODBACK_PENDING_ORDER_ACTION_SESSION_LIMIT=50,
@@ -6161,7 +6162,7 @@ class PaymentPendingHideTests(
             response.status_code,
             429,
         )
-        
+
 class MultipleActiveOrdersVisibilityTests(
     FoodBackTestBase
 ):
@@ -6240,7 +6241,7 @@ class MultipleActiveOrdersVisibilityTests(
             len(activos),
             2,
         )
-        
+
     def test_ocultar_segundo_y_luego_pagarlo_conserva_ambos_activos(
     self
     ):
@@ -6363,7 +6364,7 @@ class MultipleActiveOrdersVisibilityTests(
             len(activos),
             2,
         )
-        
+
 class TenantContextResolverTests(TestCase):
 
     def setUp(self):
@@ -6405,7 +6406,7 @@ class TenantContextResolverTests(TestCase):
             tenant,
             self.tenant,
         )
-        
+
     def test_usuario_no_puede_forzar_otro_tenant_desde_sesion(self):
         tenant_ajeno = Tenant.objects.create(
             nombre="Restaurante Ajeno",
@@ -6442,7 +6443,7 @@ class TenantContextResolverTests(TestCase):
             "tenant_activo_public_id",
             request.session,
         )
-        
+
     def test_usuario_anonimo_resuelve_tenant_por_subdominio(self):
         request = self.factory.get(
             "/",
@@ -6460,7 +6461,7 @@ class TenantContextResolverTests(TestCase):
             tenant,
             self.tenant,
         )
-        
+
     def test_usuario_no_puede_forzar_sucursal_de_otro_tenant(self):
         sucursal_valida = Sucursal.objects.create(
             tenant=self.tenant,
@@ -6509,7 +6510,7 @@ class TenantContextResolverTests(TestCase):
             "sucursal_activa_public_id",
             request.session,
         )
-        
+
     def test_sucursal_archivada_no_puede_quedar_activa_en_sesion(self):
         sucursal_activa = Sucursal.objects.create(
             tenant=self.tenant,
@@ -6555,7 +6556,7 @@ class TenantContextResolverTests(TestCase):
             "sucursal_activa_public_id",
             request.session,
         )
-        
+
     def test_usuario_puede_seleccionar_sucursal_activa_de_su_tenant(self):
         sucursal_principal = Sucursal.objects.create(
             tenant=self.tenant,
@@ -6607,7 +6608,7 @@ class TenantContextResolverTests(TestCase):
                 sucursal_secundaria.public_id
             ),
         )
-        
+
     @override_settings(
         FOODBACK_DEFAULT_TENANT_SLUG="restaurante-test",
     )
@@ -6628,7 +6629,7 @@ class TenantContextResolverTests(TestCase):
             tenant,
             self.tenant,
         )
-        
+
     def test_middleware_agrega_tenant_y_sucursal_al_request(self):
         sucursal = Sucursal.objects.create(
             tenant=self.tenant,
@@ -6699,7 +6700,7 @@ class TenantContextResolverTests(TestCase):
             contexto_capturado["sucursal"],
             sucursal,
         )
-        
+
         self.assertEqual(
             contexto_capturado["db_tenant"],
             str(self.tenant.pk),
@@ -6709,7 +6710,7 @@ class TenantContextResolverTests(TestCase):
             contexto_capturado["db_sucursal"],
             str(sucursal.pk),
         )
-        
+
     @patch(
     "pedidos.middleware.resolver_sucursal"
 )
@@ -6844,7 +6845,7 @@ class TenantContextResolverTests(TestCase):
                 sucursal.id
             ),
         )
-        
+
     @override_settings(
     FOODBACK_DEFAULT_TENANT_SLUG=""
 )
@@ -6910,7 +6911,7 @@ class TenantContextResolverTests(TestCase):
         self.assertIsNone(
             contexto_capturado["sucursal"]
         )
-        
+
         self.assertEqual(
             contexto_capturado["db_tenant"],
             "",
@@ -6920,7 +6921,7 @@ class TenantContextResolverTests(TestCase):
             contexto_capturado["db_sucursal"],
             "",
         )
-        
+
     @override_settings(
         IS_PRODUCTION=True,
         FOODBACK_DEFAULT_TENANT_SLUG="rancheritos",
@@ -6941,7 +6942,7 @@ class TenantContextResolverTests(TestCase):
         self.assertIsNone(
             tenant
         )
-        
+
     @override_settings(
         IS_PRODUCTION=False,
         FOODBACK_DEFAULT_TENANT_SLUG="tenant-dev",
@@ -6965,9 +6966,9 @@ class TenantContextResolverTests(TestCase):
             tenant,
             tenant_esperado,
         )
-        
-        
-        
+
+
+
 class PostgreSQLRowLevelSecurityTests(
     TransactionTestCase
 ):
@@ -7021,7 +7022,7 @@ class PostgreSQLRowLevelSecurityTests(
                     FORCE ROW LEVEL SECURITY
                     """
                 )
-                
+
 
         self.tenant_a = Tenant.objects.create(
             nombre="RLS Tenant A",
@@ -7034,7 +7035,7 @@ class PostgreSQLRowLevelSecurityTests(
             slug="rls-tenant-b",
             habilitado=True,
         )
-        
+
         self.usuario_a = User.objects.create(
             username="rls-user-a",
         )
@@ -7064,19 +7065,19 @@ class PostgreSQLRowLevelSecurityTests(
             rol=Membership.ROLE_MANAGER,
             activo=True,
         )
-        
+
 
         with tenant_database_context(
             tenant=self.tenant_a
         ):
-            
+
             self.sucursal_a = Sucursal.objects.create(
                 tenant=self.tenant_a,
                 nombre="RLS Sucursal A",
                 slug="rls-sucursal-a",
                 estado=Sucursal.Estado.ACTIVA,
             )
-            
+
             self.membership_sucursal_a = (
                 MembershipSucursal.objects.create(
                     membership=self.membership_a,
@@ -7092,7 +7093,7 @@ class PostgreSQLRowLevelSecurityTests(
                     activo=True,
                 )
             )
-            
+
             self.categoria_a = (
                 Categoria.objects.create(
                     tenant=self.tenant_a,
@@ -7118,7 +7119,7 @@ class PostgreSQLRowLevelSecurityTests(
                     apellido="A",
                 )
             )
-            
+
             self.producto_a = (
                 Producto.objects.create(
                     categoria=self.categoria_a,
@@ -7136,11 +7137,11 @@ class PostgreSQLRowLevelSecurityTests(
                     disponible=True,
                 )
             )
-            
+
             self.producto_a.extras.add(
                 self.extra_a
             )
-            
+
             self.config_a = (
                 ConfiguracionNegocio.objects.create(
                     sucursal=self.sucursal_a,
@@ -7155,7 +7156,7 @@ class PostgreSQLRowLevelSecurityTests(
                     motivo="Tenant A",
                 )
             )
-            
+
             self.pedido_a = (
                 Pedido.objects.create(
                     sucursal=self.sucursal_a,
@@ -7163,7 +7164,7 @@ class PostgreSQLRowLevelSecurityTests(
                     direccion_entrega="Direccion Tenant A",
                 )
             )
-            
+
             self.detalle_a = (
                 DetallePedido.objects.create(
                     pedido=self.pedido_a,
@@ -7178,7 +7179,7 @@ class PostgreSQLRowLevelSecurityTests(
             self.detalle_a.extras.add(
                 self.extra_a
             )
-            
+
             self.suscripcion_a = (
                 SuscripcionTenant.objects.create(
                     tenant=self.tenant_a,
@@ -7196,7 +7197,7 @@ class PostgreSQLRowLevelSecurityTests(
                     configuracion_negocio=self.config_a,
                 )
             )
-            
+
             self.pago_a = PagoWompi.objects.create(
                 tipo="PEDIDO",
                 tenant=self.tenant_a,
@@ -7224,15 +7225,15 @@ class PostgreSQLRowLevelSecurityTests(
         with tenant_database_context(
             tenant=self.tenant_b
         ):
-            
+
             self.sucursal_b = Sucursal.objects.create(
                 tenant=self.tenant_b,
                 nombre="RLS Sucursal B",
                 slug="rls-sucursal-b",
                 estado=Sucursal.Estado.ACTIVA,
             )
-            
-            
+
+
             self.membership_sucursal_b = (
                 MembershipSucursal.objects.create(
                     membership=self.membership_b,
@@ -7248,8 +7249,8 @@ class PostgreSQLRowLevelSecurityTests(
                     activo=True,
                 )
             )
-            
-            
+
+
             self.sucursal_b_extra = (
                 Sucursal.objects.create(
                     tenant=self.tenant_b,
@@ -7258,8 +7259,8 @@ class PostgreSQLRowLevelSecurityTests(
                     estado=Sucursal.Estado.ACTIVA,
                 )
             )
-            
-            
+
+
             self.categoria_b = (
                 Categoria.objects.create(
                     tenant=self.tenant_b,
@@ -7302,11 +7303,11 @@ class PostgreSQLRowLevelSecurityTests(
                     disponible=True,
                 )
             )
-            
+
             self.producto_b.extras.add(
                 self.extra_b
             )
-            
+
             self.config_b = (
                 ConfiguracionNegocio.objects.create(
                     sucursal=self.sucursal_b,
@@ -7321,7 +7322,7 @@ class PostgreSQLRowLevelSecurityTests(
                     motivo="Tenant B",
                 )
             )
-            
+
             self.pedido_b = (
                 Pedido.objects.create(
                     sucursal=self.sucursal_b,
@@ -7329,7 +7330,7 @@ class PostgreSQLRowLevelSecurityTests(
                     direccion_entrega="Direccion Tenant B",
                 )
             )
-            
+
             self.detalle_b = (
                 DetallePedido.objects.create(
                     pedido=self.pedido_b,
@@ -7344,7 +7345,7 @@ class PostgreSQLRowLevelSecurityTests(
             self.detalle_b.extras.add(
                 self.extra_b
             )
-            
+
             self.suscripcion_b = (
                 SuscripcionTenant.objects.create(
                     tenant=self.tenant_b,
@@ -7362,13 +7363,13 @@ class PostgreSQLRowLevelSecurityTests(
                     configuracion_negocio=self.config_b,
                 )
             )
-            
+
             self.config_b_extra = (
                 ConfiguracionNegocio.objects.create(
                     sucursal=self.sucursal_b_extra,
                 )
             )
-            
+
             self.pago_b = PagoWompi.objects.create(
                 tipo="PEDIDO",
                 tenant=self.tenant_b,
@@ -7554,8 +7555,8 @@ class PostgreSQLRowLevelSecurityTests(
                 Categoria.objects.filter(
                     pk=self.categoria_b.pk
                 ).exists()
-            )   
-            
+            )
+
     def test_rls_producto_y_opcion_solo_ven_tenant_activo(
         self,
     ):
@@ -7654,8 +7655,8 @@ class PostgreSQLRowLevelSecurityTests(
                     .update(
                         producto=self.producto_b
                     )
-                )    
-                
+                )
+
     def test_rls_producto_extras_solo_ve_tenant_activo(
         self,
     ):
@@ -7705,9 +7706,9 @@ class PostgreSQLRowLevelSecurityTests(
             self.assertEqual(
                 through.objects.count(),
                 0,
-            ) 
-            
-    
+            )
+
+
     def test_rls_configuracion_y_dia_solo_ven_tenant_activo(
         self,
     ):
@@ -7788,8 +7789,8 @@ class PostgreSQLRowLevelSecurityTests(
                 DiaEspecial.objects.count(),
                 0,
             )
-            
-            
+
+
     def test_rls_pedido_solo_ve_tenant_activo(
         self,
     ):
@@ -7885,7 +7886,7 @@ class PostgreSQLRowLevelSecurityTests(
                         cliente=self.cliente_b
                     )
             )
-                
+
     def test_rls_detalle_y_extras_solo_ven_tenant_activo(
         self,
     ):
@@ -8021,8 +8022,8 @@ class PostgreSQLRowLevelSecurityTests(
                 self.detalle_a.extras.add(
                     self.extra_b
                 )
-                
-                
+
+
     def test_rls_suscripcion_y_estado_solo_ven_tenant_activo(
         self,
     ):
@@ -8113,7 +8114,7 @@ class PostgreSQLRowLevelSecurityTests(
                             self.config_b_extra
                     )
                 )
-                
+
     def test_rls_pago_y_evento_wompi_solo_ven_tenant_activo(
         self,
     ):
@@ -8221,8 +8222,8 @@ class PostgreSQLRowLevelSecurityTests(
                     mensaje="Debe bloquearse",
                     clave_evento="RLS-EVENT-CROSS",
                 )
-                
-                
+
+
     def test_rls_sucursal_y_asignaciones_solo_ven_tenant_activo(
         self,
     ):
@@ -8328,8 +8329,8 @@ class PostgreSQLRowLevelSecurityTests(
                     sucursal=self.sucursal_b,
                     activo=True,
                 )
-            
-            
+
+
 class SucursalBusinessStateIsolationTests(TestCase):
 
     def setUp(self):
@@ -8419,7 +8420,7 @@ class SucursalBusinessStateIsolationTests(TestCase):
             ).count(),
             2,
         )
-        
+
 
 class AdminSettingsSucursalIsolationTests(
     TestCase
@@ -8617,8 +8618,8 @@ class AdminSettingsSucursalIsolationTests(
                 id=excepcion_b.id
             ).exists()
         )
-        
-        
+
+
 class AdminDashboardSucursalIsolationTests(
     FoodBackTestBase
 ):
@@ -8760,7 +8761,7 @@ class AdminDashboardSucursalIsolationTests(
             data["nuevos_count"],
             1,
         )
-        
+
     def test_polling_admin_rechaza_last_update_invalido(
         self,
     ):
@@ -8778,8 +8779,8 @@ class AdminDashboardSucursalIsolationTests(
             response.status_code,
             400,
         )
-        
-        
+
+
 class DeliverySucursalIsolationTests(
     FoodBackTestBase
 ):
@@ -8920,7 +8921,7 @@ class DeliverySucursalIsolationTests(
             data["pool_count"],
             1,
         )
-        
+
     def test_polling_delivery_rechaza_last_update_invalido(
         self,
     ):
@@ -8938,7 +8939,7 @@ class DeliverySucursalIsolationTests(
             response.status_code,
             400,
         )
-        
+
 class CatalogTenantIsolationTests(
     FoodBackTestBase
 ):
@@ -9072,7 +9073,7 @@ class CatalogTenantIsolationTests(
                 ],
                 tenant=self.tenant,
             )
-                
+
 
 
 
@@ -9179,7 +9180,7 @@ class TenantSubscriptionIsolationTests(
             self.suscripcion_b.fecha_vencimiento,
             vencimiento_b,
         )
-        
+
 
 class MetricsAndProfileSucursalIsolationTests(
     FoodBackTestBase
@@ -9363,7 +9364,7 @@ class ClienteTenantIsolationTests(
             ).count(),
             2,
         )
-        
+
     def test_base_datos_impide_cliente_sin_tenant(
         self,
     ):
@@ -9422,7 +9423,7 @@ class ClienteTenantIsolationTests(
         }
 
         session.save()
-        
+
         checkout_token = (
             self._crear_checkout_token_test()
         )
@@ -9431,7 +9432,7 @@ class ClienteTenantIsolationTests(
             reverse("checkout"),
             {
                 "checkout_token": checkout_token,
-                
+
                 "telefono":
                     telefono,
 
@@ -9486,7 +9487,7 @@ class ClienteTenantIsolationTests(
             cliente_a.nombre,
             "Cliente Rancheritos",
         )
-        
+
 class WompiRedirectTenantIsolationTests(
     FoodBackTestBase
 ):
@@ -9577,7 +9578,7 @@ class WompiRedirectTenantIsolationTests(
                 [],
             ),
         )
-        
+
 
 class TenantMembershipAuthorizationTests(
     FoodBackTestBase
@@ -9667,7 +9668,7 @@ class TenantMembershipAuthorizationTests(
             response.status_code,
             403,
         )
-        
+
 class LoginMembershipRoutingTests(
     FoodBackTestBase
 ):
@@ -9816,8 +9817,8 @@ class LoginMembershipRoutingTests(
             reverse("dashboard_delivery"),
             fetch_redirect_response=False,
         )
-        
-    
+
+
     def test_group_repartidores_sin_asignacion_no_va_delivery(
         self,
     ):
@@ -9969,8 +9970,8 @@ class DeliveryAssignmentAuthorizationTests(
             response.status_code,
             403,
         )
-        
-        
+
+
 class ManagerBranchAuthorizationTests(
     FoodBackTestBase
 ):
@@ -10140,7 +10141,7 @@ class ManagerBranchAuthorizationTests(
                 request
             )
         )
-        
+
 class SucursalContextAuthorizationTests(
     FoodBackTestBase
 ):
@@ -10306,8 +10307,8 @@ class SucursalContextAuthorizationTests(
             response.wsgi_request.sucursal,
             self.sucursal_b,
         )
-        
-        
+
+
 class BranchSwitchAuthorizationTests(
     FoodBackTestBase
 ):
@@ -10572,7 +10573,7 @@ class BranchSwitchAuthorizationTests(
             response.status_code,
             403,
         )
-        
+
 
 class EndpointMethodSecurityTests(
     FoodBackTestBase
@@ -10656,7 +10657,7 @@ class EndpointMethodSecurityTests(
             response.status_code,
             405,
         )
-        
+
     def test_checkout_rechaza_put(
         self,
     ):
@@ -10718,8 +10719,8 @@ class EndpointMethodSecurityTests(
             response.status_code,
             405,
         )
-        
-        
+
+
 class ClientIPSecurityTests(
     FoodBackTestBase
 ):
@@ -10803,8 +10804,8 @@ class ClientIPSecurityTests(
             ),
             "192.0.2.50",
         )
-        
-        
+
+
 class DatabaseRateLimitTests(
     FoodBackTestBase
 ):
@@ -10899,7 +10900,7 @@ class DatabaseRateLimitTests(
             ),
             64,
         )
-        
+
 class LoginRateLimitTests(
     FoodBackTestBase
 ):
@@ -11057,7 +11058,7 @@ class LoginRateLimitTests(
             response.status_code,
             429,
         )
-    
+
     def test_bloqueo_visual_persiste_al_salir_y_volver_al_login(
         self,
     ):
@@ -11194,7 +11195,7 @@ class LoginRateLimitTests(
                 "Retry-After",
                 intento_manipulado.headers,
             )
-            
+
 class CheckoutIdempotencyTests(
     FoodBackTestBase
 ):
@@ -11270,7 +11271,7 @@ class CheckoutIdempotencyTests(
             response.status_code,
             400,
         )
-        
+
     def test_checkout_repetido_recupera_mismo_pedido(
         self,
     ):
@@ -11361,7 +11362,7 @@ class CheckoutIdempotencyTests(
                 ],
             ),
         )
-        
+
     #--
     def test_checkout_legitimo_guarda_y_consume_token(
         self,
@@ -11453,8 +11454,8 @@ class CheckoutIdempotencyTests(
                 [],
             ),
         )
-        
-        
+
+
 class CheckoutRateLimitTests(
     FoodBackTestBase
 ):
@@ -11578,8 +11579,8 @@ class CheckoutRateLimitTests(
             response.status_code,
             429,
         )
-        
-        
+
+
 class WompiStartRateLimitTests(
     FoodBackTestBase
 ):
@@ -11729,7 +11730,7 @@ class WompiStartRateLimitTests(
             mock_iniciar_pago.call_count,
             2,
         )
-        
+
 
 class SubscriptionPaymentRateLimitTests(
     FoodBackTestBase
@@ -11864,7 +11865,7 @@ class SubscriptionPaymentRateLimitTests(
             "Retry-After",
             response.headers,
         )
-        
+
 class GeoIpRetirementSecurityTests(
     FoodBackTestBase
 ):
@@ -11880,8 +11881,8 @@ class GeoIpRetirementSecurityTests(
             response.status_code,
             404,
         )
-        
-        
+
+
 class AdminSettingsValidationTests(
     FoodBackTestBase
 ):
@@ -12088,8 +12089,8 @@ class AdminSettingsValidationTests(
                 fecha=fecha_objetivo,
             ).exists()
         )
-        
-        
+
+
 class PostgreSQLConcurrencyTests(
     TransactionTestCase
 ):
@@ -12186,7 +12187,10 @@ class PostgreSQLConcurrencyTests(
                     )
 
             finally:
-                close_old_connections()
+                # Cada worker usa su propia conexión PostgreSQL.
+                # La cerramos explícitamente antes de que Django
+                # intente destruir la base temporal de tests.
+                connections.close_all()
 
         with ThreadPoolExecutor(
             max_workers=2
@@ -12244,7 +12248,7 @@ class PostgreSQLConcurrencyTests(
                 + timedelta(days=30)
             ),
         )
-        
+
     def test_misma_transaccion_concurrente_no_aprueba_dos_pagos(
         self,
     ):
@@ -12455,7 +12459,7 @@ class PostgreSQLConcurrencyTests(
             len(resultados),
             2,
         )
-        
+
     def test_checkout_token_concurrente_crea_un_solo_pedido(
         self,
     ):
@@ -12580,8 +12584,8 @@ class PostgreSQLConcurrencyTests(
             resultados_creados[0][1],
             pedidos[0].id,
         )
-        
-        
+
+
 class SessionSecurityTests(
     FoodBackTestBase
 ):
@@ -12612,7 +12616,7 @@ class SessionSecurityTests(
         )
 
         return user
-    
+
     def _crear_manager(
         self,
         username,
@@ -12823,7 +12827,7 @@ class SessionSecurityTests(
                 )
             )
         )
-        
+
     def test_login_elimina_estado_anonimo_previo(
         self,
     ):
@@ -12906,8 +12910,8 @@ class SessionSecurityTests(
                     clave,
                     session_autenticada,
                 )
-                
-                
+
+
     def test_session_autenticada_tiene_expiracion_absoluta(
         self,
     ):
@@ -13109,8 +13113,8 @@ class SessionSecurityTests(
                 )
             )
         )
-        
-        
+
+
 class PasswordResetChallengeTests(TestCase):
 
     def setUp(self):
@@ -13194,8 +13198,8 @@ class PasswordResetChallengeTests(TestCase):
         self.assertIsNone(
             challenge.usado_en
         )
-        
-    
+
+
     @override_settings(
     FOODBACK_PASSWORD_RESET_MAX_ATTEMPTS=3,
     )
@@ -13386,8 +13390,8 @@ class PasswordResetChallengeTests(TestCase):
             resultado["estado"],
             "NO_ENCONTRADO",
         )
-        
-        
+
+
     @override_settings(
         EMAIL_BACKEND=(
             "django.core.mail.backends.locmem.EmailBackend"
@@ -13576,9 +13580,9 @@ class PasswordResetChallengeTests(TestCase):
             segundo["retry_after"],
             0,
         )
-        
-        
-    
+
+
+
     @override_settings(
     EMAIL_BACKEND=(
         "django.core.mail.backends.locmem.EmailBackend"
@@ -15420,6 +15424,33 @@ class SecurityIncidentConcurrencyTests(TransactionTestCase):
             ),
             descripcion="Prueba concurrente 2",
             fingerprint=fingerprint,
+        )
+
+        # Forzamos el caso límite real:
+        # dos eventos distintos con exactamente el mismo timestamp.
+        # Ante el empate, el PK mayor representa la inserción posterior.
+        timestamp_compartido = timezone.now()
+
+        AuditEvent.objects.filter(
+            pk__in=[
+                evento_1.pk,
+                evento_2.pk,
+            ]
+        ).update(
+            creado_en=timestamp_compartido
+        )
+
+        evento_1.refresh_from_db()
+        evento_2.refresh_from_db()
+
+        self.assertLess(
+            evento_1.pk,
+            evento_2.pk,
+        )
+
+        self.assertEqual(
+            evento_1.creado_en,
+            evento_2.creado_en,
         )
 
         barrier = Barrier(2)

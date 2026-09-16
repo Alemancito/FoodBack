@@ -236,7 +236,7 @@ def _eligible_event(evento):
     return True
 
 
-def _last_resolved_at(fingerprint):
+def _last_resolved_incident(fingerprint):
     return (
         SecurityIncident.objects
         .filter(
@@ -247,14 +247,22 @@ def _last_resolved_at(fingerprint):
             resuelto_en__isnull=False,
         )
         .order_by(
-            "-resuelto_en"
-        )
-        .values_list(
-            "resuelto_en",
-            flat=True,
+            "-resuelto_en",
+            "-pk",
         )
         .first()
     )
+
+
+def _last_resolved_at(fingerprint):
+    incidente = _last_resolved_incident(
+        fingerprint
+    )
+
+    if incidente is None:
+        return None
+
+    return incidente.resuelto_en
 
 
 def _recent_equivalent_events(
@@ -271,35 +279,69 @@ def _recent_equivalent_events(
         )
     )
 
-    ultima_resuelta = _last_resolved_at(
-        evento.fingerprint
+    ultimo_resuelto = (
+        _last_resolved_incident(
+            evento.fingerprint
+        )
     )
 
     if (
-        ultima_resuelta
-        and ultima_resuelta > desde
+        ultimo_resuelto is not None
+        and
+        ultimo_resuelto.resuelto_en
+        and
+        ultimo_resuelto.resuelto_en > desde
     ):
-        desde = ultima_resuelta
+        desde = (
+            ultimo_resuelto.resuelto_en
+        )
 
-    return (
+    recientes = (
         AuditEvent.objects
         .filter(
             fingerprint=(
                 evento.fingerprint
             ),
             creado_en__gte=desde,
+            resultado__in=(
+                _SUSPICIOUS_RESULTS
+            ),
+            categoria__in=(
+                _SUSPICIOUS_CATEGORIES
+            ),
         )
-        .order_by(
-            "creado_en",
-            "pk",
+        .exclude(
+            severidad=(
+                AuditEvent.Severidad.INFO
+            )
         )
+    )
+
+    # Resolver un incidente cierra esa oleada. Además del corte
+    # temporal, usamos el último AuditEvent del incidente resuelto
+    # como frontera determinista para impedir que el historial viejo
+    # vuelva a contarse si existen timestamps iguales o muy cercanos.
+    if (
+        ultimo_resuelto is not None
+        and
+        ultimo_resuelto.evento_ultimo_id
+    ):
+        recientes = recientes.filter(
+            pk__gt=(
+                ultimo_resuelto.evento_ultimo_id
+            )
+        )
+
+    return recientes.order_by(
+        "creado_en",
+        "pk",
     )
 
 
 def _count_incident_events(
     incidente,
 ):
-    return (
+    eventos = (
         AuditEvent.objects
         .filter(
             fingerprint=(
@@ -308,9 +350,31 @@ def _count_incident_events(
             creado_en__gte=(
                 incidente.primero_visto_en
             ),
+            resultado__in=(
+                _SUSPICIOUS_RESULTS
+            ),
+            categoria__in=(
+                _SUSPICIOUS_CATEGORIES
+            ),
         )
-        .count()
+        .exclude(
+            severidad=(
+                AuditEvent.Severidad.INFO
+            )
+        )
     )
+
+    # Si dos oleadas comparten el mismo timestamp, el PK del evento
+    # inicial impide que eventos del incidente anterior se mezclen
+    # en el contador del incidente activo.
+    if incidente.evento_inicial_id:
+        eventos = eventos.filter(
+            pk__gte=(
+                incidente.evento_inicial_id
+            )
+        )
+
+    return eventos.count()
 
 
 def _notification_recipients():
@@ -691,9 +755,31 @@ def procesar_evento_auditoria_para_incidentes(
             )
 
             # En carreras concurrentes puede terminar procesándose después
-            # un AuditEvent cronológicamente anterior. Nunca retrocedemos
-            # ultimo_visto_en ni los snapshots del evento más reciente.
-            if evento.creado_en >= incidente.ultimo_visto_en:
+            # un AuditEvent cronológicamente anterior.
+            #
+            # Orden determinista:
+            #   1. mayor creado_en;
+            #   2. ante empate exacto, mayor PK.
+            #
+            # El desempate por PK evita que dos eventos creados con el mismo
+            # timestamp puedan hacer retroceder evento_ultimo según qué worker
+            # termine de procesarse al final.
+            evento_es_mas_reciente = (
+                evento.creado_en
+                > incidente.ultimo_visto_en
+            )
+
+            if (
+                evento.creado_en
+                == incidente.ultimo_visto_en
+            ):
+                evento_es_mas_reciente = (
+                    incidente.evento_ultimo_id is None
+                    or evento.pk
+                    > incidente.evento_ultimo_id
+                )
+
+            if evento_es_mas_reciente:
                 incidente.ultimo_visto_en = evento.creado_en
                 incidente.evento_ultimo = evento
 

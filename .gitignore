@@ -3,7 +3,15 @@
 .env.*
 !.env.example
 
-# --- BACKUPS TEMPORALES ---
+# --- BACKUPS / DISASTER RECOVERY ---
+# Nunca versionar dumps, metadatos ni temporales de backup.
+backups/*
+!backups/.gitkeep
+*.backup
+*.backup.json
+*.dump
+*.sql.gz
+*.partial
 *.backup_*
 *.bak
 

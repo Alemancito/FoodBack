@@ -129,6 +129,10 @@ SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Lax"
 CSRF_COOKIE_SAMESITE = "Lax"
 
+# Audita rechazos CSRF sin guardar tokens/cookies ni cambiar
+# la respuesta estándar 403 de Django.
+CSRF_FAILURE_VIEW = "pedidos.audit.csrf_failure_view"
+
 if IS_PRODUCTION:
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
@@ -307,6 +311,147 @@ EMAIL_TIMEOUT = config(
 )
 
 
+# =========================================================
+# SECURITY INCIDENTS / FOUNDATION ALERTING
+# =========================================================
+
+# Ventana usada para correlacionar eventos equivalentes
+# dentro del mismo incidente.
+FOODBACK_SECURITY_INCIDENT_WINDOW_SECONDS = config(
+    "FOODBACK_SECURITY_INCIDENT_WINDOW_SECONDS",
+    default=300,
+    cast=int,
+)
+
+# Tiempo mínimo entre avisos del mismo incidente.
+# Evita tormentas de correo durante ataques sostenidos.
+FOODBACK_SECURITY_ALERT_COOLDOWN_SECONDS = config(
+    "FOODBACK_SECURITY_ALERT_COOLDOWN_SECONDS",
+    default=300,
+    cast=int,
+)
+
+# Opt-in explícito. En desarrollo permanece desactivado
+# salvo que queramos probar el flujo de alertas.
+FOODBACK_SECURITY_ALERTS_ENABLED = config(
+    "FOODBACK_SECURITY_ALERTS_ENABLED",
+    default=False,
+    cast=bool,
+)
+
+# Uno o varios destinatarios separados por coma.
+# Está pensado principalmente para Foundation/Superadmin.
+FOODBACK_SECURITY_ALERT_EMAIL = config(
+    "FOODBACK_SECURITY_ALERT_EMAIL",
+    default="",
+)
+
+if not (
+    60
+    <= FOODBACK_SECURITY_INCIDENT_WINDOW_SECONDS
+    <= 3600
+):
+    raise RuntimeError(
+        "FOODBACK_SECURITY_INCIDENT_WINDOW_SECONDS debe estar "
+        "entre 60 y 3600 segundos."
+    )
+
+if not (
+    60
+    <= FOODBACK_SECURITY_ALERT_COOLDOWN_SECONDS
+    <= 86400
+):
+    raise RuntimeError(
+        "FOODBACK_SECURITY_ALERT_COOLDOWN_SECONDS debe estar "
+        "entre 60 y 86400 segundos."
+    )
+
+if (
+    FOODBACK_SECURITY_ALERTS_ENABLED
+    and not FOODBACK_SECURITY_ALERT_EMAIL.strip()
+):
+    raise RuntimeError(
+        "FOODBACK_SECURITY_ALERT_EMAIL es obligatorio cuando "
+        "FOODBACK_SECURITY_ALERTS_ENABLED=True."
+    )
+
+if (
+    IS_PRODUCTION
+    and FOODBACK_SECURITY_ALERTS_ENABLED
+    and EMAIL_BACKEND
+        == "django.core.mail.backends.console.EmailBackend"
+):
+    raise RuntimeError(
+        "Las alertas de seguridad no pueden usar ConsoleEmailBackend "
+        "en producción."
+    )
+
+
+# =========================================================
+# AUDITORÍA / RETENCIÓN
+# =========================================================
+
+# Los eventos crudos ocupan más volumen que los incidentes resumidos.
+# Conservamos auditoría 180 días e incidentes resueltos 365 días por
+# defecto. Los incidentes activos nunca se purgan automáticamente.
+FOODBACK_AUDIT_RETENTION_DAYS = config(
+    "FOODBACK_AUDIT_RETENTION_DAYS",
+    default=180,
+    cast=int,
+)
+
+FOODBACK_SECURITY_INCIDENT_RETENTION_DAYS = config(
+    "FOODBACK_SECURITY_INCIDENT_RETENTION_DAYS",
+    default=365,
+    cast=int,
+)
+
+FOODBACK_AUDIT_CLEANUP_BATCH_SIZE = config(
+    "FOODBACK_AUDIT_CLEANUP_BATCH_SIZE",
+    default=1000,
+    cast=int,
+)
+
+if not (
+    30
+    <= FOODBACK_AUDIT_RETENTION_DAYS
+    <= 3650
+):
+    raise RuntimeError(
+        "FOODBACK_AUDIT_RETENTION_DAYS debe estar entre "
+        "30 y 3650 días."
+    )
+
+if not (
+    30
+    <= FOODBACK_SECURITY_INCIDENT_RETENTION_DAYS
+    <= 3650
+):
+    raise RuntimeError(
+        "FOODBACK_SECURITY_INCIDENT_RETENTION_DAYS debe estar "
+        "entre 30 y 3650 días."
+    )
+
+if (
+    FOODBACK_SECURITY_INCIDENT_RETENTION_DAYS
+    < FOODBACK_AUDIT_RETENTION_DAYS
+):
+    raise RuntimeError(
+        "FOODBACK_SECURITY_INCIDENT_RETENTION_DAYS debe ser "
+        "mayor o igual que FOODBACK_AUDIT_RETENTION_DAYS."
+    )
+
+if not (
+    100
+    <= FOODBACK_AUDIT_CLEANUP_BATCH_SIZE
+    <= 10000
+):
+    raise RuntimeError(
+        "FOODBACK_AUDIT_CLEANUP_BATCH_SIZE debe estar entre "
+        "100 y 10000."
+    )
+
+
 # ===============================
 # APLICACIONES
 # ===============================
@@ -337,6 +482,7 @@ MIDDLEWARE = [
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'pedidos.middleware.TenantContextMiddleware',
+    'pedidos.middleware.AuditExceptionMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -773,3 +919,51 @@ FOODBACK_PENDING_ORDER_ACTION_BLOCK_SECONDS = config(
     default=600,
     cast=int,
 )
+
+# =========================================================
+# LOGGING OPERATIVO
+# =========================================================
+
+# Railway/Uvicorn capturan stdout/stderr. Mantenemos logs humanos
+# compactos y dejamos los detalles investigables estructurados en BD
+# mediante AuditEvent/SecurityIncident.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "foodback": {
+            "format": (
+                "%(asctime)s %(levelname)s "
+                "%(name)s %(message)s"
+            ),
+        },
+    },
+    "handlers": {
+        "foodback_console": {
+            "class": "logging.StreamHandler",
+            "formatter": "foodback",
+        },
+    },
+    "loggers": {
+        "foodback.audit": {
+            "handlers": ["foodback_console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "foodback.security_incidents": {
+            "handlers": ["foodback_console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "foodback.views": {
+            "handlers": ["foodback_console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "foodback.runtime": {
+            "handlers": ["foodback_console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+    },
+}

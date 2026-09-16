@@ -14,7 +14,173 @@ from .models import (
     OpcionProducto,
     Extra,
     PagoWompi,
+    AuditEvent,
+    SecurityIncident,
 )
+
+
+@admin.register(SecurityIncident)
+class SecurityIncidentAdmin(admin.ModelAdmin):
+    """
+    Vista temporal read-only de incidentes correlacionados.
+
+    La gestión definitiva (reconocer/resolver/investigar) vivirá en
+    Foundation/Superadmin; aquí evitamos cambios manuales sin auditoría.
+    """
+
+    list_display = (
+        "ultimo_visto_en",
+        "estado",
+        "severidad",
+        "titulo",
+        "contador_eventos",
+        "evento_clave",
+        "ip",
+        "tenant_nombre",
+        "sucursal_nombre",
+        "notificaciones_enviadas",
+    )
+
+    list_filter = (
+        "estado",
+        "severidad",
+        "categoria",
+        "evento_clave",
+        "ultimo_visto_en",
+    )
+
+    search_fields = (
+        "public_id",
+        "fingerprint",
+        "titulo",
+        "descripcion",
+        "evento_clave",
+        "actor_username",
+        "actor_role",
+        "tenant_nombre",
+        "sucursal_nombre",
+        "ip",
+        "ruta",
+    )
+
+    ordering = (
+        "-ultimo_visto_en",
+    )
+
+    list_per_page = 100
+
+    def get_readonly_fields(
+        self,
+        request,
+        obj=None,
+    ):
+        return tuple(
+            field.name
+            for field in self.model._meta.fields
+        )
+
+    def has_add_permission(
+        self,
+        request,
+    ):
+        return False
+
+    def has_change_permission(
+        self,
+        request,
+        obj=None,
+    ):
+        return False
+
+    def has_delete_permission(
+        self,
+        request,
+        obj=None,
+    ):
+        return False
+
+
+@admin.register(AuditEvent)
+class AuditEventAdmin(admin.ModelAdmin):
+    """
+    Vista interna temporal de auditoría.
+
+    El dashboard Foundation/Superadmin tendrá después una
+    interfaz propia, pero desde esta fase podemos investigar
+    eventos sin tocar código ni editar registros históricos.
+    """
+
+    list_display = (
+        "creado_en",
+        "severidad",
+        "categoria",
+        "evento",
+        "resultado",
+        "actor_username",
+        "actor_role",
+        "tenant_nombre",
+        "sucursal_nombre",
+        "ip",
+    )
+
+    list_filter = (
+        "severidad",
+        "categoria",
+        "resultado",
+        "fuente",
+        "actor_role",
+        "creado_en",
+    )
+
+    search_fields = (
+        "evento",
+        "descripcion",
+        "actor_username",
+        "tenant_nombre",
+        "sucursal_nombre",
+        "ip",
+        "request_id",
+        "public_id",
+        "fingerprint",
+        "objeto_tipo",
+        "objeto_id",
+    )
+
+    ordering = (
+        "-creado_en",
+    )
+
+    list_per_page = 100
+
+    def get_readonly_fields(
+        self,
+        request,
+        obj=None,
+    ):
+        return tuple(
+            field.name
+            for field in self.model._meta.fields
+        )
+
+    def has_add_permission(
+        self,
+        request,
+    ):
+        return False
+
+    def has_change_permission(
+        self,
+        request,
+        obj=None,
+    ):
+        return False
+
+    def has_delete_permission(
+        self,
+        request,
+        obj=None,
+    ):
+        return False
 
 
 class OpcionProductoInline(admin.TabularInline):

@@ -379,6 +379,609 @@ class PasswordResetChallenge(models.Model):
         ]
 
 
+class AuditEvent(models.Model):
+    """
+    Registro append-only de seguridad, auditoría y operación.
+
+    Esta tabla es deliberadamente global/control-plane:
+    el futuro dashboard Foundation/Superadmin debe poder
+    investigar eventos de múltiples Tenant sin depender del
+    contexto RLS de una sucursal concreta.
+
+    No concede permisos por sí misma. Los campos de actor,
+    Tenant y sucursal son snapshots para investigación.
+    """
+
+    class Categoria(models.TextChoices):
+        AUTENTICACION = (
+            "AUTENTICACION",
+            "Autenticación",
+        )
+        AUTORIZACION = (
+            "AUTORIZACION",
+            "Autorización",
+        )
+        SEGURIDAD = (
+            "SEGURIDAD",
+            "Seguridad",
+        )
+        CUENTA = (
+            "CUENTA",
+            "Cuenta",
+        )
+        ADMINISTRACION = (
+            "ADMINISTRACION",
+            "Administración",
+        )
+        PAGOS = (
+            "PAGOS",
+            "Pagos",
+        )
+        SISTEMA = (
+            "SISTEMA",
+            "Sistema",
+        )
+        SOPORTE = (
+            "SOPORTE",
+            "Soporte",
+        )
+
+    class Severidad(models.TextChoices):
+        INFO = "INFO", "Informativa"
+        BAJA = "BAJA", "Baja"
+        MEDIA = "MEDIA", "Media"
+        ALTA = "ALTA", "Alta"
+        CRITICA = "CRITICA", "Crítica"
+
+    class Resultado(models.TextChoices):
+        INFORMATIVO = (
+            "INFORMATIVO",
+            "Informativo",
+        )
+        EXITO = "EXITO", "Éxito"
+        FALLO = "FALLO", "Fallo"
+        BLOQUEADO = (
+            "BLOQUEADO",
+            "Bloqueado",
+        )
+        DENEGADO = (
+            "DENEGADO",
+            "Denegado",
+        )
+        ERROR = "ERROR", "Error"
+
+    class Fuente(models.TextChoices):
+        WEB = "WEB", "Web"
+        SISTEMA = "SISTEMA", "Sistema"
+        WEBHOOK = "WEBHOOK", "Webhook"
+        TAREA = "TAREA", "Tarea"
+
+    class ActorTipo(models.TextChoices):
+        ANONIMO = "ANONIMO", "Anónimo"
+        USUARIO = "USUARIO", "Usuario"
+        SISTEMA = "SISTEMA", "Sistema"
+
+    public_id = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True,
+    )
+
+    # Varios eventos generados dentro del mismo request
+    # comparten request_id para facilitar investigación.
+    request_id = models.UUIDField(
+        null=True,
+        blank=True,
+        db_index=True,
+    )
+
+    evento = models.CharField(
+        max_length=120,
+    )
+
+    categoria = models.CharField(
+        max_length=24,
+        choices=Categoria.choices,
+    )
+
+    severidad = models.CharField(
+        max_length=16,
+        choices=Severidad.choices,
+        default=Severidad.INFO,
+    )
+
+    resultado = models.CharField(
+        max_length=16,
+        choices=Resultado.choices,
+        default=Resultado.INFORMATIVO,
+    )
+
+    fuente = models.CharField(
+        max_length=16,
+        choices=Fuente.choices,
+        default=Fuente.WEB,
+    )
+
+    descripcion = models.CharField(
+        max_length=255,
+        blank=True,
+    )
+
+    actor_tipo = models.CharField(
+        max_length=16,
+        choices=ActorTipo.choices,
+        default=ActorTipo.ANONIMO,
+    )
+
+    actor_usuario = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="foodback_audit_events",
+    )
+
+    # Snapshot: permanece aunque luego cambie el usuario.
+    actor_username = models.CharField(
+        max_length=150,
+        blank=True,
+    )
+
+    # Snapshot descriptivo. No se usa para autorizar.
+    # Valores actuales esperados: OWNER, MANAGER,
+    # DELIVERY, SUPERADMIN_FOODBACK, USUARIO.
+    actor_role = models.CharField(
+        max_length=40,
+        blank=True,
+        db_index=True,
+    )
+
+    # Snapshots globales para evitar joins RLS al consultar
+    # auditoría desde Foundation/Superadmin.
+    tenant_public_id = models.UUIDField(
+        null=True,
+        blank=True,
+    )
+
+    tenant_nombre = models.CharField(
+        max_length=150,
+        blank=True,
+    )
+
+    sucursal_public_id = models.UUIDField(
+        null=True,
+        blank=True,
+    )
+
+    sucursal_nombre = models.CharField(
+        max_length=150,
+        blank=True,
+    )
+
+    ip = models.GenericIPAddressField(
+        null=True,
+        blank=True,
+    )
+
+    metodo_http = models.CharField(
+        max_length=10,
+        blank=True,
+    )
+
+    # Solo path, nunca query string.
+    ruta = models.CharField(
+        max_length=500,
+        blank=True,
+    )
+
+    status_code = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+    )
+
+    user_agent = models.CharField(
+        max_length=300,
+        blank=True,
+    )
+
+    # Permite enlazar luego auditoría con objetos como
+    # usuario, pedido, configuración, suscripción, etc.
+    objeto_tipo = models.CharField(
+        max_length=80,
+        blank=True,
+    )
+
+    objeto_id = models.CharField(
+        max_length=120,
+        blank=True,
+    )
+
+    # Base para la futura capa de detección/incidentes:
+    # eventos equivalentes generan la misma huella y podrán
+    # agruparse sin enviar una alerta por cada request.
+    fingerprint = models.CharField(
+        max_length=64,
+        blank=True,
+    )
+
+    metadata = models.JSONField(
+        default=dict,
+        blank=True,
+    )
+
+    creado_en = models.DateTimeField(
+        auto_now_add=True,
+        db_index=True,
+    )
+
+    def save(
+        self,
+        *args,
+        **kwargs,
+    ):
+        if (
+            self.pk is not None
+            and not self._state.adding
+        ):
+            raise ValueError(
+                "AuditEvent es append-only y no puede modificarse."
+            )
+
+        return super().save(
+            *args,
+            **kwargs,
+        )
+
+    def __str__(self):
+        return (
+            f"{self.creado_en} - "
+            f"{self.evento} - "
+            f"{self.severidad}"
+        )
+
+    class Meta:
+        verbose_name = "Evento de auditoría"
+        verbose_name_plural = "Eventos de auditoría"
+        ordering = [
+            "-creado_en",
+        ]
+
+        indexes = [
+            models.Index(
+                fields=[
+                    "categoria",
+                    "-creado_en",
+                ],
+                name="audit_category_created_idx",
+            ),
+            models.Index(
+                fields=[
+                    "severidad",
+                    "-creado_en",
+                ],
+                name="audit_severity_created_idx",
+            ),
+            models.Index(
+                fields=[
+                    "tenant_public_id",
+                    "-creado_en",
+                ],
+                name="audit_tenant_created_idx",
+            ),
+            models.Index(
+                fields=[
+                    "sucursal_public_id",
+                    "-creado_en",
+                ],
+                name="audit_branch_created_idx",
+            ),
+            models.Index(
+                fields=[
+                    "ip",
+                    "-creado_en",
+                ],
+                name="audit_ip_created_idx",
+            ),
+            models.Index(
+                fields=[
+                    "evento",
+                    "-creado_en",
+                ],
+                name="audit_event_created_idx",
+            ),
+            models.Index(
+                fields=[
+                    "fingerprint",
+                    "-creado_en",
+                ],
+                name="audit_fprint_created_idx",
+            ),
+        ]
+
+
+class SecurityIncident(models.Model):
+    """
+    Incidente correlacionado a partir de uno o varios AuditEvent.
+
+    A diferencia de AuditEvent, este modelo SÍ cambia con el tiempo:
+    acumula eventos equivalentes, conserva el estado operativo y
+    controla el cooldown de alertas. También es global/control-plane
+    para que Foundation/Superadmin pueda investigar toda la plataforma.
+    """
+
+    class Estado(models.TextChoices):
+        ABIERTO = "ABIERTO", "Abierto"
+        RECONOCIDO = "RECONOCIDO", "Reconocido"
+        RESUELTO = "RESUELTO", "Resuelto"
+
+    public_id = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True,
+    )
+
+    # Mismo fingerprint que los AuditEvent equivalentes.
+    fingerprint = models.CharField(
+        max_length=64,
+        db_index=True,
+    )
+
+    evento_clave = models.CharField(
+        max_length=120,
+    )
+
+    categoria = models.CharField(
+        max_length=24,
+        choices=AuditEvent.Categoria.choices,
+    )
+
+    severidad = models.CharField(
+        max_length=16,
+        choices=AuditEvent.Severidad.choices,
+        default=AuditEvent.Severidad.MEDIA,
+        db_index=True,
+    )
+
+    estado = models.CharField(
+        max_length=16,
+        choices=Estado.choices,
+        default=Estado.ABIERTO,
+        db_index=True,
+    )
+
+    titulo = models.CharField(
+        max_length=180,
+    )
+
+    descripcion = models.CharField(
+        max_length=255,
+        blank=True,
+    )
+
+    # Snapshots para pintar el incidente sin joins cross-tenant.
+    actor_username = models.CharField(
+        max_length=150,
+        blank=True,
+    )
+
+    actor_role = models.CharField(
+        max_length=40,
+        blank=True,
+    )
+
+    tenant_public_id = models.UUIDField(
+        null=True,
+        blank=True,
+    )
+
+    tenant_nombre = models.CharField(
+        max_length=150,
+        blank=True,
+    )
+
+    sucursal_public_id = models.UUIDField(
+        null=True,
+        blank=True,
+    )
+
+    sucursal_nombre = models.CharField(
+        max_length=150,
+        blank=True,
+    )
+
+    ip = models.GenericIPAddressField(
+        null=True,
+        blank=True,
+    )
+
+    ruta = models.CharField(
+        max_length=500,
+        blank=True,
+    )
+
+    contador_eventos = models.PositiveIntegerField(
+        default=1,
+    )
+
+    primero_visto_en = models.DateTimeField(
+        db_index=True,
+    )
+
+    ultimo_visto_en = models.DateTimeField(
+        db_index=True,
+    )
+
+    evento_inicial = models.ForeignKey(
+        AuditEvent,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="incidentes_como_evento_inicial",
+    )
+
+    evento_ultimo = models.ForeignKey(
+        AuditEvent,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="incidentes_como_evento_ultimo",
+    )
+
+    # ultima_notificacion_en funciona como reserva/cooldown de intento.
+    # Se marca ANTES de hablar con SMTP para evitar correos duplicados
+    # si llegan varios requests concurrentes.
+    ultima_notificacion_en = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    primera_notificacion_exitosa_en = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    ultima_notificacion_exitosa_en = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    notificaciones_enviadas = models.PositiveIntegerField(
+        default=0,
+    )
+
+    fallos_notificacion = models.PositiveIntegerField(
+        default=0,
+    )
+
+    ultimo_error_notificacion = models.CharField(
+        max_length=255,
+        blank=True,
+    )
+
+    reconocido_en = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    resuelto_en = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    creado_en = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    actualizado_en = models.DateTimeField(
+        auto_now=True,
+    )
+
+    def __str__(self):
+        return (
+            f"{self.get_severidad_display()} - "
+            f"{self.titulo} ({self.contador_eventos})"
+        )
+
+    class Meta:
+        verbose_name = "Incidente de seguridad"
+        verbose_name_plural = "Incidentes de seguridad"
+        ordering = [
+            "-ultimo_visto_en",
+        ]
+
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(
+                    contador_eventos__gte=1,
+                ),
+                name="security_incident_count_gte_1",
+            ),
+            models.CheckConstraint(
+                check=(
+                    ~models.Q(
+                        estado="RECONOCIDO",
+                    )
+                    | models.Q(
+                        reconocido_en__isnull=False,
+                    )
+                ),
+                name="secinc_ack_requires_timestamp",
+            ),
+            models.CheckConstraint(
+                check=(
+                    ~models.Q(
+                        estado="RESUELTO",
+                    )
+                    | models.Q(
+                        resuelto_en__isnull=False,
+                    )
+                ),
+                name="secinc_resolved_requires_timestamp",
+            ),
+            models.CheckConstraint(
+                check=(
+                    models.Q(
+                        estado="RESUELTO",
+                    )
+                    | models.Q(
+                        resuelto_en__isnull=True,
+                    )
+                ),
+                name="secinc_active_no_resolved_ts",
+            ),
+            # Solo puede existir un incidente activo por fingerprint.
+            # Los incidentes resueltos permanecen como historial y una
+            # nueva oleada puede abrir un incidente nuevo.
+            models.UniqueConstraint(
+                fields=[
+                    "fingerprint",
+                ],
+                condition=models.Q(
+                    estado__in=[
+                        "ABIERTO",
+                        "RECONOCIDO",
+                    ],
+                ),
+                name="security_incident_active_fprint_uniq",
+            ),
+        ]
+
+        indexes = [
+            models.Index(
+                fields=[
+                    "estado",
+                    "severidad",
+                    "-ultimo_visto_en",
+                ],
+                name="secinc_state_sev_last_idx",
+            ),
+            models.Index(
+                fields=[
+                    "fingerprint",
+                    "-ultimo_visto_en",
+                ],
+                name="secinc_fprint_last_idx",
+            ),
+            models.Index(
+                fields=[
+                    "tenant_public_id",
+                    "-ultimo_visto_en",
+                ],
+                name="secinc_tenant_last_idx",
+            ),
+            models.Index(
+                fields=[
+                    "evento_clave",
+                    "-ultimo_visto_en",
+                ],
+                name="secinc_event_last_idx",
+            ),
+        ]
+
+
+
 class Membership(models.Model):
     """
     Relación segura entre un usuario de Django y un Tenant.

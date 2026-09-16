@@ -2,7 +2,9 @@ from functools import wraps
 
 from django.core.exceptions import PermissionDenied
 
+from .audit import registrar_evento_auditoria
 from .models import (
+    AuditEvent,
     Membership,
     MembershipSucursal,
     RepartidorSucursal,
@@ -87,6 +89,28 @@ def require_tenant_roles(
             )
 
             if not membership:
+                registrar_evento_auditoria(
+                    request=request,
+                    evento="authz.tenant_role.denied",
+                    categoria=(
+                        AuditEvent.Categoria.AUTORIZACION
+                    ),
+                    severidad=(
+                        AuditEvent.Severidad.MEDIA
+                    ),
+                    resultado=(
+                        AuditEvent.Resultado.DENEGADO
+                    ),
+                    descripcion=(
+                        "Acceso denegado por rol o "
+                        "Membership inactivo."
+                    ),
+                    status_code=403,
+                    metadata={
+                        "roles_permitidos": list(roles),
+                    },
+                )
+
                 raise PermissionDenied(
                     (
                         "No tienes permisos "
@@ -178,6 +202,27 @@ def require_delivery_assignment(
         )
 
         if not asignacion:
+            registrar_evento_auditoria(
+                request=request,
+                evento=(
+                    "authz.delivery_assignment.denied"
+                ),
+                categoria=(
+                    AuditEvent.Categoria.AUTORIZACION
+                ),
+                severidad=(
+                    AuditEvent.Severidad.MEDIA
+                ),
+                resultado=(
+                    AuditEvent.Resultado.DENEGADO
+                ),
+                descripcion=(
+                    "Acceso de reparto denegado para "
+                    "la sucursal activa."
+                ),
+                status_code=403,
+            )
+
             raise PermissionDenied(
                 (
                     "No tienes autorización "
@@ -290,6 +335,25 @@ def require_branch_access(
         )
 
         if not membership:
+            registrar_evento_auditoria(
+                request=request,
+                evento="authz.branch_access.denied",
+                categoria=(
+                    AuditEvent.Categoria.AUTORIZACION
+                ),
+                severidad=(
+                    AuditEvent.Severidad.MEDIA
+                ),
+                resultado=(
+                    AuditEvent.Resultado.DENEGADO
+                ),
+                descripcion=(
+                    "Acceso administrativo denegado "
+                    "para la sucursal activa."
+                ),
+                status_code=403,
+            )
+
             raise PermissionDenied(
                 (
                     "No tienes permisos "

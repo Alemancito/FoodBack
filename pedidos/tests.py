@@ -1,4 +1,5 @@
 import json
+from io import StringIO
 from unittest.mock import patch
 
 import hashlib
@@ -24,6 +25,7 @@ from django.urls import reverse
 from django.test import override_settings, RequestFactory
 
 from django.core import mail
+from django.core.management import call_command
 
 from pedidos.security import (
     obtener_ip_cliente,
@@ -36,6 +38,19 @@ from pedidos.security import (
 
 from pedidos.security import (
     consumir_rate_limit,
+)
+
+from pedidos.audit import (
+    csrf_failure_view,
+    hash_valor_auditoria,
+    registrar_error_runtime,
+    registrar_evento_auditoria,
+)
+
+from pedidos.incidents import (
+    procesar_evento_auditoria_para_incidentes,
+    reconocer_incidente_seguridad,
+    resolver_incidente_seguridad,
 )
 
 from django.db import connection
@@ -63,13 +78,19 @@ from django.contrib.sessions.backends.db import SessionStore
 
 from django.contrib.auth.models import AnonymousUser
 
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import (
+    PermissionDenied,
+    SuspiciousOperation,
+)
 
 from django.test import override_settings
 
 from django.http import HttpResponse
 
-from pedidos.middleware import TenantContextMiddleware
+from pedidos.middleware import (
+    AuditExceptionMiddleware,
+    TenantContextMiddleware,
+)
 
 from pedidos.views import (
     verificar_estado_negocio,
@@ -116,6 +137,8 @@ from .models import (
     MembershipSucursal,
     StaffIdentity,
     PasswordResetChallenge,
+    AuditEvent,
+    SecurityIncident,
 )
 
 
@@ -14227,4 +14250,1759 @@ class PasswordResetChallengeTests(TestCase):
         self.assertIn(
             "Retry-After",
             segundo,
+        )
+
+
+class AuditEventFoundationTests(TestCase):
+    """
+    Base de auditoría de Fase 7.
+
+    Estos tests protegen los datos que luego alimentarán
+    Seguridad, Alertas y Auditoría del dashboard
+    Foundation/Superadmin.
+    """
+
+    def setUp(self):
+        self.factory = RequestFactory()
+
+        self.tenant = Tenant.objects.create(
+            nombre="Audit Tenant",
+            slug="audit-tenant",
+        )
+
+        self.sucursal = Sucursal.objects.create(
+            tenant=self.tenant,
+            nombre="Audit Centro",
+            slug="audit-centro",
+        )
+
+        self.owner = User.objects.create_user(
+            username="audit_owner",
+            password="PasswordSeguro123!",
+        )
+
+        Membership.objects.create(
+            tenant=self.tenant,
+            usuario=self.owner,
+            rol=Membership.ROLE_OWNER,
+            activo=True,
+        )
+
+    def _request(
+        self,
+        path="/dashboard/",
+        ip="192.0.2.200",
+    ):
+        request = self.factory.get(
+            path,
+            REMOTE_ADDR=ip,
+            HTTP_USER_AGENT=(
+                "FoodBackAuditTests/1.0"
+            ),
+        )
+
+        request.user = self.owner
+        request.tenant = self.tenant
+        request.sucursal = self.sucursal
+
+        return request
+
+    def test_evento_guarda_snapshot_para_dashboard_foundation(
+        self,
+    ):
+        request = self._request(
+            "/dashboard/settings/?token=no-guardar"
+        )
+
+        evento = registrar_evento_auditoria(
+            request=request,
+            evento="admin.settings.updated",
+            categoria=(
+                AuditEvent.Categoria.ADMINISTRACION
+            ),
+            severidad=(
+                AuditEvent.Severidad.MEDIA
+            ),
+            resultado=(
+                AuditEvent.Resultado.EXITO
+            ),
+            descripcion=(
+                "Configuración actualizada."
+            ),
+            status_code=200,
+            objeto_tipo="configuracion",
+            objeto_id="42",
+            metadata={
+                "campo": "horario",
+            },
+            fail_silently=False,
+        )
+
+        self.assertIsNotNone(
+            evento
+        )
+
+        self.assertEqual(
+            evento.actor_usuario,
+            self.owner,
+        )
+
+        self.assertEqual(
+            evento.actor_username,
+            "audit_owner",
+        )
+
+        self.assertEqual(
+            evento.actor_role,
+            Membership.ROLE_OWNER,
+        )
+
+        self.assertEqual(
+            evento.tenant_public_id,
+            self.tenant.public_id,
+        )
+
+        self.assertEqual(
+            evento.tenant_nombre,
+            self.tenant.nombre,
+        )
+
+        self.assertEqual(
+            evento.sucursal_public_id,
+            self.sucursal.public_id,
+        )
+
+        self.assertEqual(
+            evento.sucursal_nombre,
+            self.sucursal.nombre,
+        )
+
+        self.assertEqual(
+            evento.ip,
+            "192.0.2.200",
+        )
+
+        self.assertEqual(
+            evento.ruta,
+            "/dashboard/settings/",
+        )
+
+        self.assertNotIn(
+            "no-guardar",
+            evento.ruta,
+        )
+
+        self.assertEqual(
+            evento.metadata,
+            {
+                "campo": "horario",
+            },
+        )
+
+        self.assertEqual(
+            len(evento.fingerprint),
+            64,
+        )
+
+        self.assertIsNotNone(
+            evento.request_id
+        )
+
+    def test_metadata_sensible_se_redacta(
+        self,
+    ):
+        evento = registrar_evento_auditoria(
+            request=self._request(),
+            evento="security.redaction.test",
+            categoria=(
+                AuditEvent.Categoria.SEGURIDAD
+            ),
+            metadata={
+                "password": "NoDebePersistir123!",
+                "api_token": "token-super-secreto",
+                "seguro": "visible",
+                "nested": {
+                    "Authorization": "Bearer secreto",
+                    "dato": "ok",
+                },
+            },
+            fail_silently=False,
+        )
+
+        serializado = json.dumps(
+            evento.metadata,
+            sort_keys=True,
+        )
+
+        self.assertNotIn(
+            "NoDebePersistir123!",
+            serializado,
+        )
+
+        self.assertNotIn(
+            "token-super-secreto",
+            serializado,
+        )
+
+        self.assertNotIn(
+            "Bearer secreto",
+            serializado,
+        )
+
+        self.assertEqual(
+            evento.metadata["password"],
+            "[REDACTED]",
+        )
+
+        self.assertEqual(
+            evento.metadata["seguro"],
+            "visible",
+        )
+
+        self.assertEqual(
+            evento.metadata["nested"]["dato"],
+            "ok",
+        )
+
+    def test_hash_de_identificador_es_estable_y_no_guarda_original(
+        self,
+    ):
+        primero = hash_valor_auditoria(
+            "  Persona@Correo.TEST "
+        )
+
+        segundo = hash_valor_auditoria(
+            "persona@correo.test"
+        )
+
+        self.assertEqual(
+            primero,
+            segundo,
+        )
+
+        self.assertEqual(
+            len(primero),
+            64,
+        )
+
+        self.assertNotIn(
+            "persona@correo.test",
+            primero,
+        )
+
+    def test_fingerprint_permite_agrupar_eventos_equivalentes(
+        self,
+    ):
+        primero = registrar_evento_auditoria(
+            request=self._request(),
+            evento="auth.login.failed",
+            categoria=(
+                AuditEvent.Categoria.AUTENTICACION
+            ),
+            resultado=(
+                AuditEvent.Resultado.FALLO
+            ),
+            fail_silently=False,
+        )
+
+        segundo = registrar_evento_auditoria(
+            request=self._request(),
+            evento="auth.login.failed",
+            categoria=(
+                AuditEvent.Categoria.AUTENTICACION
+            ),
+            resultado=(
+                AuditEvent.Resultado.FALLO
+            ),
+            fail_silently=False,
+        )
+
+        self.assertEqual(
+            primero.fingerprint,
+            segundo.fingerprint,
+        )
+
+        self.assertNotEqual(
+            primero.public_id,
+            segundo.public_id,
+        )
+
+        self.assertNotEqual(
+            primero.request_id,
+            segundo.request_id,
+        )
+
+    def test_evento_es_append_only_por_save(
+        self,
+    ):
+        evento = registrar_evento_auditoria(
+            request=self._request(),
+            evento="audit.append_only.test",
+            categoria=(
+                AuditEvent.Categoria.SISTEMA
+            ),
+            fail_silently=False,
+        )
+
+        evento.descripcion = (
+            "No debería poder modificarse"
+        )
+
+        with self.assertRaises(
+            ValueError
+        ):
+            evento.save()
+
+    def test_denegacion_de_rol_genera_auditoria(
+        self,
+    ):
+        from pedidos.authz import (
+            require_tenant_roles,
+        )
+
+        request = self._request()
+
+        @require_tenant_roles(
+            Membership.ROLE_MANAGER
+        )
+        def vista_protegida(request):
+            return HttpResponse("ok")
+
+        with self.assertRaises(
+            PermissionDenied
+        ):
+            vista_protegida(
+                request
+            )
+
+        evento = (
+            AuditEvent.objects
+            .filter(
+                evento=(
+                    "authz.tenant_role.denied"
+                )
+            )
+            .latest(
+                "creado_en"
+            )
+        )
+
+        self.assertEqual(
+            evento.resultado,
+            AuditEvent.Resultado.DENEGADO,
+        )
+
+        self.assertEqual(
+            evento.severidad,
+            AuditEvent.Severidad.MEDIA,
+        )
+
+        self.assertEqual(
+            evento.actor_role,
+            Membership.ROLE_OWNER,
+        )
+
+        self.assertEqual(
+            evento.metadata[
+                "roles_permitidos"
+            ],
+            [
+                Membership.ROLE_MANAGER,
+            ],
+        )
+
+    @override_settings(
+        FOODBACK_LOGIN_IP_LIMIT=50,
+        FOODBACK_LOGIN_USER_LIMIT=50,
+        FOODBACK_LOGIN_WINDOW_SECONDS=600,
+        FOODBACK_LOGIN_BLOCK_SECONDS=900,
+    )
+    def test_login_fallido_genera_evento_sin_username_crudo(
+        self,
+    ):
+        usuario = User.objects.create_user(
+            username="audit_login_target",
+            password="PasswordSeguro123!",
+        )
+
+        Membership.objects.create(
+            tenant=self.tenant,
+            usuario=usuario,
+            rol=Membership.ROLE_MANAGER,
+            activo=True,
+        )
+
+        response = self.client.post(
+            reverse(
+                "login_custom"
+            ),
+            {
+                "username": (
+                    "audit_login_target"
+                ),
+                "password": "incorrecta",
+            },
+            REMOTE_ADDR="192.0.2.210",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        evento = (
+            AuditEvent.objects
+            .filter(
+                evento="auth.login.failed"
+            )
+            .latest(
+                "creado_en"
+            )
+        )
+
+        self.assertEqual(
+            evento.resultado,
+            AuditEvent.Resultado.FALLO,
+        )
+
+        self.assertEqual(
+            evento.ip,
+            "192.0.2.210",
+        )
+
+        self.assertNotEqual(
+            evento.metadata[
+                "username_hash"
+            ],
+            "audit_login_target",
+        )
+
+        self.assertEqual(
+            len(
+                evento.metadata[
+                    "username_hash"
+                ]
+            ),
+            64,
+        )
+
+    @override_settings(
+        FOODBACK_LOGIN_IP_LIMIT=50,
+        FOODBACK_LOGIN_USER_LIMIT=1,
+        FOODBACK_LOGIN_WINDOW_SECONDS=600,
+        FOODBACK_LOGIN_BLOCK_SECONDS=900,
+    )
+    def test_login_rate_limit_genera_evento_agrupable(
+        self,
+    ):
+        url = reverse(
+            "login_custom"
+        )
+
+        datos = {
+            "username": "objetivo_auditado",
+            "password": "incorrecta",
+        }
+
+        self.client.post(
+            url,
+            datos,
+            REMOTE_ADDR="192.0.2.211",
+        )
+
+        bloqueo = self.client.post(
+            url,
+            datos,
+            REMOTE_ADDR="192.0.2.211",
+        )
+
+        self.assertEqual(
+            bloqueo.status_code,
+            429,
+        )
+
+        evento = (
+            AuditEvent.objects
+            .filter(
+                evento=(
+                    "auth.login.rate_limited"
+                )
+            )
+            .latest(
+                "creado_en"
+            )
+        )
+
+        self.assertEqual(
+            evento.resultado,
+            AuditEvent.Resultado.BLOQUEADO,
+        )
+
+        self.assertEqual(
+            evento.severidad,
+            AuditEvent.Severidad.ALTA,
+        )
+
+        self.assertEqual(
+            evento.metadata[
+                "scope"
+            ],
+            "ip_username",
+        )
+
+        self.assertTrue(
+            evento.fingerprint
+        )
+
+class SecurityIncidentFoundationTests(TestCase):
+    """
+    Correlación/deduplicación que alimentará las tarjetas de
+    Seguridad y Alertas del dashboard Foundation/Superadmin.
+    """
+
+    def setUp(self):
+        self.factory = RequestFactory()
+
+        self.foundation_user = (
+            User.objects.create_superuser(
+                username="foundation_security",
+                email="foundation@foodback.test",
+                password="FoundationSeguro123!",
+            )
+        )
+
+        self.normal_user = (
+            User.objects.create_user(
+                username="restaurant_owner_like",
+                password="OwnerSeguro123!",
+            )
+        )
+
+    def _request(
+        self,
+        path="/login/",
+        ip="192.0.2.230",
+    ):
+        request = self.factory.post(
+            path,
+            REMOTE_ADDR=ip,
+            HTTP_USER_AGENT=(
+                "FoodBackIncidentTests/1.0"
+            ),
+        )
+
+        request.user = AnonymousUser()
+
+        return request
+
+    def _foundation_request(
+        self,
+        *,
+        user=None,
+    ):
+        request = self.factory.post(
+            "/foundation/security/incidents/",
+            REMOTE_ADDR="192.0.2.240",
+        )
+
+        request.user = (
+            user
+            if user is not None
+            else self.foundation_user
+        )
+
+        return request
+
+    def _crear_incidente_alto(self):
+        self._registrar_bloqueo_alto()
+        return SecurityIncident.objects.get()
+
+    def _registrar_fallo_bajo(
+        self,
+        *,
+        ip="192.0.2.230",
+    ):
+        return registrar_evento_auditoria(
+            request=self._request(
+                ip=ip
+            ),
+            evento="auth.login.failed",
+            categoria=(
+                AuditEvent.Categoria.AUTENTICACION
+            ),
+            severidad=(
+                AuditEvent.Severidad.BAJA
+            ),
+            resultado=(
+                AuditEvent.Resultado.FALLO
+            ),
+            descripcion=(
+                "Intento de inicio de sesión rechazado."
+            ),
+            fail_silently=False,
+        )
+
+    def _registrar_bloqueo_alto(
+        self,
+        *,
+        ip="192.0.2.231",
+    ):
+        return registrar_evento_auditoria(
+            request=self._request(
+                ip=ip
+            ),
+            evento="auth.login.rate_limited",
+            categoria=(
+                AuditEvent.Categoria.AUTENTICACION
+            ),
+            severidad=(
+                AuditEvent.Severidad.ALTA
+            ),
+            resultado=(
+                AuditEvent.Resultado.BLOQUEADO
+            ),
+            descripcion=(
+                "Inicio de sesión bloqueado por actividad repetida."
+            ),
+            status_code=429,
+            fail_silently=False,
+        )
+
+    def test_evento_informativo_no_crea_incidente(
+        self,
+    ):
+        registrar_evento_auditoria(
+            request=self._request(),
+            evento="auth.login.success",
+            categoria=(
+                AuditEvent.Categoria.AUTENTICACION
+            ),
+            severidad=(
+                AuditEvent.Severidad.INFO
+            ),
+            resultado=(
+                AuditEvent.Resultado.EXITO
+            ),
+            fail_silently=False,
+        )
+
+        self.assertFalse(
+            SecurityIncident.objects.exists()
+        )
+
+    def test_cinco_fallos_bajos_crean_un_incidente_agrupado(
+        self,
+    ):
+        for _ in range(4):
+            self._registrar_fallo_bajo()
+
+        self.assertFalse(
+            SecurityIncident.objects.exists()
+        )
+
+        quinto = self._registrar_fallo_bajo()
+
+        incidente = (
+            SecurityIncident.objects.get()
+        )
+
+        self.assertEqual(
+            incidente.contador_eventos,
+            5,
+        )
+
+        self.assertEqual(
+            incidente.severidad,
+            AuditEvent.Severidad.MEDIA,
+        )
+
+        self.assertEqual(
+            incidente.evento_clave,
+            "auth.login.failed",
+        )
+
+        self.assertEqual(
+            incidente.evento_ultimo,
+            quinto,
+        )
+
+        self.assertEqual(
+            incidente.ip,
+            "192.0.2.230",
+        )
+
+    def test_incidente_activo_agrega_sin_duplicarse(
+        self,
+    ):
+        for _ in range(6):
+            self._registrar_fallo_bajo()
+
+        self.assertEqual(
+            SecurityIncident.objects.count(),
+            1,
+        )
+
+        incidente = (
+            SecurityIncident.objects.get()
+        )
+
+        self.assertEqual(
+            incidente.contador_eventos,
+            6,
+        )
+
+    def test_diez_fallos_bajos_escalan_incidente_a_alta(
+        self,
+    ):
+        for _ in range(10):
+            self._registrar_fallo_bajo()
+
+        incidente = (
+            SecurityIncident.objects.get()
+        )
+
+        self.assertEqual(
+            incidente.contador_eventos,
+            10,
+        )
+
+        self.assertEqual(
+            incidente.severidad,
+            AuditEvent.Severidad.ALTA,
+        )
+
+    def test_evento_alto_crea_incidente_inmediato(
+        self,
+    ):
+        evento = self._registrar_bloqueo_alto()
+
+        incidente = (
+            SecurityIncident.objects.get()
+        )
+
+        self.assertEqual(
+            incidente.contador_eventos,
+            1,
+        )
+
+        self.assertEqual(
+            incidente.severidad,
+            AuditEvent.Severidad.ALTA,
+        )
+
+        self.assertEqual(
+            incidente.evento_inicial,
+            evento,
+        )
+
+    @override_settings(
+        EMAIL_BACKEND=(
+            "django.core.mail.backends.locmem.EmailBackend"
+        ),
+        DEFAULT_FROM_EMAIL="security@foodback.test",
+        FOODBACK_SECURITY_ALERTS_ENABLED=True,
+        FOODBACK_SECURITY_ALERT_EMAIL=(
+            "foundation@foodback.test"
+        ),
+        FOODBACK_SECURITY_ALERT_COOLDOWN_SECONDS=300,
+    )
+    def test_alerta_email_se_deduplica_durante_cooldown(
+        self,
+    ):
+        with self.captureOnCommitCallbacks(
+            execute=True
+        ):
+            self._registrar_bloqueo_alto()
+            self._registrar_bloqueo_alto()
+
+        self.assertEqual(
+            len(mail.outbox),
+            1,
+        )
+
+        incidente = (
+            SecurityIncident.objects.get()
+        )
+
+        self.assertEqual(
+            incidente.contador_eventos,
+            2,
+        )
+
+        self.assertEqual(
+            incidente.notificaciones_enviadas,
+            1,
+        )
+
+        self.assertIsNotNone(
+            incidente.ultima_notificacion_en
+        )
+
+        self.assertIsNotNone(
+            incidente.ultima_notificacion_exitosa_en
+        )
+
+        self.assertIn(
+            "Eventos agrupados:",
+            mail.outbox[0].body,
+        )
+
+    @override_settings(
+        EMAIL_BACKEND=(
+            "django.core.mail.backends.locmem.EmailBackend"
+        ),
+        DEFAULT_FROM_EMAIL="security@foodback.test",
+        FOODBACK_SECURITY_ALERTS_ENABLED=True,
+        FOODBACK_SECURITY_ALERT_EMAIL=(
+            "foundation@foodback.test"
+        ),
+        FOODBACK_SECURITY_ALERT_COOLDOWN_SECONDS=300,
+    )
+    def test_alerta_puede_reenviarse_tras_cooldown(
+        self,
+    ):
+        with self.captureOnCommitCallbacks(
+            execute=True
+        ):
+            self._registrar_bloqueo_alto()
+
+        incidente = (
+            SecurityIncident.objects.get()
+        )
+
+        SecurityIncident.objects.filter(
+            pk=incidente.pk
+        ).update(
+            ultima_notificacion_en=(
+                timezone.now()
+                - timedelta(
+                    seconds=301
+                )
+            )
+        )
+
+        with self.captureOnCommitCallbacks(
+            execute=True
+        ):
+            self._registrar_bloqueo_alto()
+
+        incidente.refresh_from_db()
+
+        self.assertEqual(
+            len(mail.outbox),
+            2,
+        )
+
+        self.assertEqual(
+            incidente.notificaciones_enviadas,
+            2,
+        )
+
+    @override_settings(
+        EMAIL_BACKEND=(
+            "django.core.mail.backends.locmem.EmailBackend"
+        ),
+        FOODBACK_SECURITY_ALERTS_ENABLED=True,
+        FOODBACK_SECURITY_ALERT_EMAIL="",
+    )
+    def test_sin_destinatario_no_intenta_enviar_email(
+        self,
+    ):
+        self._registrar_bloqueo_alto()
+
+        self.assertEqual(
+            len(mail.outbox),
+            0,
+        )
+
+        incidente = (
+            SecurityIncident.objects.get()
+        )
+
+        self.assertEqual(
+            incidente.notificaciones_enviadas,
+            0,
+        )
+
+        self.assertIsNone(
+            incidente.ultima_notificacion_en
+        )
+
+    def test_resolver_permite_nueva_oleada_sin_reutilizar_historial(
+        self,
+    ):
+        self._registrar_bloqueo_alto()
+
+        anterior = (
+            SecurityIncident.objects.get()
+        )
+
+        resolver_incidente_seguridad(
+            request=self._foundation_request(),
+            public_id=anterior.public_id,
+        )
+
+        self._registrar_bloqueo_alto()
+
+        self.assertEqual(
+            SecurityIncident.objects.count(),
+            2,
+        )
+
+        nuevo = (
+            SecurityIncident.objects
+            .filter(
+                estado=(
+                    SecurityIncident.Estado.ABIERTO
+                )
+            )
+            .get()
+        )
+
+        self.assertEqual(
+            nuevo.contador_eventos,
+            1,
+        )
+
+
+    def test_owner_cliente_no_puede_reconocer_incidente_foundation(
+        self,
+    ):
+        incidente = self._crear_incidente_alto()
+
+        with self.assertRaises(
+            PermissionDenied
+        ):
+            reconocer_incidente_seguridad(
+                request=self._foundation_request(
+                    user=self.normal_user
+                ),
+                public_id=incidente.public_id,
+            )
+
+        incidente.refresh_from_db()
+
+        self.assertEqual(
+            incidente.estado,
+            SecurityIncident.Estado.ABIERTO,
+        )
+
+    def test_foundation_reconoce_incidente_y_deja_auditoria(
+        self,
+    ):
+        incidente = self._crear_incidente_alto()
+
+        resultado = reconocer_incidente_seguridad(
+            request=self._foundation_request(),
+            public_id=incidente.public_id,
+        )
+
+        resultado.refresh_from_db()
+
+        self.assertEqual(
+            resultado.estado,
+            SecurityIncident.Estado.RECONOCIDO,
+        )
+
+        self.assertIsNotNone(
+            resultado.reconocido_en
+        )
+
+        audit = AuditEvent.objects.get(
+            evento=(
+                "security.incident.acknowledged"
+            )
+        )
+
+        self.assertEqual(
+            audit.actor_username,
+            self.foundation_user.username,
+        )
+
+        self.assertEqual(
+            audit.actor_role,
+            "SUPERADMIN_FOODBACK",
+        )
+
+        self.assertEqual(
+            audit.objeto_id,
+            str(incidente.public_id),
+        )
+
+    def test_reconocer_incidente_es_idempotente(
+        self,
+    ):
+        incidente = self._crear_incidente_alto()
+        request = self._foundation_request()
+
+        reconocer_incidente_seguridad(
+            request=request,
+            public_id=incidente.public_id,
+        )
+
+        incidente.refresh_from_db()
+        reconocido_en = incidente.reconocido_en
+
+        reconocer_incidente_seguridad(
+            request=request,
+            public_id=incidente.public_id,
+        )
+
+        incidente.refresh_from_db()
+
+        self.assertEqual(
+            incidente.reconocido_en,
+            reconocido_en,
+        )
+
+        self.assertEqual(
+            AuditEvent.objects.filter(
+                evento=(
+                    "security.incident.acknowledged"
+                )
+            ).count(),
+            1,
+        )
+
+    def test_foundation_resuelve_incidente_y_deja_auditoria(
+        self,
+    ):
+        incidente = self._crear_incidente_alto()
+        request = self._foundation_request()
+
+        reconocer_incidente_seguridad(
+            request=request,
+            public_id=incidente.public_id,
+        )
+
+        resultado = resolver_incidente_seguridad(
+            request=request,
+            public_id=incidente.public_id,
+        )
+
+        resultado.refresh_from_db()
+
+        self.assertEqual(
+            resultado.estado,
+            SecurityIncident.Estado.RESUELTO,
+        )
+
+        self.assertIsNotNone(
+            resultado.resuelto_en
+        )
+
+        audit = AuditEvent.objects.get(
+            evento="security.incident.resolved"
+        )
+
+        self.assertEqual(
+            audit.actor_role,
+            "SUPERADMIN_FOODBACK",
+        )
+
+        self.assertEqual(
+            audit.metadata["previous_state"],
+            SecurityIncident.Estado.RECONOCIDO,
+        )
+
+    def test_foundation_puede_resolver_incidente_abierto_directamente(
+        self,
+    ):
+        incidente = self._crear_incidente_alto()
+
+        resolver_incidente_seguridad(
+            request=self._foundation_request(),
+            public_id=incidente.public_id,
+        )
+
+        incidente.refresh_from_db()
+
+        self.assertEqual(
+            incidente.estado,
+            SecurityIncident.Estado.RESUELTO,
+        )
+
+    def test_resolver_incidente_es_idempotente(
+        self,
+    ):
+        incidente = self._crear_incidente_alto()
+        request = self._foundation_request()
+
+        resolver_incidente_seguridad(
+            request=request,
+            public_id=incidente.public_id,
+        )
+
+        incidente.refresh_from_db()
+        resuelto_en = incidente.resuelto_en
+
+        resolver_incidente_seguridad(
+            request=request,
+            public_id=incidente.public_id,
+        )
+
+        incidente.refresh_from_db()
+
+        self.assertEqual(
+            incidente.resuelto_en,
+            resuelto_en,
+        )
+
+        self.assertEqual(
+            AuditEvent.objects.filter(
+                evento="security.incident.resolved"
+            ).count(),
+            1,
+        )
+
+    def test_owner_cliente_no_puede_resolver_incidente_foundation(
+        self,
+    ):
+        incidente = self._crear_incidente_alto()
+
+        with self.assertRaises(
+            PermissionDenied
+        ):
+            resolver_incidente_seguridad(
+                request=self._foundation_request(
+                    user=self.normal_user
+                ),
+                public_id=incidente.public_id,
+            )
+
+        incidente.refresh_from_db()
+
+        self.assertEqual(
+            incidente.estado,
+            SecurityIncident.Estado.ABIERTO,
+        )
+
+
+class SecurityIncidentConcurrencyTests(TransactionTestCase):
+    """
+    La constraint parcial + retry transaccional deben impedir dos
+    incidentes activos equivalentes aunque dos workers correlacionen
+    señales simultáneamente.
+    """
+
+    reset_sequences = True
+
+    def test_correlacion_concurrente_no_duplica_incidente_activo(
+        self,
+    ):
+        fingerprint = "a" * 64
+
+        evento_1 = AuditEvent.objects.create(
+            evento="security.concurrent.test",
+            categoria=(
+                AuditEvent.Categoria.SEGURIDAD
+            ),
+            severidad=(
+                AuditEvent.Severidad.ALTA
+            ),
+            resultado=(
+                AuditEvent.Resultado.BLOQUEADO
+            ),
+            descripcion="Prueba concurrente 1",
+            fingerprint=fingerprint,
+        )
+
+        evento_2 = AuditEvent.objects.create(
+            evento="security.concurrent.test",
+            categoria=(
+                AuditEvent.Categoria.SEGURIDAD
+            ),
+            severidad=(
+                AuditEvent.Severidad.ALTA
+            ),
+            resultado=(
+                AuditEvent.Resultado.BLOQUEADO
+            ),
+            descripcion="Prueba concurrente 2",
+            fingerprint=fingerprint,
+        )
+
+        barrier = Barrier(2)
+
+        def worker(evento_id):
+            close_old_connections()
+
+            try:
+                evento = AuditEvent.objects.get(
+                    pk=evento_id
+                )
+
+                barrier.wait()
+
+                procesar_evento_auditoria_para_incidentes(
+                    evento
+                )
+
+            finally:
+                close_old_connections()
+
+        with ThreadPoolExecutor(
+            max_workers=2
+        ) as executor:
+            futures = [
+                executor.submit(
+                    worker,
+                    evento_1.pk,
+                ),
+                executor.submit(
+                    worker,
+                    evento_2.pk,
+                ),
+            ]
+
+            for future in futures:
+                future.result()
+
+        activos = (
+            SecurityIncident.objects
+            .filter(
+                estado__in=[
+                    SecurityIncident.Estado.ABIERTO,
+                    SecurityIncident.Estado.RECONOCIDO,
+                ]
+            )
+        )
+
+        self.assertEqual(
+            activos.count(),
+            1,
+        )
+
+        incidente = activos.get()
+
+        self.assertEqual(
+            incidente.contador_eventos,
+            2,
+        )
+
+        self.assertEqual(
+            incidente.evento_ultimo,
+            evento_2,
+        )
+
+class SecurityIncidentNotificationTransactionTests(
+    TransactionTestCase
+):
+    """
+    Un correo de alerta no debe escapar de una transacción que terminó
+    en rollback. La notificación se programa con on_commit().
+    """
+
+    @override_settings(
+        EMAIL_BACKEND=(
+            "django.core.mail.backends.locmem.EmailBackend"
+        ),
+        DEFAULT_FROM_EMAIL="security@foodback.test",
+        FOODBACK_SECURITY_ALERTS_ENABLED=True,
+        FOODBACK_SECURITY_ALERT_EMAIL=(
+            "foundation@foodback.test"
+        ),
+        FOODBACK_SECURITY_ALERT_COOLDOWN_SECONDS=300,
+    )
+    def test_rollback_no_envia_alerta_de_incidente(
+        self,
+    ):
+        factory = RequestFactory()
+        request = factory.post(
+            "/login/",
+            REMOTE_ADDR="192.0.2.250",
+        )
+        request.user = AnonymousUser()
+
+        with self.assertRaises(RuntimeError):
+            with transaction.atomic():
+                registrar_evento_auditoria(
+                    request=request,
+                    evento="auth.login.rate_limited",
+                    categoria=(
+                        AuditEvent.Categoria.AUTENTICACION
+                    ),
+                    severidad=(
+                        AuditEvent.Severidad.ALTA
+                    ),
+                    resultado=(
+                        AuditEvent.Resultado.BLOQUEADO
+                    ),
+                    descripcion=(
+                        "Bloqueo que será revertido."
+                    ),
+                    status_code=429,
+                    fail_silently=False,
+                )
+
+                raise RuntimeError(
+                    "forzar rollback"
+                )
+
+        self.assertEqual(
+            len(mail.outbox),
+            0,
+        )
+
+        self.assertFalse(
+            SecurityIncident.objects.exists()
+        )
+
+
+
+class Phase7RuntimeAuditFinalizationTests(TestCase):
+    """
+    Cierre de cobertura runtime de Fase 7.
+
+    Los errores operativos se auditan sin convertirlos automáticamente
+    en incidentes de seguridad; las señales HTTP sospechosas sí pasan
+    por el correlador.
+    """
+
+    def setUp(self):
+        self.factory = RequestFactory()
+
+    def _request(
+        self,
+        path="/fase7/runtime/",
+        ip="192.0.2.240",
+    ):
+        request = self.factory.post(
+            path,
+            REMOTE_ADDR=ip,
+            HTTP_USER_AGENT="FoodBackPhase7Final/1.0",
+        )
+        request.user = AnonymousUser()
+        request.tenant = None
+        request.sucursal = None
+        return request
+
+    def test_error_runtime_no_persiste_mensaje_sensible(
+        self,
+    ):
+        secreto = "password=NoPersistir-9284!"
+
+        evento = registrar_error_runtime(
+            request=self._request(),
+            exception=ValueError(secreto),
+        )
+
+        self.assertIsNotNone(evento)
+        self.assertEqual(
+            evento.evento,
+            "system.unhandled_exception",
+        )
+        self.assertEqual(
+            evento.categoria,
+            AuditEvent.Categoria.SISTEMA,
+        )
+        self.assertEqual(
+            evento.metadata["exception_type"],
+            "ValueError",
+        )
+
+        serializado = json.dumps(
+            evento.metadata,
+            sort_keys=True,
+        ) + evento.descripcion
+
+        self.assertNotIn(
+            secreto,
+            serializado,
+        )
+
+        self.assertFalse(
+            SecurityIncident.objects.exists()
+        )
+
+    def test_suspicious_operation_abre_incidente_seguridad(
+        self,
+    ):
+        evento = registrar_error_runtime(
+            request=self._request(
+                path="/entrada-sospechosa/",
+                ip="192.0.2.241",
+            ),
+            exception=SuspiciousOperation(
+                "Authorization: secreto-no-persistir"
+            ),
+        )
+
+        self.assertEqual(
+            evento.evento,
+            "security.suspicious_request",
+        )
+        self.assertEqual(
+            evento.severidad,
+            AuditEvent.Severidad.ALTA,
+        )
+
+        incidente = SecurityIncident.objects.get()
+
+        self.assertEqual(
+            incidente.evento_clave,
+            "security.suspicious_request",
+        )
+        self.assertEqual(
+            incidente.contador_eventos,
+            1,
+        )
+
+        self.assertNotIn(
+            "secreto-no-persistir",
+            json.dumps(evento.metadata),
+        )
+
+    def test_exception_middleware_registra_y_no_consume_excepcion(
+        self,
+    ):
+        middleware = AuditExceptionMiddleware(
+            lambda request: HttpResponse("ok")
+        )
+
+        resultado = middleware.process_exception(
+            self._request(
+                path="/runtime/middleware/",
+            ),
+            RuntimeError("dato sensible"),
+        )
+
+        self.assertIsNone(resultado)
+
+        evento = AuditEvent.objects.get(
+            evento="system.unhandled_exception"
+        )
+
+        self.assertEqual(
+            evento.metadata["exception_type"],
+            "RuntimeError",
+        )
+
+    def test_csrf_failure_audita_sin_guardar_reason_crudo(
+        self,
+    ):
+        request = self._request(
+            path="/accion-protegida/",
+            ip="192.0.2.242",
+        )
+
+        response = csrf_failure_view(
+            request,
+            reason="csrf-token-super-secreto",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403,
+        )
+
+        evento = AuditEvent.objects.get(
+            evento="security.csrf.rejected"
+        )
+
+        self.assertEqual(
+            evento.resultado,
+            AuditEvent.Resultado.BLOQUEADO,
+        )
+        self.assertEqual(
+            evento.metadata,
+            {
+                "reason_class": (
+                    "csrf_validation_failed"
+                ),
+            },
+        )
+
+        self.assertNotIn(
+            "csrf-token-super-secreto",
+            json.dumps(evento.metadata),
+        )
+
+    @patch(
+        "pedidos.views._validar_hash_webhook_wompi",
+        return_value=False,
+    )
+    def test_webhook_firma_invalida_abre_incidente(
+        self,
+        validar_hash_mock,
+    ):
+        response = self.client.post(
+            reverse("wompi_webhook"),
+            data=json.dumps(
+                {
+                    "identificadorEnlaceComercio": (
+                        "SUBS-T1-ABCDEF123456"
+                    ),
+                }
+            ),
+            content_type="application/json",
+            REMOTE_ADDR="192.0.2.243",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403,
+        )
+
+        evento = AuditEvent.objects.get(
+            evento=(
+                "security.webhook.signature_invalid"
+            )
+        )
+
+        self.assertEqual(
+            evento.severidad,
+            AuditEvent.Severidad.ALTA,
+        )
+
+        incidente = SecurityIncident.objects.get(
+            evento_clave=(
+                "security.webhook.signature_invalid"
+            )
+        )
+
+        self.assertEqual(
+            incidente.ip,
+            "192.0.2.243",
+        )
+
+
+class Phase7IncidentConstraintTests(TestCase):
+
+    def _base_kwargs(self):
+        ahora = timezone.now()
+        return {
+            "fingerprint": uuid.uuid4().hex * 2,
+            "evento_clave": "security.constraint.test",
+            "categoria": AuditEvent.Categoria.SEGURIDAD,
+            "severidad": AuditEvent.Severidad.MEDIA,
+            "titulo": "Constraint test",
+            "contador_eventos": 1,
+            "primero_visto_en": ahora,
+            "ultimo_visto_en": ahora,
+        }
+
+    def test_reconocido_requiere_timestamp_en_bd(self):
+        kwargs = self._base_kwargs()
+        kwargs["estado"] = SecurityIncident.Estado.RECONOCIDO
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                SecurityIncident.objects.create(
+                    **kwargs
+                )
+
+    def test_resuelto_requiere_timestamp_en_bd(self):
+        kwargs = self._base_kwargs()
+        kwargs["estado"] = SecurityIncident.Estado.RESUELTO
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                SecurityIncident.objects.create(
+                    **kwargs
+                )
+
+    def test_incidente_activo_no_admite_resuelto_en(self):
+        kwargs = self._base_kwargs()
+        kwargs["estado"] = SecurityIncident.Estado.ABIERTO
+        kwargs["resuelto_en"] = timezone.now()
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                SecurityIncident.objects.create(
+                    **kwargs
+                )
+
+
+class Phase7RetentionCommandTests(TestCase):
+
+    def _crear_evento_antiguo(
+        self,
+        *,
+        fingerprint=None,
+        dias=120,
+    ):
+        evento = AuditEvent.objects.create(
+            evento="audit.retention.test",
+            categoria=AuditEvent.Categoria.SISTEMA,
+            severidad=AuditEvent.Severidad.INFO,
+            resultado=AuditEvent.Resultado.INFORMATIVO,
+            descripcion="Evento histórico",
+            fingerprint=(
+                fingerprint
+                or (uuid.uuid4().hex * 2)
+            ),
+        )
+
+        antiguo = timezone.now() - timedelta(
+            days=dias
+        )
+
+        AuditEvent.objects.filter(
+            pk=evento.pk
+        ).update(
+            creado_en=antiguo
+        )
+
+        evento.refresh_from_db()
+        return evento
+
+    def _crear_incidente(
+        self,
+        *,
+        evento,
+        estado,
+        dias=120,
+    ):
+        momento = timezone.now() - timedelta(
+            days=dias
+        )
+
+        kwargs = {
+            "fingerprint": evento.fingerprint,
+            "evento_clave": evento.evento,
+            "categoria": AuditEvent.Categoria.SEGURIDAD,
+            "severidad": AuditEvent.Severidad.ALTA,
+            "estado": estado,
+            "titulo": "Incidente histórico",
+            "contador_eventos": 1,
+            "primero_visto_en": momento,
+            "ultimo_visto_en": momento,
+            "evento_inicial": evento,
+            "evento_ultimo": evento,
+        }
+
+        if estado == SecurityIncident.Estado.RECONOCIDO:
+            kwargs["reconocido_en"] = momento
+
+        if estado == SecurityIncident.Estado.RESUELTO:
+            kwargs["resuelto_en"] = momento
+
+        return SecurityIncident.objects.create(
+            **kwargs
+        )
+
+    def test_cleanup_es_dry_run_por_defecto(self):
+        evento = self._crear_evento_antiguo(
+            dias=120
+        )
+
+        salida = StringIO()
+
+        call_command(
+            "cleanup_security_data",
+            audit_days=30,
+            incident_days=60,
+            batch_size=100,
+            stdout=salida,
+        )
+
+        self.assertTrue(
+            AuditEvent.objects.filter(
+                pk=evento.pk
+            ).exists()
+        )
+
+        self.assertIn(
+            "SIMULACIÓN",
+            salida.getvalue(),
+        )
+
+    def test_cleanup_elimina_historico_expirado(self):
+        evento = self._crear_evento_antiguo(
+            dias=120
+        )
+
+        incidente = self._crear_incidente(
+            evento=evento,
+            estado=SecurityIncident.Estado.RESUELTO,
+            dias=120,
+        )
+
+        call_command(
+            "cleanup_security_data",
+            execute=True,
+            audit_days=30,
+            incident_days=60,
+            batch_size=100,
+            stdout=StringIO(),
+        )
+
+        self.assertFalse(
+            SecurityIncident.objects.filter(
+                pk=incidente.pk
+            ).exists()
+        )
+
+        self.assertFalse(
+            AuditEvent.objects.filter(
+                pk=evento.pk
+            ).exists()
+        )
+
+    def test_cleanup_preserva_incidente_activo_y_su_auditoria(self):
+        fingerprint = uuid.uuid4().hex * 2
+
+        evento = self._crear_evento_antiguo(
+            fingerprint=fingerprint,
+            dias=120,
+        )
+
+        incidente = self._crear_incidente(
+            evento=evento,
+            estado=SecurityIncident.Estado.ABIERTO,
+            dias=120,
+        )
+
+        call_command(
+            "cleanup_security_data",
+            execute=True,
+            audit_days=30,
+            incident_days=60,
+            batch_size=100,
+            stdout=StringIO(),
+        )
+
+        self.assertTrue(
+            SecurityIncident.objects.filter(
+                pk=incidente.pk
+            ).exists()
+        )
+
+        self.assertTrue(
+            AuditEvent.objects.filter(
+                pk=evento.pk
+            ).exists()
+        )
+
+    def test_cleanup_preserva_extremos_de_incidente_retenido(self):
+        evento = self._crear_evento_antiguo(
+            dias=120
+        )
+
+        incidente = self._crear_incidente(
+            evento=evento,
+            estado=SecurityIncident.Estado.RESUELTO,
+            dias=40,
+        )
+
+        call_command(
+            "cleanup_security_data",
+            execute=True,
+            audit_days=30,
+            incident_days=60,
+            batch_size=100,
+            stdout=StringIO(),
+        )
+
+        self.assertTrue(
+            SecurityIncident.objects.filter(
+                pk=incidente.pk
+            ).exists()
+        )
+
+        self.assertTrue(
+            AuditEvent.objects.filter(
+                pk=evento.pk
+            ).exists()
         )

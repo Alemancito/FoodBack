@@ -108,3 +108,43 @@ class TenantContextMiddleware:
                 )
 
         return response
+
+class AuditExceptionMiddleware:
+    """
+    Audita excepciones no controladas sin alterar la respuesta final.
+
+    Django seguirá aplicando su manejo normal de excepciones; este
+    middleware solo registra una señal segura para Foundation.
+    """
+
+    def __init__(
+        self,
+        get_response,
+    ):
+        self.get_response = get_response
+
+    def __call__(
+        self,
+        request,
+    ):
+        return self.get_response(
+            request
+        )
+
+    def process_exception(
+        self,
+        request,
+        exception,
+    ):
+        # Import local para evitar cargar el subsistema de auditoría
+        # durante el bootstrap del middleware.
+        from .audit import registrar_error_runtime
+
+        registrar_error_runtime(
+            request=request,
+            exception=exception,
+        )
+
+        # None = no consumimos la excepción; Django conserva su
+        # comportamiento estándar (500/400/etc.).
+        return None

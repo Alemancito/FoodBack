@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import json
+import logging
 import uuid
 import requests
 from datetime import datetime, date, timedelta
@@ -24,6 +25,7 @@ from .models import (
     Tenant,
     PasswordResetChallenge,
     StaffIdentity,
+    AuditEvent,
 )
 from django.db import IntegrityError, transaction
 from django.contrib import messages
@@ -35,6 +37,10 @@ from .security import (
     obtener_id_seguridad_cliente,
     obtener_ip_cliente,
     solicitar_password_reset,
+)
+from .audit import (
+    hash_valor_auditoria,
+    registrar_evento_auditoria,
 )
 from django.utils import timezone
 from django.conf import settings
@@ -76,6 +82,9 @@ from django.core.exceptions import (
 )
 from django.utils.dateparse import parse_datetime
 from django.utils.http import url_has_allowed_host_and_scheme
+logger = logging.getLogger("foodback.views")
+
+
 # --- LÓGICA DE LOGIN Y SEGURIDAD ---
 
 
@@ -320,6 +329,38 @@ class CustomLoginView(LoginView):
         if not limite_ip[
             "permitido"
         ]:
+            registrar_evento_auditoria(
+                request=request,
+                evento="auth.login.rate_limited",
+                categoria=(
+                    AuditEvent.Categoria.AUTENTICACION
+                ),
+                severidad=(
+                    AuditEvent.Severidad.ALTA
+                ),
+                resultado=(
+                    AuditEvent.Resultado.BLOQUEADO
+                ),
+                descripcion=(
+                    "Inicio de sesión bloqueado por "
+                    "límite de intentos desde la IP."
+                ),
+                status_code=429,
+                metadata={
+                    "scope": "ip",
+                    "username_hash": (
+                        hash_valor_auditoria(
+                            username
+                        )
+                    ),
+                    "retry_after": (
+                        limite_ip[
+                            "retry_after"
+                        ]
+                    ),
+                },
+            )
+
             return self._respuesta_rate_limit(
                 request,
                 limite_ip[
@@ -357,6 +398,38 @@ class CustomLoginView(LoginView):
         if not limite_usuario[
             "permitido"
         ]:
+            registrar_evento_auditoria(
+                request=request,
+                evento="auth.login.rate_limited",
+                categoria=(
+                    AuditEvent.Categoria.AUTENTICACION
+                ),
+                severidad=(
+                    AuditEvent.Severidad.ALTA
+                ),
+                resultado=(
+                    AuditEvent.Resultado.BLOQUEADO
+                ),
+                descripcion=(
+                    "Inicio de sesión bloqueado por "
+                    "límite de intentos contra una cuenta."
+                ),
+                status_code=429,
+                metadata={
+                    "scope": "ip_username",
+                    "username_hash": (
+                        hash_valor_auditoria(
+                            username
+                        )
+                    ),
+                    "retry_after": (
+                        limite_usuario[
+                            "retry_after"
+                        ]
+                    ),
+                },
+            )
+
             return self._respuesta_rate_limit(
                 request,
                 limite_usuario[
@@ -368,6 +441,48 @@ class CustomLoginView(LoginView):
             request,
             *args,
             **kwargs,
+        )
+
+    def form_invalid(
+        self,
+        form,
+    ):
+        username = (
+            self.request.POST.get(
+                "username",
+                "",
+            )
+            .strip()
+            .lower()
+        )[:150]
+
+        registrar_evento_auditoria(
+            request=self.request,
+            evento="auth.login.failed",
+            categoria=(
+                AuditEvent.Categoria.AUTENTICACION
+            ),
+            severidad=(
+                AuditEvent.Severidad.BAJA
+            ),
+            resultado=(
+                AuditEvent.Resultado.FALLO
+            ),
+            descripcion=(
+                "Intento de inicio de sesión rechazado."
+            ),
+            status_code=200,
+            metadata={
+                "username_hash": (
+                    hash_valor_auditoria(
+                        username
+                    )
+                ),
+            },
+        )
+
+        return super().form_invalid(
+            form
         )
 
     def form_valid(
@@ -383,6 +498,8 @@ class CustomLoginView(LoginView):
         absoluto de turno. Su actividad posterior no puede
         extender ese límite.
         """
+
+        actor_user = form.get_user()
 
         self.request.session.flush()
 
@@ -402,6 +519,25 @@ class CustomLoginView(LoginView):
 
         self.request.session.set_expiry(
             expiracion_absoluta
+        )
+
+        registrar_evento_auditoria(
+            request=self.request,
+            actor_user=actor_user,
+            evento="auth.login.success",
+            categoria=(
+                AuditEvent.Categoria.AUTENTICACION
+            ),
+            severidad=(
+                AuditEvent.Severidad.INFO
+            ),
+            resultado=(
+                AuditEvent.Resultado.EXITO
+            ),
+            descripcion=(
+                "Inicio de sesión de personal exitoso."
+            ),
+            status_code=302,
         )
 
         return response
@@ -581,6 +717,35 @@ def password_reset_request_view(request):
                 "rate_limit_retry_after"
             ] = retry_after
 
+            registrar_evento_auditoria(
+                request=request,
+                evento=(
+                    "account.password_reset.request_rate_limited"
+                ),
+                categoria=(
+                    AuditEvent.Categoria.CUENTA
+                ),
+                severidad=(
+                    AuditEvent.Severidad.ALTA
+                ),
+                resultado=(
+                    AuditEvent.Resultado.BLOQUEADO
+                ),
+                descripcion=(
+                    "Solicitud de recuperación bloqueada "
+                    "por rate limit."
+                ),
+                status_code=429,
+                metadata={
+                    "email_hash": (
+                        hash_valor_auditoria(
+                            email
+                        )
+                    ),
+                    "retry_after": retry_after,
+                },
+            )
+
             response = render(
                 request,
                 "registration/password_reset_request.html",
@@ -595,6 +760,32 @@ def password_reset_request_view(request):
             )
 
             return response
+
+        registrar_evento_auditoria(
+            request=request,
+            evento="account.password_reset.requested",
+            categoria=(
+                AuditEvent.Categoria.CUENTA
+            ),
+            severidad=(
+                AuditEvent.Severidad.INFO
+            ),
+            resultado=(
+                AuditEvent.Resultado.EXITO
+            ),
+            descripcion=(
+                "Solicitud de recuperación de contraseña "
+                "aceptada con respuesta anti-enumeración."
+            ),
+            status_code=302,
+            metadata={
+                "email_hash": (
+                    hash_valor_auditoria(
+                        email
+                    )
+                ),
+            },
+        )
 
         # Rotamos también la sesión anónima antes de
         # asociarle el identificador del flujo.
@@ -692,6 +883,30 @@ def password_reset_verify_view(request):
             "inténtalo nuevamente."
         )
 
+        registrar_evento_auditoria(
+            request=request,
+            evento=(
+                "account.password_reset.verify_rate_limited"
+            ),
+            categoria=(
+                AuditEvent.Categoria.CUENTA
+            ),
+            severidad=(
+                AuditEvent.Severidad.ALTA
+            ),
+            resultado=(
+                AuditEvent.Resultado.BLOQUEADO
+            ),
+            descripcion=(
+                "Verificación de recuperación bloqueada "
+                "por rate limit."
+            ),
+            status_code=429,
+            metadata={
+                "retry_after": retry_after,
+            },
+        )
+
         response = render(
             request,
             "registration/password_reset_verify.html",
@@ -716,6 +931,27 @@ def password_reset_verify_view(request):
     ).strip()[:32]
 
     if not flow_id:
+        registrar_evento_auditoria(
+            request=request,
+            evento="account.password_reset.verify_failed",
+            categoria=(
+                AuditEvent.Categoria.CUENTA
+            ),
+            severidad=(
+                AuditEvent.Severidad.BAJA
+            ),
+            resultado=(
+                AuditEvent.Resultado.FALLO
+            ),
+            descripcion=(
+                "Verificación de recuperación rechazada."
+            ),
+            status_code=200,
+            metadata={
+                "motivo": "missing_flow",
+            },
+        )
+
         context[
             "codigo_error"
         ] = (
@@ -737,6 +973,42 @@ def password_reset_verify_view(request):
     )
 
     if not resultado["valido"]:
+        challenge_fallido = resultado.get(
+            "challenge"
+        )
+
+        actor_fallido = None
+
+        if challenge_fallido is not None:
+            actor_fallido = (
+                challenge_fallido.identity.user
+            )
+
+        registrar_evento_auditoria(
+            request=request,
+            actor_user=actor_fallido,
+            evento="account.password_reset.verify_failed",
+            categoria=(
+                AuditEvent.Categoria.CUENTA
+            ),
+            severidad=(
+                AuditEvent.Severidad.BAJA
+            ),
+            resultado=(
+                AuditEvent.Resultado.FALLO
+            ),
+            descripcion=(
+                "Verificación de recuperación rechazada."
+            ),
+            status_code=200,
+            metadata={
+                "motivo": resultado.get(
+                    "estado",
+                    "DESCONOCIDO",
+                ),
+            },
+        )
+
         context[
             "codigo_error"
         ] = (
@@ -760,6 +1032,34 @@ def password_reset_verify_view(request):
         not identity.email_verified
         or not identity.user.is_active
     ):
+        registrar_evento_auditoria(
+            request=request,
+            actor_user=identity.user,
+            evento="account.password_reset.verify_failed",
+            categoria=(
+                AuditEvent.Categoria.CUENTA
+            ),
+            severidad=(
+                AuditEvent.Severidad.MEDIA
+            ),
+            resultado=(
+                AuditEvent.Resultado.FALLO
+            ),
+            descripcion=(
+                "Código válido rechazado por estado de "
+                "la identidad o del usuario."
+            ),
+            status_code=200,
+            metadata={
+                "email_verified": (
+                    identity.email_verified
+                ),
+                "user_active": (
+                    identity.user.is_active
+                ),
+            },
+        )
+
         request.session.pop(
             PASSWORD_RESET_FLOW_SESSION_KEY,
             None,
@@ -777,6 +1077,25 @@ def password_reset_verify_view(request):
             "registration/password_reset_verify.html",
             context,
         )
+
+    registrar_evento_auditoria(
+        request=request,
+        actor_user=identity.user,
+        evento="account.password_reset.code_verified",
+        categoria=(
+            AuditEvent.Categoria.CUENTA
+        ),
+        severidad=(
+            AuditEvent.Severidad.MEDIA
+        ),
+        resultado=(
+            AuditEvent.Resultado.EXITO
+        ),
+        descripcion=(
+            "Código de recuperación verificado."
+        ),
+        status_code=302,
+    )
 
     # El código ya otorgó una capacidad sensible.
     # Rotamos de nuevo la session_key para que una
@@ -1040,6 +1359,28 @@ def password_reset_new_view(request):
             ]
         )
 
+    registrar_evento_auditoria(
+        request=request,
+        actor_user=identity.user,
+        evento="account.password_reset.completed",
+        categoria=(
+            AuditEvent.Categoria.CUENTA
+        ),
+        severidad=(
+            AuditEvent.Severidad.MEDIA
+        ),
+        resultado=(
+            AuditEvent.Resultado.EXITO
+        ),
+        descripcion=(
+            "Contraseña restablecida mediante flujo "
+            "de recuperación verificado."
+        ),
+        status_code=302,
+        objeto_tipo="user",
+        objeto_id=identity.user_id,
+    )
+
     # Cambiar el password cambia el session auth hash de
     # Django, invalidando las sesiones autenticadas con la
     # credencial anterior en su siguiente request.
@@ -1062,6 +1403,24 @@ def password_reset_new_view(request):
 
 @require_POST
 def logout_view(request):
+    registrar_evento_auditoria(
+        request=request,
+        evento="auth.logout",
+        categoria=(
+            AuditEvent.Categoria.AUTENTICACION
+        ),
+        severidad=(
+            AuditEvent.Severidad.INFO
+        ),
+        resultado=(
+            AuditEvent.Resultado.EXITO
+        ),
+        descripcion=(
+            "Cierre de sesión de personal."
+        ),
+        status_code=302,
+    )
+
     logout(request)
     return redirect('login_custom')
 
@@ -2520,8 +2879,25 @@ def checkout_view(request):
             # Si el IntegrityError fue provocado por otra
             # restricción, no lo tratamos falsamente como
             # una repetición idempotente.
-            print(
-                f"Error de integridad checkout: {e}"
+            registrar_evento_auditoria(
+                request=request,
+                evento="system.checkout.integrity_error",
+                categoria=AuditEvent.Categoria.SISTEMA,
+                severidad=AuditEvent.Severidad.ALTA,
+                resultado=AuditEvent.Resultado.ERROR,
+                descripcion=(
+                    "Error de integridad inesperado durante checkout."
+                ),
+                status_code=500,
+                metadata={
+                    "exception_type": e.__class__.__name__,
+                },
+                fail_silently=True,
+            )
+
+            logger.error(
+                "Error de integridad inesperado en checkout. tipo=%s",
+                e.__class__.__name__,
             )
 
             messages.error(
@@ -2540,8 +2916,25 @@ def checkout_view(request):
             # De momento queda únicamente en consola.
             # Más adelante irá al sistema profesional
             # de logging/error reporting.
-            print(
-                f"Error interno checkout: {e}"
+            registrar_evento_auditoria(
+                request=request,
+                evento="system.checkout.unhandled_error",
+                categoria=AuditEvent.Categoria.SISTEMA,
+                severidad=AuditEvent.Severidad.ALTA,
+                resultado=AuditEvent.Resultado.ERROR,
+                descripcion=(
+                    "Error interno controlado durante checkout."
+                ),
+                status_code=500,
+                metadata={
+                    "exception_type": e.__class__.__name__,
+                },
+                fail_silently=True,
+            )
+
+            logger.error(
+                "Error interno controlado en checkout. tipo=%s",
+                e.__class__.__name__,
             )
 
             messages.error(
@@ -2751,6 +3144,33 @@ def checkout_view(request):
     
     
     
+def _auditar_rate_limit_bloqueado(
+    *,
+    request,
+    evento,
+    descripcion,
+    scope,
+):
+    """
+    Registra rate-limits operativos sensibles sin persistir
+    session keys, identificadores internos crudos ni payloads.
+    """
+
+    registrar_evento_auditoria(
+        request=request,
+        evento=evento,
+        categoria=AuditEvent.Categoria.SEGURIDAD,
+        severidad=AuditEvent.Severidad.MEDIA,
+        resultado=AuditEvent.Resultado.BLOQUEADO,
+        descripcion=descripcion,
+        status_code=429,
+        metadata={
+            "scope": scope,
+        },
+        fail_silently=True,
+    )
+
+
 def _verificar_rate_limit_checkout(
     request,
     tenant,
@@ -2807,6 +3227,14 @@ def _verificar_rate_limit_checkout(
     if not limite_cliente[
         "permitido"
     ]:
+        _auditar_rate_limit_bloqueado(
+            request=request,
+            evento="security.rate_limit.checkout",
+            descripcion=(
+                "Checkout bloqueado por rate limit de sesión."
+            ),
+            scope="session",
+        )
         return limite_cliente
 
     limite_ip = consumir_rate_limit(
@@ -2832,6 +3260,14 @@ def _verificar_rate_limit_checkout(
     if not limite_ip[
         "permitido"
     ]:
+        _auditar_rate_limit_bloqueado(
+            request=request,
+            evento="security.rate_limit.checkout",
+            descripcion=(
+                "Checkout bloqueado por rate limit de IP."
+            ),
+            scope="ip",
+        )
         return limite_ip
 
     return None
@@ -2890,6 +3326,14 @@ def _verificar_rate_limit_pagar_wompi(
     if not limite_cliente[
         "permitido"
     ]:
+        _auditar_rate_limit_bloqueado(
+            request=request,
+            evento="security.rate_limit.payment_start",
+            descripcion=(
+                "Inicio de pago bloqueado por rate limit de sesión."
+            ),
+            scope="session",
+        )
         return limite_cliente
 
     limite_ip = consumir_rate_limit(
@@ -2915,6 +3359,14 @@ def _verificar_rate_limit_pagar_wompi(
     if not limite_ip[
         "permitido"
     ]:
+        _auditar_rate_limit_bloqueado(
+            request=request,
+            evento="security.rate_limit.payment_start",
+            descripcion=(
+                "Inicio de pago bloqueado por rate limit de IP."
+            ),
+            scope="ip",
+        )
         return limite_ip
 
     return None
@@ -2973,6 +3425,14 @@ def _verificar_rate_limit_retomar_pago(
     if not limite_cliente[
         "permitido"
     ]:
+        _auditar_rate_limit_bloqueado(
+            request=request,
+            evento="security.rate_limit.payment_resume",
+            descripcion=(
+                "Reanudación de pago bloqueada por rate limit de sesión."
+            ),
+            scope="session",
+        )
         return limite_cliente
 
     limite_ip = consumir_rate_limit(
@@ -2998,6 +3458,14 @@ def _verificar_rate_limit_retomar_pago(
     if not limite_ip[
         "permitido"
     ]:
+        _auditar_rate_limit_bloqueado(
+            request=request,
+            evento="security.rate_limit.payment_resume",
+            descripcion=(
+                "Reanudación de pago bloqueada por rate limit de IP."
+            ),
+            scope="ip",
+        )
         return limite_ip
 
     return None
@@ -3058,6 +3526,14 @@ def _verificar_rate_limit_pago_suscripcion(
     if not limite_usuario[
         "permitido"
     ]:
+        _auditar_rate_limit_bloqueado(
+            request=request,
+            evento="security.rate_limit.subscription_payment",
+            descripcion=(
+                "Pago de suscripción bloqueado por rate limit de usuario."
+            ),
+            scope="user",
+        )
         return limite_usuario
 
     limite_ip = consumir_rate_limit(
@@ -3083,6 +3559,14 @@ def _verificar_rate_limit_pago_suscripcion(
     if not limite_ip[
         "permitido"
     ]:
+        _auditar_rate_limit_bloqueado(
+            request=request,
+            evento="security.rate_limit.subscription_payment",
+            descripcion=(
+                "Pago de suscripción bloqueado por rate limit de IP."
+            ),
+            scope="ip",
+        )
         return limite_ip
 
     return None
@@ -3138,6 +3622,14 @@ def _verificar_rate_limit_accion_pedido_pendiente(
     if not limite_cliente[
         "permitido"
     ]:
+        _auditar_rate_limit_bloqueado(
+            request=request,
+            evento="security.rate_limit.pending_order_action",
+            descripcion=(
+                "Acción sobre pedido pendiente bloqueada por rate limit de sesión."
+            ),
+            scope="session",
+        )
         return limite_cliente
 
     limite_ip = consumir_rate_limit(
@@ -3163,6 +3655,14 @@ def _verificar_rate_limit_accion_pedido_pendiente(
     if not limite_ip[
         "permitido"
     ]:
+        _auditar_rate_limit_bloqueado(
+            request=request,
+            evento="security.rate_limit.pending_order_action",
+            descripcion=(
+                "Acción sobre pedido pendiente bloqueada por rate limit de IP."
+            ),
+            scope="ip",
+        )
         return limite_ip
 
     return None
@@ -4841,8 +5341,25 @@ def _iniciar_pago_wompi_pedido(request, pedido):
                     f"{uuid.uuid4().hex}"
                 ),
             )
-        print(
-            f'Error Wompi pedido: {e}'
+        registrar_evento_auditoria(
+            request=request,
+            evento="payment.wompi.order_start_error",
+            categoria=AuditEvent.Categoria.PAGOS,
+            severidad=AuditEvent.Severidad.ALTA,
+            resultado=AuditEvent.Resultado.ERROR,
+            descripcion=(
+                "No fue posible iniciar el pago Wompi del pedido."
+            ),
+            status_code=502,
+            metadata={
+                "exception_type": e.__class__.__name__,
+            },
+            fail_silently=True,
+        )
+
+        logger.error(
+            "Error iniciando pago Wompi de pedido. tipo=%s",
+            e.__class__.__name__,
         )
 
         messages.error(
@@ -7769,9 +8286,27 @@ def pagar_suscripcion_view(request):
                 )
 
             except Exception as e:
-                print(
-                    f'Error Wompi '
-                    f'suscripción: {e}'
+                registrar_evento_auditoria(
+                    request=request,
+                    evento=(
+                        "payment.wompi.subscription_start_error"
+                    ),
+                    categoria=AuditEvent.Categoria.PAGOS,
+                    severidad=AuditEvent.Severidad.ALTA,
+                    resultado=AuditEvent.Resultado.ERROR,
+                    descripcion=(
+                        "No fue posible iniciar el pago Wompi de la suscripción."
+                    ),
+                    status_code=502,
+                    metadata={
+                        "exception_type": e.__class__.__name__,
+                    },
+                    fail_silently=True,
+                )
+
+                logger.error(
+                    "Error iniciando pago Wompi de suscripción. tipo=%s",
+                    e.__class__.__name__,
                 )
 
                 pago.estado = 'ERROR'
@@ -7867,9 +8402,27 @@ def pagar_suscripcion_view(request):
             )
 
     except Exception as e:
-        print(
-            f'Error interno '
-            f'suscripción Wompi: {e}'
+        registrar_evento_auditoria(
+            request=request,
+            evento=(
+                "payment.wompi.subscription_internal_error"
+            ),
+            categoria=AuditEvent.Categoria.PAGOS,
+            severidad=AuditEvent.Severidad.ALTA,
+            resultado=AuditEvent.Resultado.ERROR,
+            descripcion=(
+                "Error interno preparando pago de suscripción Wompi."
+            ),
+            status_code=500,
+            metadata={
+                "exception_type": e.__class__.__name__,
+            },
+            fail_silently=True,
+        )
+
+        logger.error(
+            "Error interno preparando suscripción Wompi. tipo=%s",
+            e.__class__.__name__,
         )
 
         messages.error(
@@ -8141,6 +8694,28 @@ def _procesar_wompi_webhook_validado(
     )
 
 
+def _auditar_webhook_wompi_seguridad(
+    request,
+    *,
+    evento,
+    severidad,
+    resultado,
+    descripcion,
+    status_code,
+):
+    registrar_evento_auditoria(
+        request=request,
+        evento=evento,
+        categoria=AuditEvent.Categoria.SEGURIDAD,
+        severidad=severidad,
+        resultado=resultado,
+        descripcion=descripcion,
+        status_code=status_code,
+        fuente=AuditEvent.Fuente.WEBHOOK,
+        fail_silently=True,
+    )
+
+
 @csrf_exempt
 @never_cache
 @require_POST
@@ -8167,6 +8742,19 @@ def wompi_webhook_view(request):
     if content_length:
         try:
             if int(content_length) > limite_bytes:
+                _auditar_webhook_wompi_seguridad(
+                    request,
+                    evento=(
+                        "security.webhook.payload_too_large"
+                    ),
+                    severidad=AuditEvent.Severidad.MEDIA,
+                    resultado=AuditEvent.Resultado.BLOQUEADO,
+                    descripcion=(
+                        "Webhook Wompi rechazado por tamaño de payload."
+                    ),
+                    status_code=413,
+                )
+
                 return JsonResponse(
                     {
                         "status": "error",
@@ -8186,6 +8774,19 @@ def wompi_webhook_view(request):
     raw_body = request.body
 
     if len(raw_body) > limite_bytes:
+        _auditar_webhook_wompi_seguridad(
+            request,
+            evento=(
+                "security.webhook.payload_too_large"
+            ),
+            severidad=AuditEvent.Severidad.MEDIA,
+            resultado=AuditEvent.Resultado.BLOQUEADO,
+            descripcion=(
+                "Webhook Wompi rechazado por tamaño de payload."
+            ),
+            status_code=413,
+        )
+
         return JsonResponse(
             {
                 "status": "error",
@@ -8239,6 +8840,19 @@ def wompi_webhook_view(request):
             tipo_pago=tipo_pago,
             raw_body=raw_body
         ):
+            _auditar_webhook_wompi_seguridad(
+                request,
+                evento=(
+                    "security.webhook.signature_invalid"
+                ),
+                severidad=AuditEvent.Severidad.ALTA,
+                resultado=AuditEvent.Resultado.DENEGADO,
+                descripcion=(
+                    "Webhook Wompi rechazado por firma inválida."
+                ),
+                status_code=403,
+            )
+
             return JsonResponse(
                 {
                     'status': 'error',
@@ -8271,6 +8885,19 @@ def wompi_webhook_view(request):
             )
 
             if not tenant_webhook:
+                _auditar_webhook_wompi_seguridad(
+                    request,
+                    evento=(
+                        "security.webhook.tenant_context_invalid"
+                    ),
+                    severidad=AuditEvent.Severidad.ALTA,
+                    resultado=AuditEvent.Resultado.DENEGADO,
+                    descripcion=(
+                        "Webhook Wompi rechazado por Tenant inválido."
+                    ),
+                    status_code=403,
+                )
+
                 return JsonResponse(
                     {
                         "status": "error",
@@ -8287,6 +8914,19 @@ def wompi_webhook_view(request):
                 and tenant_request.pk
                 != tenant_webhook.pk
             ):
+                _auditar_webhook_wompi_seguridad(
+                    request,
+                    evento=(
+                        "security.webhook.tenant_context_invalid"
+                    ),
+                    severidad=AuditEvent.Severidad.ALTA,
+                    resultado=AuditEvent.Resultado.DENEGADO,
+                    descripcion=(
+                        "Webhook Wompi rechazado por conflicto de contexto Tenant."
+                    ),
+                    status_code=403,
+                )
+
                 return JsonResponse(
                     {
                         "status": "error",
@@ -8304,6 +8944,19 @@ def wompi_webhook_view(request):
             )
 
             if not tenant_webhook:
+                _auditar_webhook_wompi_seguridad(
+                    request,
+                    evento=(
+                        "security.webhook.tenant_context_invalid"
+                    ),
+                    severidad=AuditEvent.Severidad.ALTA,
+                    resultado=AuditEvent.Resultado.DENEGADO,
+                    descripcion=(
+                        "Webhook Wompi rechazado sin Tenant confiable."
+                    ),
+                    status_code=403,
+                )
+
                 return JsonResponse(
                     {
                         "status": "error",
@@ -8330,6 +8983,17 @@ def wompi_webhook_view(request):
         UnicodeDecodeError,
         json.JSONDecodeError,
     ):
+        _auditar_webhook_wompi_seguridad(
+            request,
+            evento="security.webhook.invalid_json",
+            severidad=AuditEvent.Severidad.BAJA,
+            resultado=AuditEvent.Resultado.FALLO,
+            descripcion=(
+                "Webhook Wompi rechazado por JSON inválido."
+            ),
+            status_code=400,
+        )
+
         return JsonResponse(
             {
                 'status': 'error',
@@ -8339,5 +9003,32 @@ def wompi_webhook_view(request):
         )
 
     except Exception as e:
-        print(f'Error webhook Wompi: {e}')
-        return JsonResponse({'status': 'error', 'msg': 'Error interno'}, status=500)
+        registrar_evento_auditoria(
+            request=request,
+            evento="payment.wompi.webhook.error",
+            categoria=AuditEvent.Categoria.PAGOS,
+            severidad=AuditEvent.Severidad.ALTA,
+            resultado=AuditEvent.Resultado.ERROR,
+            descripcion=(
+                "Error interno procesando webhook Wompi."
+            ),
+            status_code=500,
+            fuente=AuditEvent.Fuente.WEBHOOK,
+            metadata={
+                "exception_type": e.__class__.__name__,
+            },
+            fail_silently=True,
+        )
+
+        logger.error(
+            "Error interno procesando webhook Wompi. tipo=%s",
+            e.__class__.__name__,
+        )
+
+        return JsonResponse(
+            {
+                'status': 'error',
+                'msg': 'Error interno',
+            },
+            status=500,
+        )

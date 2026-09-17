@@ -982,6 +982,164 @@ class SecurityIncident(models.Model):
 
 
 
+
+class SupportReport(models.Model):
+    """
+    Ticket humano de soporte creado desde una pantalla de error.
+
+    Es deliberadamente global/control-plane, igual que AuditEvent y
+    SecurityIncident. No usa RLS de negocio y NO concede acceso a datos
+    de un Tenant. Tenant/sucursal/actor se guardan como snapshots para
+    que Foundation pueda investigar el reporte posteriormente.
+
+    El request_id original se firma en servidor antes de llegar al
+    navegador; nunca se aceptan Tenant, sucursal ni actor desde POST.
+    """
+
+    class Estado(models.TextChoices):
+        ABIERTO = "ABIERTO", "Abierto"
+        EN_REVISION = "EN_REVISION", "En revisión"
+        RESUELTO = "RESUELTO", "Resuelto"
+
+    class Origen(models.TextChoices):
+        ERROR_HTTP = "ERROR_HTTP", "Pantalla de error HTTP"
+
+    public_id = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True,
+    )
+
+    # Referencia técnica que el usuario vio en la pantalla de error.
+    # Es única para que reenviar el mismo formulario sea idempotente.
+    source_request_id = models.UUIDField(
+        unique=True,
+        editable=False,
+    )
+
+    # Request que efectivamente creó el ticket.
+    submission_request_id = models.UUIDField(
+        null=True,
+        blank=True,
+        db_index=True,
+    )
+
+    origen = models.CharField(
+        max_length=24,
+        choices=Origen.choices,
+        default=Origen.ERROR_HTTP,
+    )
+
+    http_status = models.PositiveSmallIntegerField()
+
+    estado = models.CharField(
+        max_length=20,
+        choices=Estado.choices,
+        default=Estado.ABIERTO,
+        db_index=True,
+    )
+
+    # Texto voluntario del usuario. No copiamos request.POST, headers,
+    # cookies, tracebacks ni mensajes técnicos dentro del ticket.
+    mensaje = models.TextField(
+        max_length=1500,
+        blank=True,
+    )
+
+    actor_usuario = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="foodback_support_reports",
+    )
+
+    actor_username = models.CharField(
+        max_length=150,
+        blank=True,
+    )
+
+    actor_role = models.CharField(
+        max_length=40,
+        blank=True,
+    )
+
+    tenant_public_id = models.UUIDField(
+        null=True,
+        blank=True,
+    )
+
+    tenant_nombre = models.CharField(
+        max_length=150,
+        blank=True,
+    )
+
+    sucursal_public_id = models.UUIDField(
+        null=True,
+        blank=True,
+    )
+
+    sucursal_nombre = models.CharField(
+        max_length=150,
+        blank=True,
+    )
+
+    creado_en = models.DateTimeField(
+        auto_now_add=True,
+        db_index=True,
+    )
+
+    actualizado_en = models.DateTimeField(
+        auto_now=True,
+    )
+
+    def __str__(self):
+        return (
+            f"Soporte {self.public_id} - "
+            f"HTTP {self.http_status} - "
+            f"{self.estado}"
+        )
+
+    class Meta:
+        verbose_name = "Reporte de soporte"
+        verbose_name_plural = "Reportes de soporte"
+        ordering = [
+            "-creado_en",
+        ]
+
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(
+                    http_status__in=[
+                        400,
+                        403,
+                        404,
+                        500,
+                    ],
+                ),
+                name="support_http_status_allowed",
+            ),
+        ]
+
+        indexes = [
+            models.Index(
+                fields=[
+                    "estado",
+                    "-creado_en",
+                ],
+                name="support_state_created_idx",
+            ),
+            models.Index(
+                fields=[
+                    "tenant_public_id",
+                    "-creado_en",
+                ],
+                name="support_tenant_created_idx",
+            ),
+        ]
+
+
 class Membership(models.Model):
     """
     Relación segura entre un usuario de Django y un Tenant.

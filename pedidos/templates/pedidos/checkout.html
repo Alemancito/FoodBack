@@ -1872,6 +1872,73 @@
             if (telefono) telefono.addEventListener('input', () => limpiarValidacionCampo('telefono'));
         }
 
+        async function leerRespuestaCarritoSegura(response) {
+            let data = null;
+            const contentType = (
+                response.headers.get('Content-Type')
+                || ''
+            ).toLowerCase();
+
+            if (contentType.includes('application/json')) {
+                try {
+                    data = await response.json();
+                } catch (error) {
+                    data = null;
+                }
+            }
+
+            if (!response.ok || !data) {
+                const requestId =
+                    data?.error?.request_id
+                    || response.headers.get('X-Request-ID')
+                    || '';
+
+                const mensaje =
+                    data?.error?.message
+                    || data?.detail
+                    || 'No pudimos actualizar tu carrito. Intenta nuevamente.';
+
+                const error = new Error(
+                    'foodback_cart_update_failed'
+                );
+
+                error.foodbackMessage = mensaje;
+                error.foodbackRequestId = requestId;
+
+                throw error;
+            }
+
+            return data;
+        }
+
+        function mostrarErrorActualizacionCarrito(error) {
+            const mensaje = (
+                error?.foodbackMessage
+                || 'No pudimos actualizar tu carrito. Revisa tu conexión e intenta nuevamente.'
+            );
+
+            const requestId = (
+                error?.foodbackRequestId
+                || ''
+            );
+
+            const texto = requestId
+                ? `${mensaje}\n\nCódigo de referencia: ${requestId}`
+                : mensaje;
+
+            Swal.fire({
+                title: 'No pudimos actualizar el carrito',
+                text: texto,
+                icon: 'error',
+                confirmButtonText: 'Entendido',
+                confirmButtonColor: '#D35400',
+                customClass: {
+                    popup: 'swal-premium-popup',
+                    confirmButton: 'swal-premium-confirm'
+                }
+            });
+        }
+
         function borrarItemSinRecargar(key) {
             Swal.fire({
                 title: '¿Eliminar producto?',
@@ -1888,32 +1955,89 @@
                 },
                 buttonsStyling: false
             }).then((result) => {
-                if (result.isConfirmed) {
-                    const csrfToken = document.querySelector(
-                        '[name=csrfmiddlewaretoken]'
-                    ).value;
-
-                    fetch(`/eliminar-item/${key}/`, {
-                        method: 'POST',
-                        headers: {
-                            'X-Requested-With': 'XMLHttpRequest',
-                            'X-CSRFToken': csrfToken
-                        }
-                    })
-                    .then(response => response.json())
-                    .then(data => {
-                        if(data.status === 'ok') {
-                            if(data.vacio) {
-                                document.getElementById('checkout-form-container').style.display = 'none';
-                                document.getElementById('resumen-carrito').innerHTML = '<div class="text-center py-4"><i class="bi bi-cart-x fs-1 text-muted opacity-50"></i><p class="mt-2 text-muted">Tu carrito está vacío.</p><a href="/" class="btn btn-sm btn-outline-dark rounded-pill px-3">Ir al Menú</a></div>';
-                            } else {
-                                document.getElementById('resumen-carrito').innerHTML = data.html;
-                                precioBaseGlobal = data.total;
-                                actualizarTotal();
-                            }
-                        }
-                    });
+                if (!result.isConfirmed) {
+                    return;
                 }
+
+                const csrfToken = document.querySelector(
+                    '[name=csrfmiddlewaretoken]'
+                ).value;
+
+                fetch(`/eliminar-item/${key}/`, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRFToken': csrfToken,
+                        'Accept': 'application/json'
+                    }
+                })
+                .then(leerRespuestaCarritoSegura)
+                .then(data => {
+                    if (data.status !== 'ok') {
+                        const error = new Error(
+                            'foodback_cart_unexpected_status'
+                        );
+
+                        error.foodbackMessage = (
+                            data?.error?.message
+                            || data?.detail
+                            || 'No pudimos actualizar tu carrito. Intenta nuevamente.'
+                        );
+
+                        error.foodbackRequestId = (
+                            data?.error?.request_id
+                            || ''
+                        );
+
+                        throw error;
+                    }
+
+                    if (data.vacio) {
+                        document.getElementById(
+                            'checkout-form-container'
+                        ).style.display = 'none';
+
+                        document.getElementById(
+                            'resumen-carrito'
+                        ).innerHTML = (
+                            '<div class="text-center py-4">'
+                            + '<i class="bi bi-cart-x fs-1 text-muted opacity-50"></i>'
+                            + '<p class="mt-2 text-muted">Tu carrito está vacío.</p>'
+                            + '<a href="/" class="btn btn-sm btn-outline-dark rounded-pill px-3">'
+                            + 'Ir al Menú'
+                            + '</a>'
+                            + '</div>'
+                        );
+
+                        precioBaseGlobal = 0;
+                        actualizarTotal();
+                        return;
+                    }
+
+                    document.getElementById(
+                        'resumen-carrito'
+                    ).innerHTML = data.html;
+
+                    precioBaseGlobal = Number(
+                        data.total
+                    );
+
+                    if (!Number.isFinite(
+                        precioBaseGlobal
+                    )) {
+                        throw new Error(
+                            'foodback_cart_invalid_total'
+                        );
+                    }
+
+                    actualizarTotal();
+                })
+                .catch(error => {
+                    mostrarErrorActualizacionCarrito(
+                        error
+                    );
+                });
             });
         }
 

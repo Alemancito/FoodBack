@@ -1,0 +1,521 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,nofollow">
+    <title>{{ status_code }} · FoodBack</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --bg: #f3f4f6;
+            --ink: #16181d;
+            --muted: #68707d;
+            --line: #e5e7eb;
+            --paper: #ffffff;
+            --dark: #17191e;
+            --accent: #ef7a24;
+            --accent-dark: #d45d0e;
+            --accent-soft: #fff2e8;
+            --success-soft: #eefbf4;
+        }
+
+        * { box-sizing: border-box; }
+
+        html, body { min-height: 100%; }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            padding: 28px;
+            color: var(--ink);
+            background:
+                radial-gradient(circle at 12% 8%, rgba(239,122,36,.10), transparent 27rem),
+                linear-gradient(180deg, #f7f7f8 0%, var(--bg) 100%);
+            font-family:
+                Inter,
+                ui-sans-serif,
+                system-ui,
+                -apple-system,
+                BlinkMacSystemFont,
+                "Segoe UI",
+                sans-serif;
+        }
+
+        .shell {
+            width: min(100%, 980px);
+            display: grid;
+            grid-template-columns: 290px 1fr;
+            overflow: hidden;
+            border: 1px solid rgba(17, 24, 39, .08);
+            border-radius: 30px;
+            background: var(--paper);
+            box-shadow: 0 30px 90px rgba(18, 24, 35, .13);
+        }
+
+        .rail {
+            position: relative;
+            min-height: 610px;
+            padding: 34px 30px;
+            overflow: hidden;
+            color: white;
+            background:
+                linear-gradient(160deg, #1c1e24 0%, #101217 72%);
+        }
+
+        .rail::after {
+            content: "";
+            position: absolute;
+            width: 280px;
+            height: 280px;
+            right: -145px;
+            bottom: -80px;
+            border: 46px solid rgba(239,122,36,.11);
+            border-radius: 50%;
+        }
+
+        .brand {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            align-items: center;
+            gap: 11px;
+            font-weight: 850;
+            letter-spacing: .02em;
+        }
+
+        .brand-mark {
+            width: 38px;
+            height: 38px;
+            display: grid;
+            place-items: center;
+            border-radius: 12px;
+            background: var(--accent);
+            box-shadow: 0 10px 28px rgba(239,122,36,.25);
+        }
+
+        .ticket-label {
+            position: relative;
+            z-index: 1;
+            margin-top: 78px;
+            color: rgba(255,255,255,.55);
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: .16em;
+            text-transform: uppercase;
+        }
+
+        .ticket-code {
+            position: relative;
+            z-index: 1;
+            margin-top: 12px;
+            font-size: clamp(66px, 8vw, 98px);
+            font-weight: 900;
+            line-height: .9;
+            letter-spacing: -.07em;
+        }
+
+        .flow {
+            position: relative;
+            z-index: 1;
+            display: grid;
+            gap: 14px;
+            margin-top: 56px;
+        }
+
+        .flow-row {
+            display: grid;
+            grid-template-columns: 14px 1fr;
+            gap: 10px;
+            align-items: center;
+            color: rgba(255,255,255,.58);
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .dot {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            background: rgba(255,255,255,.24);
+            box-shadow: 0 0 0 4px rgba(255,255,255,.04);
+        }
+
+        .flow-row.active {
+            color: white;
+        }
+
+        .flow-row.active .dot {
+            background: var(--accent);
+            box-shadow: 0 0 0 4px rgba(239,122,36,.14);
+        }
+
+        .rail-note {
+            position: absolute;
+            z-index: 1;
+            left: 30px;
+            right: 30px;
+            bottom: 34px;
+            color: rgba(255,255,255,.68);
+            font-size: 12px;
+            line-height: 1.55;
+        }
+
+        .content {
+            padding: clamp(34px, 6vw, 64px);
+        }
+
+        .eyebrow {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            color: var(--accent-dark);
+            background: var(--accent-soft);
+            font-size: 12px;
+            font-weight: 850;
+            letter-spacing: .02em;
+        }
+
+        h1 {
+            max-width: 620px;
+            margin: 22px 0 14px;
+            font-size: clamp(30px, 4.8vw, 48px);
+            line-height: 1.03;
+            letter-spacing: -.048em;
+        }
+
+        .lead {
+            max-width: 650px;
+            margin: 0;
+            color: var(--muted);
+            font-size: 16px;
+            line-height: 1.75;
+        }
+
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 11px;
+            margin-top: 30px;
+        }
+
+        .button,
+        .report-summary {
+            min-height: 48px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 0 18px;
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            color: var(--ink);
+            background: white;
+            text-decoration: none;
+            font: inherit;
+            font-size: 14px;
+            font-weight: 800;
+            cursor: pointer;
+        }
+
+        .button-primary {
+            border-color: var(--dark);
+            color: white;
+            background: var(--dark);
+        }
+
+        .button:hover,
+        .report-summary:hover {
+            transform: translateY(-1px);
+        }
+
+        .reference {
+            margin-top: 34px;
+            padding: 18px 20px;
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            background: #fafafa;
+        }
+
+        .reference-label {
+            color: var(--muted);
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: .10em;
+            text-transform: uppercase;
+        }
+
+        .reference-code {
+            display: block;
+            margin-top: 8px;
+            color: var(--ink);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 12px;
+            font-weight: 700;
+            line-height: 1.55;
+            overflow-wrap: anywhere;
+        }
+
+        details.report {
+            margin-top: 16px;
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            background: white;
+        }
+
+        details.report > summary {
+            list-style: none;
+        }
+
+        details.report > summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .report-summary {
+            width: 100%;
+            min-height: 54px;
+            justify-content: space-between;
+            border: 0;
+            border-radius: 18px;
+        }
+
+        .report-summary span:last-child {
+            color: var(--accent-dark);
+        }
+
+        .report-body {
+            padding: 0 18px 18px;
+        }
+
+        .report-copy {
+            margin: 0 0 12px;
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.55;
+        }
+
+        .report-warning {
+            margin: 0 0 14px;
+            padding: 10px 12px;
+            border-radius: 12px;
+            color: #8a4b15;
+            background: #fff8ef;
+            font-size: 12px;
+            line-height: 1.45;
+        }
+
+        textarea {
+            width: 100%;
+            min-height: 112px;
+            resize: vertical;
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: 13px 14px;
+            color: var(--ink);
+            background: #fcfcfd;
+            font: inherit;
+            font-size: 14px;
+            line-height: 1.55;
+            outline: none;
+        }
+
+        textarea:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(239,122,36,.12);
+        }
+
+        .report-submit {
+            width: 100%;
+            margin-top: 10px;
+            min-height: 46px;
+            border: 0;
+            border-radius: 13px;
+            color: white;
+            background: var(--accent);
+            font: inherit;
+            font-size: 14px;
+            font-weight: 850;
+            cursor: pointer;
+        }
+
+        .report-submit:hover {
+            background: var(--accent-dark);
+        }
+
+        @media (max-width: 760px) {
+            body {
+                display: block;
+                padding: 0;
+                background: white;
+            }
+
+            .shell {
+                min-height: 100vh;
+                grid-template-columns: 1fr;
+                border: 0;
+                border-radius: 0;
+                box-shadow: none;
+            }
+
+            .rail {
+                min-height: auto;
+                padding: 22px 20px 24px;
+                border-radius: 0 0 28px 28px;
+            }
+
+            .ticket-label {
+                margin-top: 28px;
+            }
+
+            .ticket-code {
+                font-size: 64px;
+            }
+
+            .flow {
+                grid-template-columns: repeat(3, 1fr);
+                gap: 8px;
+                margin-top: 24px;
+            }
+
+            .flow-row {
+                grid-template-columns: 10px 1fr;
+                gap: 6px;
+                font-size: 10px;
+            }
+
+            .rail-note {
+                position: relative;
+                left: auto;
+                right: auto;
+                bottom: auto;
+                margin-top: 22px;
+            }
+
+            .content {
+                padding: 32px 20px 42px;
+            }
+
+            h1 {
+                font-size: 34px;
+            }
+
+            .actions {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .button {
+                width: 100%;
+            }
+        }
+
+        @media (max-width: 420px) {
+            .flow {
+                grid-template-columns: 1fr;
+            }
+
+            .actions {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body class="error-{{ status_code }}">
+    <main class="shell" aria-labelledby="error-title">
+        <aside class="rail" aria-label="Estado de servicio FoodBack">
+            <div class="brand">
+                <span class="brand-mark" aria-hidden="true">F</span>
+                <span>FoodBack</span>
+            </div>
+
+            <div class="ticket-label">Service ticket</div>
+            <div class="ticket-code" aria-hidden="true">{{ status_code }}</div>
+
+            <div class="flow" aria-hidden="true">
+                <div class="flow-row">
+                    <span class="dot"></span>
+                    <span>Solicitud</span>
+                </div>
+                <div class="flow-row active">
+                    <span class="dot"></span>
+                    <span>Control</span>
+                </div>
+                <div class="flow-row">
+                    <span class="dot"></span>
+                    <span>Respuesta</span>
+                </div>
+            </div>
+
+            <div class="rail-note">
+                {{ rail_message }}
+            </div>
+        </aside>
+
+        <section class="content">
+            <span class="eyebrow">{{ eyebrow }}</span>
+
+            <h1 id="error-title">{{ error_title }}</h1>
+            <p class="lead">{{ error_message }}</p>
+
+            <div class="actions">
+                <a class="button button-primary" href="/">Volver al inicio</a>
+                <button class="button" type="button" onclick="history.back()">Volver atrás</button>
+            </div>
+
+            <div class="reference">
+                <div class="reference-label">Código de referencia</div>
+                <strong class="reference-code">{{ request_id }}</strong>
+            </div>
+
+            {% if support_report_enabled %}
+            <details class="report">
+                <summary class="report-summary">
+                    <span>Reportar este problema</span>
+                    <span aria-hidden="true">+</span>
+                </summary>
+
+                <div class="report-body">
+                    <p class="report-copy">
+                        La referencia técnica ya se adjuntará automáticamente.
+                        Cuéntanos qué estabas intentando hacer para facilitar la investigación.
+                    </p>
+
+                    <p class="report-warning">
+                        No incluyas contraseñas, códigos de verificación,
+                        números de tarjeta ni otra información secreta.
+                    </p>
+
+                    <form method="post" action="{{ support_report_url }}">
+                        {% csrf_token %}
+                        <input
+                            type="hidden"
+                            name="report_token"
+                            value="{{ support_report_token }}"
+                        >
+
+                        <label for="support-message" class="reference-label">
+                            Qué estabas haciendo (opcional)
+                        </label>
+
+                        <textarea
+                            id="support-message"
+                            name="message"
+                            maxlength="1500"
+                            placeholder="Ejemplo: estaba intentando confirmar un pedido cuando apareció esta pantalla."
+                        ></textarea>
+
+                        <button class="report-submit" type="submit">
+                            Enviar reporte
+                        </button>
+                    </form>
+                </div>
+            </details>
+            {% endif %}
+        </section>
+    </main>
+</body>
+</html>

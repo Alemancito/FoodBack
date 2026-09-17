@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,nofollow">
+    <title>Reporte recibido · FoodBack</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --bg: #f4f5f7;
+            --paper: #fff;
+            --ink: #17191e;
+            --muted: #6c7280;
+            --line: #e5e7eb;
+            --accent: #ef7a24;
+            --dark: #17191e;
+            --soft: #fff3e9;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            padding: 28px;
+            color: var(--ink);
+            background:
+                radial-gradient(circle at top right, rgba(239,122,36,.13), transparent 26rem),
+                var(--bg);
+            font-family:
+                Inter,
+                ui-sans-serif,
+                system-ui,
+                -apple-system,
+                BlinkMacSystemFont,
+                "Segoe UI",
+                sans-serif;
+        }
+
+        .card {
+            width: min(100%, 650px);
+            padding: clamp(30px, 7vw, 56px);
+            border: 1px solid var(--line);
+            border-radius: 28px;
+            background: var(--paper);
+            box-shadow: 0 26px 80px rgba(18,24,35,.11);
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 850;
+        }
+
+        .mark {
+            width: 38px;
+            height: 38px;
+            display: grid;
+            place-items: center;
+            border-radius: 12px;
+            color: white;
+            background: var(--accent);
+        }
+
+        .status {
+            width: 58px;
+            height: 58px;
+            display: grid;
+            place-items: center;
+            margin-top: 42px;
+            border-radius: 18px;
+            color: var(--accent);
+            background: var(--soft);
+            font-size: 28px;
+            font-weight: 900;
+        }
+
+        h1 {
+            margin: 18px 0 12px;
+            font-size: clamp(30px, 6vw, 44px);
+            line-height: 1.04;
+            letter-spacing: -.045em;
+        }
+
+        p {
+            margin: 0;
+            color: var(--muted);
+            line-height: 1.7;
+        }
+
+        .ticket {
+            margin-top: 28px;
+            padding: 18px 20px;
+            border: 1px dashed #d7dbe2;
+            border-radius: 18px;
+            background: #fafafa;
+        }
+
+        .label {
+            color: var(--muted);
+            font-size: 10px;
+            font-weight: 850;
+            letter-spacing: .12em;
+            text-transform: uppercase;
+        }
+
+        code {
+            display: block;
+            margin-top: 8px;
+            color: var(--ink);
+            font-size: 12px;
+            line-height: 1.55;
+            overflow-wrap: anywhere;
+        }
+
+        .button {
+            width: 100%;
+            min-height: 50px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            margin-top: 26px;
+            border-radius: 14px;
+            color: white;
+            background: var(--dark);
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 850;
+        }
+    </style>
+</head>
+<body>
+    <main class="card">
+        <div class="brand">
+            <span class="mark" aria-hidden="true">F</span>
+            <span>FoodBack</span>
+        </div>
+
+        <div class="status" aria-hidden="true">✓</div>
+
+        {% if created %}
+            <h1>Reporte recibido</h1>
+            <p>
+                Guardamos tu reporte para que FoodBack pueda investigarlo.
+                No necesitas enviarlo otra vez.
+            </p>
+        {% else %}
+            <h1>Este reporte ya estaba guardado</h1>
+            <p>
+                Reconocimos la misma referencia técnica y evitamos crear
+                un ticket duplicado.
+            </p>
+        {% endif %}
+
+        <div class="ticket">
+            <div class="label">Ticket de soporte</div>
+            <code>{{ report.public_id }}</code>
+        </div>
+
+        <div class="ticket">
+            <div class="label">Referencia técnica original</div>
+            <code>{{ source_request_id }}</code>
+        </div>
+
+        <a class="button" href="/">Volver a FoodBack</a>
+    </main>
+</body>
+</html>

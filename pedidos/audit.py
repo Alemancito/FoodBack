@@ -11,7 +11,6 @@ from django.core.exceptions import (
     SuspiciousOperation,
 )
 from django.http import Http404
-from django.views.csrf import csrf_failure as django_csrf_failure
 
 from .models import (
     AuditEvent,
@@ -249,6 +248,22 @@ def _obtener_request_id(
     return request_id
 
 
+def obtener_request_id(
+    request,
+):
+    """
+    Devuelve el UUID de correlación seguro de una request.
+
+    Si la request todavía no tiene uno, lo crea. El valor es aleatorio,
+    no contiene datos del usuario y puede mostrarse al cliente como
+    código de referencia de soporte.
+    """
+
+    return _obtener_request_id(
+        request
+    )
+
+
 def _obtener_ip_request(
     request,
 ):
@@ -375,6 +390,31 @@ def _resolver_actor_role(
             pass
 
     return "USUARIO"
+
+
+def resolver_actor_role_auditoria(
+    request,
+    actor_user=None,
+):
+    """
+    Devuelve únicamente la etiqueta descriptiva de rol usada por auditoría.
+
+    No concede autorización. Se expone para subsistemas control-plane,
+    como soporte, que necesitan el mismo snapshot sin duplicar reglas.
+    """
+
+    if actor_user is None and request is not None:
+        actor_user = getattr(
+            request,
+            "user",
+            None,
+        )
+
+    return _resolver_actor_role(
+        request=request,
+        actor_user=actor_user,
+        actor_role="",
+    )
 
 
 def _crear_fingerprint(
@@ -686,20 +726,32 @@ def registrar_evento_auditoria(
                 evento_creado
             )
 
-        except Exception:
-            logger.exception(
-                "No se pudo correlacionar incidente para AuditEvent %s",
+        except Exception as exc:
+            # El mensaje/traceback crudo puede contener información
+            # operativa sensible. Para correlación basta tipo + public_id.
+            logger.error(
+                (
+                    "No se pudo correlacionar incidente para "
+                    "AuditEvent %s. tipo=%s"
+                ),
                 evento_creado.public_id,
+                exc.__class__.__name__,
             )
 
         return evento_creado
 
-    except Exception:
-        logger.exception(
-            "No se pudo persistir evento de auditoría %s",
+    except Exception as exc:
+        # No registramos exception.message ni traceback: el fallo del
+        # subsistema de auditoría también debe respetar minimización.
+        logger.error(
+            (
+                "No se pudo persistir evento de auditoría %s. "
+                "tipo=%s"
+            ),
             str(
                 evento
             )[:120],
+            exc.__class__.__name__,
         )
 
         if not fail_silently:
@@ -802,7 +854,18 @@ def csrf_failure_view(
         fail_silently=True,
     )
 
-    return django_csrf_failure(
+    # No mostramos el reason crudo de Django al usuario. Puede contener
+    # detalles técnicos que no aportan nada a la recuperación del cliente.
+    from core.error_handlers import (
+        render_error_response,
+    )
+
+    return render_error_response(
         request,
-        reason=reason,
+        status_code=403,
+        title="No pudimos validar la solicitud",
+        message=(
+            "Por seguridad, esta acción no pudo completarse. "
+            "Actualiza la página e inténtalo de nuevo."
+        ),
     )

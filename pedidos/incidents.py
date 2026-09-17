@@ -546,9 +546,13 @@ def _send_reserved_notification(
             ),
         )
 
-        logger.exception(
-            "No se pudo enviar alerta del incidente %s",
+        logger.error(
+            (
+                "No se pudo enviar alerta del incidente %s. "
+                "tipo=%s"
+            ),
             incidente.public_id,
+            exc.__class__.__name__,
         )
 
         return False

@@ -15,18 +15,10 @@ class TenantContextMiddleware:
     request.sucursal
 
     Orden de seguridad:
-
-    1. Resolver Tenant usando únicamente las tablas
-       bootstrap necesarias.
-
-    2. Establecer inmediatamente foodback.tenant_id
-       en PostgreSQL.
-
-    3. Resolver Sucursal y asignaciones mientras el
-       contexto Tenant ya está activo.
-
-    4. Establecer también foodback.sucursal_id y
-       ejecutar la vista.
+    1. Resolver Tenant usando únicamente las tablas bootstrap necesarias.
+    2. Establecer inmediatamente foodback.tenant_id en PostgreSQL.
+    3. Resolver Sucursal y asignaciones con el contexto Tenant activo.
+    4. Establecer foodback.sucursal_id y ejecutar la vista.
     """
 
     def __init__(
@@ -42,48 +34,16 @@ class TenantContextMiddleware:
         request.tenant = None
         request.sucursal = None
 
-        # =============================================
-        # BOOTSTRAP MINIMO
-        # =============================================
-        #
-        # Todavía no existe contexto RLS.
-        #
-        # Únicamente se permite resolver el Tenant.
-        # En esta etapa intervienen Tenant/Membership.
-        # =============================================
-
         tenant = resolver_tenant(
             request
         )
-
         request.tenant = tenant
-
-        # =============================================
-        # SIN TENANT
-        # =============================================
-        #
-        # Seguimos fail-closed:
-        # foodback.tenant_id = ""
-        # foodback.sucursal_id = ""
-        # =============================================
 
         if not tenant:
             with tenant_database_context():
                 return self.get_response(
                     request
                 )
-
-        # =============================================
-        # CONTEXTO TENANT
-        # =============================================
-        #
-        # Desde este punto PostgreSQL ya conoce:
-        #
-        # foodback.tenant_id
-        #
-        # Por tanto resolver_sucursal() puede consultar
-        # tablas protegidas mediante RLS.
-        # =============================================
 
         with tenant_database_context(
             tenant=tenant,
@@ -92,12 +52,7 @@ class TenantContextMiddleware:
                 request,
                 tenant,
             )
-
             request.sucursal = sucursal
-
-            # =========================================
-            # CONTEXTO TENANT + SUCURSAL
-            # =========================================
 
             with tenant_database_context(
                 tenant=tenant,
@@ -109,12 +64,19 @@ class TenantContextMiddleware:
 
         return response
 
+
 class AuditExceptionMiddleware:
     """
-    Audita excepciones no controladas sin alterar la respuesta final.
+    Proporciona un request ID seguro a toda request y audita excepciones
+    no controladas sin sustituir el manejo normal de Django.
 
-    Django seguirá aplicando su manejo normal de excepciones; este
-    middleware solo registra una señal segura para Foundation.
+    El mismo UUID aparece:
+    - en AuditEvent.request_id;
+    - en la respuesta HTTP X-Request-ID;
+    - en las páginas profesionales de error.
+
+    Así soporte puede correlacionar lo que vio el usuario con el evento
+    interno sin mostrar tracebacks, SQL, secretos ni mensajes crudos.
     """
 
     def __init__(
@@ -127,17 +89,30 @@ class AuditExceptionMiddleware:
         self,
         request,
     ):
-        return self.get_response(
+        from .audit import obtener_request_id
+
+        request_id = obtener_request_id(
             request
         )
+
+        response = self.get_response(
+            request
+        )
+
+        if request_id is not None:
+            response.headers[
+                "X-Request-ID"
+            ] = str(
+                request_id
+            )
+
+        return response
 
     def process_exception(
         self,
         request,
         exception,
     ):
-        # Import local para evitar cargar el subsistema de auditoría
-        # durante el bootstrap del middleware.
         from .audit import registrar_error_runtime
 
         registrar_error_runtime(
@@ -145,6 +120,4 @@ class AuditExceptionMiddleware:
             exception=exception,
         )
 
-        # None = no consumimos la excepción; Django conserva su
-        # comportamiento estándar (500/400/etc.).
         return None

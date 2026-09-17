@@ -40,7 +40,11 @@ from .security import (
 )
 from .audit import (
     hash_valor_auditoria,
+    obtener_request_id,
     registrar_evento_auditoria,
+)
+from .api_errors import (
+    ajax_error_response,
 )
 from django.utils import timezone
 from django.conf import settings
@@ -2247,10 +2251,52 @@ def eliminar_item_carrito(
     request,
     producto_id,
 ):
+    es_ajax = (
+        request.headers.get(
+            "x-requested-with"
+        )
+        == "XMLHttpRequest"
+    )
+
     cart = request.session.get(
         "cart",
         {},
     )
+
+    # La sesión puede haber sido manipulada o quedar
+    # desactualizada. Nunca asumimos que cart sea dict.
+    if not isinstance(
+        cart,
+        dict,
+    ):
+        request.session[
+            "cart"
+        ] = {}
+
+        request.session.modified = True
+
+        if es_ajax:
+            return ajax_error_response(
+                request,
+                status_code=400,
+                code="invalid_cart",
+                message=(
+                    "El carrito contiene "
+                    "datos no válidos."
+                ),
+            )
+
+        messages.error(
+            request,
+            (
+                "Tu carrito ya no es válido. "
+                "Vuelve a agregar los productos."
+            ),
+        )
+
+        return redirect(
+            "checkout"
+        )
 
     key_to_delete = str(
         producto_id
@@ -2265,12 +2311,7 @@ def eliminar_item_carrito(
 
         request.session.modified = True
 
-    if (
-        request.headers.get(
-            "x-requested-with"
-        )
-        == "XMLHttpRequest"
-    ):
+    if es_ajax:
         try:
             items = _validar_carrito(
                 cart,
@@ -2278,15 +2319,14 @@ def eliminar_item_carrito(
             )
 
         except CarritoInvalido:
-            return JsonResponse(
-                {
-                    "status": "error",
-                    "detail": (
-                        "El carrito contiene "
-                        "datos no válidos."
-                    ),
-                },
-                status=400,
+            return ajax_error_response(
+                request,
+                status_code=400,
+                code="invalid_cart",
+                message=(
+                    "El carrito contiene "
+                    "datos no válidos."
+                ),
             )
 
         total_productos = sum(
@@ -2305,7 +2345,7 @@ def eliminar_item_carrito(
             request=request,
         )
 
-        return JsonResponse({
+        response = JsonResponse({
             "status": "ok",
             "html": html,
             "total": float(
@@ -2316,9 +2356,16 @@ def eliminar_item_carrito(
             ),
         })
 
+        response.headers[
+            "Cache-Control"
+        ] = "no-store"
+
+        return response
+
     return redirect(
         "checkout"
     )
+
 
 
 CHECKOUT_TOKEN_SESSION_KEY = (
@@ -4251,37 +4298,240 @@ def _wompi_posibles_secrets(referencia=None, tipo_pago=None):
     return secrets
 
 
-def _wompi_obtener_token(tipo_pago=None, referencia=None):
-    client_id = _wompi_app_id(tipo_pago=tipo_pago, referencia=referencia)
-    client_secret = _wompi_api_secret(
-        tipo_pago=tipo_pago, referencia=referencia)
-    auth_url = config('WOMPI_AUTH_URL',
-                      default='https://id.wompi.sv/connect/token')
+class WompiProviderError(RuntimeError):
+    """
+    Error técnico sanitizado de la integración Wompi.
 
-    if not client_id or not client_secret:
-        raise Exception(
-            'Faltan credenciales Wompi. Revisa WOMPI_RESTAURANT_* para pedidos '
-            'y WOMPI_PLATFORM_* para suscripción.'
+    Nunca guarda response.text, tokens, credenciales,
+    payloads ni mensajes crudos de requests.
+    """
+
+    def __init__(
+        self,
+        code,
+        *,
+        stage,
+        provider_status=None,
+    ):
+        self.code = str(
+            code
+        )
+
+        self.stage = str(
+            stage
+        )
+
+        try:
+            self.provider_status = (
+                int(provider_status)
+                if provider_status is not None
+                else None
+            )
+
+        except (
+            TypeError,
+            ValueError,
+        ):
+            self.provider_status = None
+
+        super().__init__(
+            self.code
+        )
+
+
+def _wompi_error_metadata(
+    exception,
+):
+    """
+    Metadatos seguros para auditoría/logs.
+
+    Del error del proveedor solamente conservamos
+    categoría, etapa y status HTTP numérico.
+    """
+
+    metadata = {
+        "exception_type": (
+            exception
+            .__class__
+            .__name__
+        ),
+    }
+
+    if isinstance(
+        exception,
+        WompiProviderError,
+    ):
+        metadata.update({
+            "provider": "wompi",
+            "provider_code": (
+                exception.code
+            ),
+            "provider_stage": (
+                exception.stage
+            ),
+        })
+
+        if (
+            exception.provider_status
+            is not None
+        ):
+            metadata[
+                "provider_status"
+            ] = (
+                exception
+                .provider_status
+            )
+
+    return metadata
+
+
+def _wompi_mensaje_soporte(
+    request,
+    mensaje,
+):
+    """
+    Mensaje público genérico con referencia correlacionable.
+
+    No incluye exception.message ni detalles de Wompi.
+    """
+
+    request_id = (
+        obtener_request_id(
+            request
+        )
+    )
+
+    return (
+        f"{mensaje} "
+        f"Código de referencia: "
+        f"{request_id}"
+    )
+
+
+def _wompi_obtener_token(
+    tipo_pago=None,
+    referencia=None,
+):
+    client_id = _wompi_app_id(
+        tipo_pago=tipo_pago,
+        referencia=referencia,
+    )
+
+    client_secret = _wompi_api_secret(
+        tipo_pago=tipo_pago,
+        referencia=referencia,
+    )
+
+    auth_url = config(
+        "WOMPI_AUTH_URL",
+        default=(
+            "https://id.wompi.sv/"
+            "connect/token"
+        ),
+    )
+
+    if (
+        not client_id
+        or not client_secret
+    ):
+        raise WompiProviderError(
+            "WOMPI_CONFIG_ERROR",
+            stage="auth_config",
         )
 
     payload = {
-        'grant_type': 'client_credentials',
-        'client_id': client_id,
-        'client_secret': client_secret,
-        'audience': 'wompi_api'
+        "grant_type":
+            "client_credentials",
+
+        "client_id":
+            client_id,
+
+        "client_secret":
+            client_secret,
+
+        "audience":
+            "wompi_api",
     }
 
-    response = requests.post(auth_url, data=payload,
-                             headers=_wompi_headers_seguridad(), timeout=25)
+    try:
+        response = requests.post(
+            auth_url,
+            data=payload,
+            headers=(
+                _wompi_headers_seguridad()
+            ),
+            timeout=25,
+        )
+
+    except requests.Timeout:
+        raise WompiProviderError(
+            "WOMPI_TIMEOUT",
+            stage="auth_request",
+        ) from None
+
+    except requests.RequestException:
+        raise WompiProviderError(
+            "WOMPI_NETWORK_ERROR",
+            stage="auth_request",
+        ) from None
+
     if response.status_code != 200:
-        raise Exception(
-            f'Wompi Auth error {response.status_code}: {response.text[:300]}')
+        raise WompiProviderError(
+            "WOMPI_AUTH_HTTP_ERROR",
+            stage="auth_response",
+            provider_status=(
+                response.status_code
+            ),
+        )
 
-    token = response.json().get('access_token')
-    if not token:
-        raise Exception('Wompi no devolvió access_token.')
+    try:
+        data = response.json()
 
-    return token
+    except (
+        ValueError,
+        requests.RequestException,
+    ):
+        raise WompiProviderError(
+            "WOMPI_AUTH_INVALID_RESPONSE",
+            stage="auth_response",
+            provider_status=(
+                response.status_code
+            ),
+        ) from None
+
+    if not isinstance(
+        data,
+        dict,
+    ):
+        raise WompiProviderError(
+            "WOMPI_AUTH_INVALID_RESPONSE",
+            stage="auth_response",
+            provider_status=(
+                response.status_code
+            ),
+        )
+
+    token = data.get(
+        "access_token"
+    )
+
+    if (
+        not isinstance(
+            token,
+            str,
+        )
+        or not token.strip()
+    ):
+        raise WompiProviderError(
+            "WOMPI_AUTH_INVALID_RESPONSE",
+            stage="auth_response",
+            provider_status=(
+                response.status_code
+            ),
+        )
+
+    return token.strip()
+
 
 
 def _wompi_crear_referencia(
@@ -4441,63 +4691,185 @@ def _base_url(request):
     return request.build_absolute_uri('/')[:-1]
 
 
-def _wompi_crear_enlace_pago(request, *, referencia, monto, nombre_producto, redirect_url, webhook_url, tipo_pago='PEDIDO'):
+def _wompi_crear_enlace_pago(
+    request,
+    *,
+    referencia,
+    monto,
+    nombre_producto,
+    redirect_url,
+    webhook_url,
+    tipo_pago="PEDIDO",
+):
     access_token = _wompi_obtener_token(
-        tipo_pago=tipo_pago, referencia=referencia)
+        tipo_pago=tipo_pago,
+        referencia=referencia,
+    )
+
     api_url = config(
-        'WOMPI_API_URL', default='https://api.wompi.sv/EnlacePago')
+        "WOMPI_API_URL",
+        default=(
+            "https://api.wompi.sv/"
+            "EnlacePago"
+        ),
+    )
 
     headers = {
-        'Authorization': f'Bearer {access_token}',
-        'Content-Type': 'application/json',
+        "Authorization":
+            f"Bearer {access_token}",
+
+        "Content-Type":
+            "application/json",
+
         **_wompi_headers_seguridad(),
     }
 
     # Correo de notificación separado:
     # - pedidos: normalmente restaurante
     # - suscripción: plataforma/FoodBack
-    if str(tipo_pago).upper() == 'SUSCRIPCION' or str(referencia).upper().startswith('SUBS-'):
-        email_notificacion = config(
-            'WOMPI_PLATFORM_NOTIFICATION_EMAIL',
-            default=config('WOMPI_NOTIFICATION_EMAIL', default='')
+    if (
+        str(
+            tipo_pago
+        ).upper()
+        == "SUSCRIPCION"
+        or str(
+            referencia
+        ).upper().startswith(
+            "SUBS-"
         )
+    ):
+        email_notificacion = config(
+            "WOMPI_PLATFORM_NOTIFICATION_EMAIL",
+            default=config(
+                "WOMPI_NOTIFICATION_EMAIL",
+                default="",
+            ),
+        )
+
     else:
         email_notificacion = config(
-            'WOMPI_RESTAURANT_NOTIFICATION_EMAIL',
-            default=config('WOMPI_NOTIFICATION_EMAIL', default='')
+            "WOMPI_RESTAURANT_NOTIFICATION_EMAIL",
+            default=config(
+                "WOMPI_NOTIFICATION_EMAIL",
+                default="",
+            ),
         )
 
     payload = {
-        'identificadorEnlaceComercio': referencia,
-        'monto': float(_decimal_monto(monto)),
-        'nombreProducto': nombre_producto,
-        'formaPago': {
-            'permitirTarjetaCreditoDebido': True,
-            'permitirPagoConPuntoAgricola': True,
-            'permitirPagoEnCuotasAgricola': False,
+        "identificadorEnlaceComercio":
+            referencia,
+
+        "monto":
+            float(
+                _decimal_monto(
+                    monto
+                )
+            ),
+
+        "nombreProducto":
+            nombre_producto,
+
+        "formaPago": {
+            "permitirTarjetaCreditoDebido":
+                True,
+
+            "permitirPagoConPuntoAgricola":
+                True,
+
+            "permitirPagoEnCuotasAgricola":
+                False,
         },
-        'configuracion': {
-            'urlRedirect': redirect_url,
-            'urlRetorno': redirect_url,
-            'urlWebhook': webhook_url,
-            'esMontoEditable': False,
-            'esCantidadEditable': False,
-            'emailsNotificacion': email_notificacion,
-            'notificarTransaccionCliente': True,
+
+        "configuracion": {
+            "urlRedirect":
+                redirect_url,
+
+            "urlRetorno":
+                redirect_url,
+
+            "urlWebhook":
+                webhook_url,
+
+            "esMontoEditable":
+                False,
+
+            "esCantidadEditable":
+                False,
+
+            "emailsNotificacion":
+                email_notificacion,
+
+            "notificarTransaccionCliente":
+                True,
         },
-        'limitesDeUso': {
-            'cantidadMaximaPagosExitosos': 1,
-            'cantidadMaximaPagosFallidos': 5,
-        }
+
+        "limitesDeUso": {
+            "cantidadMaximaPagosExitosos":
+                1,
+
+            "cantidadMaximaPagosFallidos":
+                5,
+        },
     }
 
-    response = requests.post(api_url, json=payload,
-                             headers=headers, timeout=30)
-    if response.status_code != 200:
-        raise Exception(
-            f'Wompi EnlacePago error {response.status_code}: {response.text[:500]}')
+    try:
+        response = requests.post(
+            api_url,
+            json=payload,
+            headers=headers,
+            timeout=30,
+        )
 
-    return response.json(), payload
+    except requests.Timeout:
+        raise WompiProviderError(
+            "WOMPI_TIMEOUT",
+            stage="link_request",
+        ) from None
+
+    except requests.RequestException:
+        raise WompiProviderError(
+            "WOMPI_NETWORK_ERROR",
+            stage="link_request",
+        ) from None
+
+    if response.status_code != 200:
+        raise WompiProviderError(
+            "WOMPI_LINK_HTTP_ERROR",
+            stage="link_response",
+            provider_status=(
+                response.status_code
+            ),
+        )
+
+    try:
+        data = response.json()
+
+    except (
+        ValueError,
+        requests.RequestException,
+    ):
+        raise WompiProviderError(
+            "WOMPI_LINK_INVALID_RESPONSE",
+            stage="link_response",
+            provider_status=(
+                response.status_code
+            ),
+        ) from None
+
+    if not isinstance(
+        data,
+        dict,
+    ):
+        raise WompiProviderError(
+            "WOMPI_LINK_INVALID_RESPONSE",
+            stage="link_response",
+            provider_status=(
+                response.status_code
+            ),
+        )
+
+    return data, payload
+
 
 
 def _valor_bool_wompi(value):
@@ -5273,7 +5645,13 @@ def _iniciar_pago_wompi_pedido(request, pedido):
 
             messages.error(
                 request,
-                'No se pudo generar el enlace de pago.'
+                _wompi_mensaje_soporte(
+                    request,
+                    (
+                        'No se pudo generar '
+                        'el enlace de pago.'
+                    ),
+                ),
             )
 
             return redirect('checkout')
@@ -5340,7 +5718,19 @@ def _iniciar_pago_wompi_pedido(request, pedido):
                     f"{pago.id}:"
                     f"{uuid.uuid4().hex}"
                 ),
+                metadata=(
+                    _wompi_error_metadata(
+                        e
+                    )
+                ),
             )
+
+        error_metadata = (
+            _wompi_error_metadata(
+                e
+            )
+        )
+
         registrar_evento_auditoria(
             request=request,
             evento="payment.wompi.order_start_error",
@@ -5351,21 +5741,46 @@ def _iniciar_pago_wompi_pedido(request, pedido):
                 "No fue posible iniciar el pago Wompi del pedido."
             ),
             status_code=502,
-            metadata={
-                "exception_type": e.__class__.__name__,
-            },
+            metadata=error_metadata,
             fail_silently=True,
         )
 
         logger.error(
-            "Error iniciando pago Wompi de pedido. tipo=%s",
-            e.__class__.__name__,
+            (
+                "Error iniciando pago Wompi de pedido. "
+                "tipo=%s codigo=%s etapa=%s status=%s "
+                "request_id=%s"
+            ),
+            error_metadata.get(
+                "exception_type",
+                "",
+            ),
+            error_metadata.get(
+                "provider_code",
+                "",
+            ),
+            error_metadata.get(
+                "provider_stage",
+                "",
+            ),
+            error_metadata.get(
+                "provider_status",
+                "",
+            ),
+            obtener_request_id(
+                request
+            ),
         )
 
         messages.error(
             request,
-            'No pudimos conectar con la pasarela '
-            'de pago. Intenta de nuevo o elige efectivo.'
+            _wompi_mensaje_soporte(
+                request,
+                (
+                    'No pudimos conectar con la pasarela '
+                    'de pago. Intenta de nuevo o elige efectivo.'
+                ),
+            ),
         )
 
         return redirect('checkout')
@@ -5569,7 +5984,14 @@ def wompi_respuesta_view(request):
         else:
             messages.warning(
                 request,
-                f"Pago en revisión: {msg}",
+                _wompi_mensaje_soporte(
+                    request,
+                    (
+                        "Recibimos la respuesta del pago, "
+                        "pero necesita revisión antes de "
+                        "confirmar el pedido."
+                    ),
+                ),
             )
 
     elif (
@@ -8286,6 +8708,12 @@ def pagar_suscripcion_view(request):
                 )
 
             except Exception as e:
+                error_metadata = (
+                    _wompi_error_metadata(
+                        e
+                    )
+                )
+
                 registrar_evento_auditoria(
                     request=request,
                     evento=(
@@ -8298,15 +8726,35 @@ def pagar_suscripcion_view(request):
                         "No fue posible iniciar el pago Wompi de la suscripción."
                     ),
                     status_code=502,
-                    metadata={
-                        "exception_type": e.__class__.__name__,
-                    },
+                    metadata=error_metadata,
                     fail_silently=True,
                 )
 
                 logger.error(
-                    "Error iniciando pago Wompi de suscripción. tipo=%s",
-                    e.__class__.__name__,
+                    (
+                        "Error iniciando pago Wompi de suscripción. "
+                        "tipo=%s codigo=%s etapa=%s status=%s "
+                        "request_id=%s"
+                    ),
+                    error_metadata.get(
+                        "exception_type",
+                        "",
+                    ),
+                    error_metadata.get(
+                        "provider_code",
+                        "",
+                    ),
+                    error_metadata.get(
+                        "provider_stage",
+                        "",
+                    ),
+                    error_metadata.get(
+                        "provider_status",
+                        "",
+                    ),
+                    obtener_request_id(
+                        request
+                    ),
                 )
 
                 pago.estado = 'ERROR'
@@ -8327,9 +8775,14 @@ def pagar_suscripcion_view(request):
 
                 messages.error(
                     request,
-                    'No pudimos conectar con '
-                    'la pasarela de pago. '
-                    'Intenta nuevamente.'
+                    _wompi_mensaje_soporte(
+                        request,
+                        (
+                            'No pudimos conectar con '
+                            'la pasarela de pago. '
+                            'Intenta nuevamente.'
+                        ),
+                    ),
                 )
 
                 return redirect(
@@ -8367,8 +8820,13 @@ def pagar_suscripcion_view(request):
 
                 messages.error(
                     request,
-                    'No se pudo generar '
-                    'el enlace de pago.'
+                    _wompi_mensaje_soporte(
+                        request,
+                        (
+                            'No se pudo generar '
+                            'el enlace de pago.'
+                        ),
+                    ),
                 )
 
                 return redirect(
@@ -8402,6 +8860,12 @@ def pagar_suscripcion_view(request):
             )
 
     except Exception as e:
+        error_metadata = (
+            _wompi_error_metadata(
+                e
+            )
+        )
+
         registrar_evento_auditoria(
             request=request,
             evento=(
@@ -8414,21 +8878,46 @@ def pagar_suscripcion_view(request):
                 "Error interno preparando pago de suscripción Wompi."
             ),
             status_code=500,
-            metadata={
-                "exception_type": e.__class__.__name__,
-            },
+            metadata=error_metadata,
             fail_silently=True,
         )
 
         logger.error(
-            "Error interno preparando suscripción Wompi. tipo=%s",
-            e.__class__.__name__,
+            (
+                "Error interno preparando suscripción Wompi. "
+                "tipo=%s codigo=%s etapa=%s status=%s "
+                "request_id=%s"
+            ),
+            error_metadata.get(
+                "exception_type",
+                "",
+            ),
+            error_metadata.get(
+                "provider_code",
+                "",
+            ),
+            error_metadata.get(
+                "provider_stage",
+                "",
+            ),
+            error_metadata.get(
+                "provider_status",
+                "",
+            ),
+            obtener_request_id(
+                request
+            ),
         )
 
         messages.error(
             request,
-            'No pudimos iniciar '
-            'el pago de la suscripción.'
+            _wompi_mensaje_soporte(
+                request,
+                (
+                    'No pudimos iniciar '
+                    'el pago de la suscripción.'
+                ),
+            ),
         )
 
         return redirect(
@@ -8531,7 +9020,14 @@ def wompi_suscripcion_respuesta_view(request):
 
         messages.warning(
             request,
-            f"Pago recibido, pero quedó en revisión: {msg}",
+            _wompi_mensaje_soporte(
+                request,
+                (
+                    "Recibimos la respuesta del pago, "
+                    "pero la suscripción necesita "
+                    "revisión antes de confirmarse."
+                ),
+            ),
         )
         return redirect(
             "dashboard_admin"

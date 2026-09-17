@@ -136,7 +136,7 @@ class Phase9SupportReportTests(
 
         self.assertEqual(
             response.status_code,
-            200,
+            302,
         )
 
         report = (
@@ -171,8 +171,19 @@ class Phase9SupportReportTests(
             report.submission_request_id
         )
 
+        confirmation = self.client.get(
+            response.headers[
+                "Location"
+            ]
+        )
+
+        self.assertEqual(
+            confirmation.status_code,
+            200,
+        )
+
         self.assertContains(
-            response,
+            confirmation,
             str(
                 report.public_id
             ),
@@ -215,7 +226,7 @@ class Phase9SupportReportTests(
 
         self.assertEqual(
             response.status_code,
-            200,
+            302,
         )
 
         report = (
@@ -260,6 +271,70 @@ class Phase9SupportReportTests(
         self.assertNotEqual(
             report.sucursal_nombre,
             "Sucursal falsa",
+        )
+
+    def test_post_redirige_a_get_y_refrescar_confirmacion_no_reenvia_post(
+        self,
+    ):
+        _, token = self._token(
+            status_code=500
+        )
+
+        post_response = self.client.post(
+            reverse(
+                "support_report_error"
+            ),
+            {
+                "report_token": token,
+                "message": "Prueba PRG",
+            },
+        )
+
+        self.assertEqual(
+            post_response.status_code,
+            302,
+        )
+
+        location = post_response.headers[
+            "Location"
+        ]
+
+        self.assertIn(
+            "receipt=",
+            location,
+        )
+
+        first_get = self.client.get(
+            location
+        )
+
+        second_get = self.client.get(
+            location
+        )
+
+        self.assertEqual(
+            first_get.status_code,
+            200,
+        )
+
+        self.assertEqual(
+            second_get.status_code,
+            200,
+        )
+
+        self.assertEqual(
+            SupportReport.objects.count(),
+            1,
+        )
+
+        self.assertContains(
+            first_get,
+            "Reporte recibido",
+        )
+
+        self.assertContains(
+            second_get,
+            "Reporte recibido",
         )
 
     def test_token_manipulado_se_rechaza_sin_crear_ticket(
@@ -322,12 +397,12 @@ class Phase9SupportReportTests(
 
         self.assertEqual(
             first.status_code,
-            200,
+            302,
         )
 
         self.assertEqual(
             second.status_code,
-            200,
+            302,
         )
 
         self.assertEqual(
@@ -342,8 +417,19 @@ class Phase9SupportReportTests(
             1,
         )
 
+        duplicate_confirmation = self.client.get(
+            second.headers[
+                "Location"
+            ]
+        )
+
+        self.assertEqual(
+            duplicate_confirmation.status_code,
+            200,
+        )
+
         self.assertContains(
-            second,
+            duplicate_confirmation,
             "ya estaba guardado",
         )
 
@@ -379,7 +465,7 @@ class Phase9SupportReportTests(
 
         self.assertEqual(
             first.status_code,
-            200,
+            302,
         )
 
         self.assertEqual(
@@ -430,7 +516,7 @@ class Phase9SupportReportTests(
 
         self.assertEqual(
             response.status_code,
-            200,
+            302,
         )
 
         report = (
@@ -470,7 +556,7 @@ class Phase9SupportReportTests(
 
         self.assertEqual(
             response.status_code,
-            200,
+            302,
         )
 
         event = (

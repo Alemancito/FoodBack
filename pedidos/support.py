@@ -1,12 +1,14 @@
 import uuid
+from urllib.parse import urlencode
 
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.core import signing
 from django.db import transaction
-from django.shortcuts import render
+from django.urls import reverse
+from django.shortcuts import redirect, render
 from django.views.decorators.cache import never_cache
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_http_methods
 
 from .audit import (
     obtener_request_id,
@@ -25,6 +27,7 @@ from .security import (
 
 
 _SUPPORT_TOKEN_SALT = "foodback.support.error-report.v1"
+_SUPPORT_RECEIPT_SALT = "foodback.support.report-receipt.v1"
 
 _ALLOWED_HTTP_STATUS = {
     400,
@@ -178,6 +181,103 @@ def _leer_token_reporte_error(
         "status_code": status_code,
     }
 
+
+
+def _crear_recibo_reporte(
+    *,
+    report_public_id,
+    created,
+):
+    """
+    Crea un comprobante firmado para la pantalla GET de confirmación.
+
+    El navegador no recibe acceso directo a datos internos del reporte:
+    solo un UUID público aleatorio y la marca visual de si el POST
+    creó el ticket o encontró uno ya existente.
+    """
+
+    try:
+        report_uuid = uuid.UUID(
+            str(
+                report_public_id
+            )
+        )
+    except (
+        TypeError,
+        ValueError,
+        AttributeError,
+    ):
+        return ""
+
+    return signing.dumps(
+        {
+            "v": 1,
+            "report_public_id": str(
+                report_uuid
+            ),
+            "created": bool(
+                created
+            ),
+        },
+        salt=_SUPPORT_RECEIPT_SALT,
+        compress=True,
+    )
+
+
+def _leer_recibo_reporte(
+    receipt,
+):
+    try:
+        payload = signing.loads(
+            str(
+                receipt or ""
+            ),
+            salt=_SUPPORT_RECEIPT_SALT,
+            max_age=(
+                _support_token_max_age_seconds()
+            ),
+        )
+    except signing.BadSignature:
+        return None
+
+    if not isinstance(
+        payload,
+        dict,
+    ):
+        return None
+
+    if payload.get(
+        "v"
+    ) != 1:
+        return None
+
+    try:
+        report_public_id = uuid.UUID(
+            str(
+                payload.get(
+                    "report_public_id",
+                    "",
+                )
+            )
+        )
+    except (
+        TypeError,
+        ValueError,
+        AttributeError,
+    ):
+        return None
+
+    return {
+        "report_public_id": (
+            report_public_id
+        ),
+        "created": bool(
+            payload.get(
+                "created",
+                False,
+            )
+        ),
+    }
 
 def _normalizar_mensaje_reporte(
     value,
@@ -419,23 +519,114 @@ def _support_snapshot(
 
 
 @never_cache
-@require_POST
+@require_http_methods(
+    [
+        "GET",
+        "POST",
+    ]
+)
 def support_report_error_view(
     request,
 ):
     """
-    Recibe un reporte humano originado en una pantalla de error.
+    PRG seguro para reportes originados en pantallas de error.
 
-    El navegador solo aporta:
-    - token firmado por FoodBack;
-    - descripción voluntaria.
+    POST:
+    - valida el token firmado del error;
+    - aplica rate-limit;
+    - crea o recupera un SupportReport idempotente;
+    - responde con redirect.
 
-    Ningún actor/Tenant/sucursal enviado por el cliente se consulta.
+    GET:
+    - valida un recibo firmado de confirmación;
+    - renderiza la pantalla final.
+
+    El navegador nunca decide actor/Tenant/sucursal.
     """
 
     from core.error_handlers import (
         render_error_response,
     )
+
+    if request.method == "GET":
+        receipt_data = (
+            _leer_recibo_reporte(
+                request.GET.get(
+                    "receipt",
+                    "",
+                )
+            )
+        )
+
+        if receipt_data is None:
+            return render_error_response(
+                request,
+                status_code=404,
+                title=(
+                    "No encontramos ese comprobante"
+                ),
+                message=(
+                    "La confirmación del reporte no existe, "
+                    "venció o no pudo verificarse."
+                ),
+                allow_report=False,
+            )
+
+        report = (
+            SupportReport.objects
+            .filter(
+                public_id=(
+                    receipt_data[
+                        "report_public_id"
+                    ]
+                )
+            )
+            .first()
+        )
+
+        if report is None:
+            return render_error_response(
+                request,
+                status_code=404,
+                title=(
+                    "No encontramos ese reporte"
+                ),
+                message=(
+                    "El ticket solicitado no está disponible."
+                ),
+                allow_report=False,
+            )
+
+        response = render(
+            request,
+            "support/report_done.html",
+            {
+                "report": report,
+                "created": (
+                    receipt_data[
+                        "created"
+                    ]
+                ),
+                "source_request_id": str(
+                    report.source_request_id
+                ),
+            },
+            status=200,
+        )
+
+        response.headers[
+            "X-Request-ID"
+        ] = str(
+            obtener_request_id(
+                request
+            )
+        )
+
+        response.headers[
+            "Cache-Control"
+        ] = "no-store"
+
+        return response
 
     token_data = (
         _leer_token_reporte_error(
@@ -569,8 +760,8 @@ def support_report_error_view(
         request
     )
 
-    # source_request_id es UNIQUE: get_or_create vuelve el envío
-    # idempotente incluso ante doble clic o reintento del navegador.
+    # source_request_id es UNIQUE: el backend continúa siendo
+    # idempotente aunque el navegador repita el POST por cualquier motivo.
     with transaction.atomic():
         report, created = (
             SupportReport.objects
@@ -620,17 +811,21 @@ def support_report_error_view(
             },
         )
 
-    response = render(
-        request,
-        "support/report_done.html",
+    receipt = _crear_recibo_reporte(
+        report_public_id=(
+            report.public_id
+        ),
+        created=created,
+    )
+
+    query = urlencode(
         {
-            "report": report,
-            "created": created,
-            "source_request_id": str(
-                source_request_id
-            ),
-        },
-        status=200,
+            "receipt": receipt,
+        }
+    )
+
+    response = redirect(
+        f"{reverse('support_report_error')}?{query}"
     )
 
     response.headers[
@@ -639,10 +834,9 @@ def support_report_error_view(
         submission_request_id
     )
 
-    # never_cache ya añade una política fuerte; explicitamos no-store
-    # porque esta página contiene referencias de soporte.
     response.headers[
         "Cache-Control"
     ] = "no-store"
 
     return response
+

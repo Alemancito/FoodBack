@@ -4925,6 +4925,67 @@ def _get_any(dic, *keys, default=None):
     return default
 
 
+_WOMPI_SNAPSHOT_SAFE_KEYS = {
+    "identificadorenlacecomercio",
+    "referencia",
+    "idtransaccion",
+    "idenlace",
+    "monto",
+    "esaprobada",
+    "approved",
+    "estado",
+    "status",
+    "resultadotransaccion",
+    "resultado",
+    "codigorespuesta",
+    "codigo",
+    "esreal",
+    "formapago",
+}
+
+_WOMPI_SNAPSHOT_CONTAINER_KEYS = {
+    "transaccion",
+    "transaction",
+    "data",
+}
+
+
+def _wompi_minimizar_payload(payload):
+    """
+    Construye un snapshot mínimo de datos de Wompi.
+
+    La persistencia es allow-list: campos nuevos o desconocidos se descartan
+    por defecto. Esto evita almacenar accidentalmente tokens, datos de tarjeta,
+    correos, teléfonos, headers, URLs firmadas u otros datos no necesarios.
+    """
+    if not isinstance(payload, dict):
+        return {}
+
+    limpio = {}
+
+    for key, value in payload.items():
+        nombre = str(key)
+        normalizado = nombre.replace("_", "").replace("-", "").lower()
+
+        if normalizado in _WOMPI_SNAPSHOT_CONTAINER_KEYS:
+            anidado = _wompi_minimizar_payload(value)
+            if anidado:
+                limpio[nombre] = anidado
+            continue
+
+        if normalizado not in _WOMPI_SNAPSHOT_SAFE_KEYS:
+            continue
+
+        if value is None or isinstance(value, (bool, int, float)):
+            limpio[nombre] = value
+            continue
+
+        if isinstance(value, str):
+            limpio[nombre] = value[:300]
+
+    return limpio
+
+
 def _calcular_hmac_sha256(texto_o_bytes, *, tipo_pago=None, referencia=None, secret=None):
     secret = secret or _wompi_api_secret(
         tipo_pago=tipo_pago, referencia=referencia)
@@ -5190,9 +5251,9 @@ def _procesar_pago_wompi_aprobado(
 
             if raw_payload is not None:
                 if origen == "REDIRECT":
-                    pago.raw_redirect = raw_payload
+                    pago.raw_redirect = _wompi_minimizar_payload(raw_payload)
                 else:
-                    pago.raw_webhook = raw_payload
+                    pago.raw_webhook = _wompi_minimizar_payload(raw_payload)
 
             pago.save()
 
@@ -5268,9 +5329,9 @@ def _procesar_pago_wompi_aprobado(
 
         if raw_payload is not None:
             if origen == "REDIRECT":
-                pago.raw_redirect = raw_payload
+                pago.raw_redirect = _wompi_minimizar_payload(raw_payload)
             else:
-                pago.raw_webhook = raw_payload
+                pago.raw_webhook = _wompi_minimizar_payload(raw_payload)
 
         pago.save()
 
@@ -5299,9 +5360,9 @@ def _procesar_pago_wompi_aprobado(
 
         if raw_payload is not None:
             if origen == "REDIRECT":
-                pago.raw_redirect = raw_payload
+                pago.raw_redirect = _wompi_minimizar_payload(raw_payload)
             else:
-                pago.raw_webhook = raw_payload
+                pago.raw_webhook = _wompi_minimizar_payload(raw_payload)
 
         pago.save()
 
@@ -5348,9 +5409,9 @@ def _procesar_pago_wompi_aprobado(
 
     if raw_payload is not None:
         if origen == "REDIRECT":
-            pago.raw_redirect = raw_payload
+            pago.raw_redirect = _wompi_minimizar_payload(raw_payload)
         else:
-            pago.raw_webhook = raw_payload
+            pago.raw_webhook = _wompi_minimizar_payload(raw_payload)
 
     pago.fecha_aprobacion = timezone.now()
     pago.ultimo_error = ""
@@ -5638,8 +5699,8 @@ def _iniciar_pago_wompi_pedido(request, pedido):
                 'Wompi no devolvió urlEnlace.'
             )
             pago.raw_creacion = {
-                'request': raw_payload,
-                'response': data,
+                'request': _wompi_minimizar_payload(raw_payload),
+                'response': _wompi_minimizar_payload(data),
             }
             pago.save()
 
@@ -5661,8 +5722,8 @@ def _iniciar_pago_wompi_pedido(request, pedido):
             id_enlace or ''
         )
         pago.raw_creacion = {
-            'request': raw_payload,
-            'response': data,
+            'request': _wompi_minimizar_payload(raw_payload),
+            'response': _wompi_minimizar_payload(data),
         }
         pago.save()
 
@@ -5913,8 +5974,8 @@ def wompi_respuesta_view(request):
             "menu"
         )
 
-    pago.raw_redirect = dict(
-        request.GET.items()
+    pago.raw_redirect = _wompi_minimizar_payload(
+        dict(request.GET.items())
     )
 
     pago.save(
@@ -8810,10 +8871,10 @@ def pagar_suscripcion_view(request):
 
                 pago.raw_creacion = {
                     'request':
-                        raw_payload,
+                        _wompi_minimizar_payload(raw_payload),
 
                     'response':
-                        data,
+                        _wompi_minimizar_payload(data),
                 }
 
                 pago.save()
@@ -8845,10 +8906,10 @@ def pagar_suscripcion_view(request):
 
             pago.raw_creacion = {
                 'request':
-                    raw_payload,
+                    _wompi_minimizar_payload(raw_payload),
 
                 'response':
-                    data,
+                    _wompi_minimizar_payload(data),
             }
 
             pago.ultimo_error = ''
@@ -8980,8 +9041,8 @@ def wompi_suscripcion_respuesta_view(request):
             "dashboard_admin"
         )
 
-    pago.raw_redirect = dict(
-        request.GET.items()
+    pago.raw_redirect = _wompi_minimizar_payload(
+        dict(request.GET.items())
     )
     pago.save(
         update_fields=[
@@ -9115,7 +9176,7 @@ def _procesar_wompi_webhook_validado(
     )
 
     if pago:
-        pago.raw_webhook = data
+        pago.raw_webhook = _wompi_minimizar_payload(data)
         pago.save()
 
     if es_aprobada:

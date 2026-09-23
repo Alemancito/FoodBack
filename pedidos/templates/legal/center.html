@@ -1,0 +1,113 @@
+{% extends "legal/base.html" %}
+{% block title %}Centro de confianza · FoodBack{% endblock %}
+{% block content %}
+<section class="legal-card">
+  <div class="hero-accent"></div>
+  <div class="legal-inner">
+    <span class="eyebrow">
+      <i class="bi bi-shield-check"></i>
+      Centro de confianza
+    </span>
+
+    <h1 class="display-title">Transparencia primero. Sin letra escondida.</h1>
+    <p class="lead-copy">
+      Aquí puedes revisar las políticas vigentes de FoodBack, cómo protegemos la
+      información a alto nivel y la forma segura de solicitar soporte.
+    </p>
+
+    <div class="trust-grid">
+      <a class="trust-item" href="{% url 'legal_document' 'terminos' %}">
+        <div>
+          <span class="trust-icon"><i class="bi bi-file-earmark-text"></i></span>
+          <div class="trust-name">Términos del servicio</div>
+          <div class="trust-meta">
+            {% if documentos.terminos %}
+              Versión {{ documentos.terminos.version }}
+            {% else %}
+              Pendiente de publicación
+            {% endif %}
+          </div>
+        </div>
+        <div class="d-flex justify-content-end">
+          <i class="bi bi-arrow-up-right trust-arrow"></i>
+        </div>
+      </a>
+
+      <a class="trust-item" href="{% url 'legal_document' 'privacidad' %}">
+        <div>
+          <span class="trust-icon"><i class="bi bi-person-lock"></i></span>
+          <div class="trust-name">Privacidad</div>
+          <div class="trust-meta">
+            {% if documentos.privacidad %}
+              Versión {{ documentos.privacidad.version }}
+            {% else %}
+              Pendiente de publicación
+            {% endif %}
+          </div>
+        </div>
+        <div class="d-flex justify-content-end">
+          <i class="bi bi-arrow-up-right trust-arrow"></i>
+        </div>
+      </a>
+
+      <a class="trust-item" href="{% url 'legal_document' 'cookies' %}">
+        <div>
+          <span class="trust-icon"><i class="bi bi-cookie"></i></span>
+          <div class="trust-name">Cookies</div>
+          <div class="trust-meta">
+            {% if documentos.cookies %}
+              Versión {{ documentos.cookies.version }}
+            {% else %}
+              Pendiente de publicación
+            {% endif %}
+          </div>
+        </div>
+        <div class="d-flex justify-content-end">
+          <i class="bi bi-arrow-up-right trust-arrow"></i>
+        </div>
+      </a>
+
+      <a class="trust-item" href="{% url 'security_public' %}">
+        <div>
+          <span class="trust-icon"><i class="bi bi-shield-lock"></i></span>
+          <div class="trust-name">Seguridad</div>
+          <div class="trust-meta">
+            Prácticas públicas de alto nivel, sin exponer controles internos.
+          </div>
+        </div>
+        <div class="d-flex justify-content-end">
+          <i class="bi bi-arrow-up-right trust-arrow"></i>
+        </div>
+      </a>
+
+      <a class="trust-item" href="{% url 'support_public' %}">
+        <div>
+          <span class="trust-icon"><i class="bi bi-headset"></i></span>
+          <div class="trust-name">Soporte</div>
+          <div class="trust-meta">
+            Qué compartir para recibir ayuda y qué información nunca debes enviar.
+          </div>
+        </div>
+        <div class="d-flex justify-content-end">
+          <i class="bi bi-arrow-up-right trust-arrow"></i>
+        </div>
+      </a>
+
+      {% if request.user.is_authenticated and request.tenant %}
+      <a class="trust-item" href="{% url 'legal_acceptance' %}">
+        <div>
+          <span class="trust-icon"><i class="bi bi-patch-check"></i></span>
+          <div class="trust-name">Aceptación del restaurante</div>
+          <div class="trust-meta">
+            Consulta el estado de aceptación de las versiones vigentes.
+          </div>
+        </div>
+        <div class="d-flex justify-content-end">
+          <i class="bi bi-arrow-up-right trust-arrow"></i>
+        </div>
+      </a>
+      {% endif %}
+    </div>
+  </div>
+</section>
+{% endblock %}

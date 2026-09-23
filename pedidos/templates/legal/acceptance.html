@@ -1,0 +1,95 @@
+{% extends "legal/base.html" %}
+{% block title %}Aceptación legal · FoodBack{% endblock %}
+{% block content %}
+<section class="legal-card">
+  <div class="hero-accent"></div>
+  <div class="legal-inner">
+    <span class="eyebrow">
+      <i class="bi bi-person-check"></i>
+      Acción reservada a OWNER
+    </span>
+
+    <h1 class="display-title" style="font-size:clamp(2rem,3.5vw,3rem);">
+      Aceptación legal del restaurante
+    </h1>
+    <p class="lead-copy mb-4">
+      FoodBack conserva evidencia de la versión exacta aceptada, el usuario
+      autorizado, su rol y la fecha. Para esta evidencia no almacenamos IP,
+      cookies ni cuerpos completos de solicitudes.
+    </p>
+
+    <div class="acceptance-row mb-3">
+      <div class="d-flex justify-content-between align-items-center gap-3">
+        <div>
+          <div class="fw-bold">Términos del servicio · v{{ terminos.version }}</div>
+          <a class="small" href="{% url 'legal_document' 'terminos' %}" target="_blank" rel="noopener">
+            Leer versión vigente <i class="bi bi-box-arrow-up-right ms-1"></i>
+          </a>
+        </div>
+        {% if aceptacion_terminos %}
+          <span class="status-ok"><i class="bi bi-check-circle-fill"></i>Aceptado</span>
+        {% else %}
+          <span class="status-pending"><i class="bi bi-clock"></i>Pendiente</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="acceptance-row mb-4">
+      <div class="d-flex justify-content-between align-items-center gap-3">
+        <div>
+          <div class="fw-bold">Política de Privacidad · v{{ privacidad.version }}</div>
+          <a class="small" href="{% url 'legal_document' 'privacidad' %}" target="_blank" rel="noopener">
+            Leer versión vigente <i class="bi bi-box-arrow-up-right ms-1"></i>
+          </a>
+        </div>
+        {% if aceptacion_privacidad %}
+          <span class="status-ok"><i class="bi bi-check-circle-fill"></i>Aceptado</span>
+        {% else %}
+          <span class="status-pending"><i class="bi bi-clock"></i>Pendiente</span>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if todo_aceptado %}
+      <div class="legal-alert">
+        <div class="d-flex align-items-start gap-3">
+          <i class="bi bi-patch-check-fill fs-4"></i>
+          <div>
+            <div class="fw-bold">Versiones vigentes aceptadas</div>
+            <div class="small mt-1">
+              Este restaurante ya tiene registrada la aceptación requerida.
+              Si una política contractual cambia, una nueva versión podrá requerir
+              una aceptación posterior.
+            </div>
+          </div>
+        </div>
+      </div>
+    {% else %}
+      <form method="post" class="mt-4">
+        {% csrf_token %}
+        <div class="p-3 p-md-4 rounded-4 border mb-3 bg-light-subtle">
+          <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" name="acepta_terminos" id="acepta_terminos">
+            <label class="form-check-label" for="acepta_terminos">
+              Confirmo que revisé y acepto los Términos vigentes en representación
+              autorizada del restaurante.
+            </label>
+          </div>
+
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="acepta_privacidad" id="acepta_privacidad">
+            <label class="form-check-label" for="acepta_privacidad">
+              Confirmo que revisé la Política de Privacidad vigente.
+            </label>
+          </div>
+        </div>
+
+        <button class="btn btn-foodback" type="submit">
+          <i class="bi bi-check2-circle me-2"></i>
+          Registrar aceptación
+        </button>
+      </form>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

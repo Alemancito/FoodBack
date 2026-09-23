@@ -1,0 +1,18 @@
+{% extends "legal/base.html" %}
+{% block title %}{{ titulo }} · FoodBack{% endblock %}
+{% block content %}
+<article class="legal-card">
+  <div class="hero-accent"></div>
+  <div class="legal-inner">
+    <span class="eyebrow">
+      {% if titulo == "Seguridad" %}
+        <i class="bi bi-shield-check"></i>
+      {% else %}
+        <i class="bi bi-headset"></i>
+      {% endif %}
+      Centro de confianza
+    </span>
+    <div class="legal-content mt-4">{{ contenido }}</div>
+  </div>
+</article>
+{% endblock %}

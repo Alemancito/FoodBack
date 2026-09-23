@@ -11,6 +11,12 @@ from .models import (
 
 class LegalVersioningModelTests(TestCase):
     def setUp(self):
+        # F10-D deja sembradas las versiones legales públicas 1.0 mediante
+        # migración. Estas pruebas verifican restricciones del modelo de forma
+        # aislada, por lo que eliminamos únicamente esos datos de prueba
+        # creados por la migración dentro de la base temporal de tests.
+        DocumentoLegal.objects.all().delete()
+
         self.tenant = Tenant.objects.create(
             nombre="Restaurante Legal",
             slug="restaurante-legal",

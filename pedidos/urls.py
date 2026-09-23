@@ -1,12 +1,18 @@
 from django.urls import path
 
 from . import views
+from . import legal_views
 from .api_errors import professional_api_endpoint
 from .support import support_report_error_view
 from .views import CustomLoginView, logout_view
 from .views import pagar_suscripcion_view, wompi_suscripcion_respuesta_view
 
 urlpatterns = [
+    path('legal/', legal_views.legal_center_view, name='legal_center'),
+    path('legal/aceptar/', legal_views.legal_acceptance_view, name='legal_acceptance'),
+    path('legal/<slug:slug>/', legal_views.legal_document_view, name='legal_document'),
+    path('seguridad/', legal_views.security_public_view, name='security_public'),
+    path('soporte/', legal_views.support_public_view, name='support_public'),
     path('', views.menu_view, name='menu'),
     path('agregar/<int:producto_id>/', views.cart_add, name='add_to_cart'),
     path('limpiar/', views.cart_clear, name='clean_cart'),

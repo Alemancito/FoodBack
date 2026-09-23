@@ -1,0 +1,25 @@
+{% extends "legal/base.html" %}
+{% block title %}{{ documento.titulo }} · FoodBack{% endblock %}
+{% block content %}
+<article class="legal-card">
+  <div class="hero-accent"></div>
+  <div class="legal-inner">
+    <div class="document-head">
+      <div>
+        <span class="version-chip">
+          <i class="bi bi-file-earmark-check"></i>
+          Versión {{ documento.version }}
+        </span>
+      </div>
+
+      {% if documento.publicado_en %}
+        <small class="text-secondary">
+          Publicada el {{ documento.publicado_en|date:"d/m/Y" }}
+        </small>
+      {% endif %}
+    </div>
+
+    <div class="legal-content">{{ documento.contenido }}</div>
+  </div>
+</article>
+{% endblock %}

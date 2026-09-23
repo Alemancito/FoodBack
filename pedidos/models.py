@@ -2186,6 +2186,14 @@ class DocumentoLegal(models.Model):
         ),
     )
 
+    contenido = models.TextField(
+        default="",
+        help_text=(
+            "Contenido público exacto de esta versión. "
+            "Su SHA-256 debe coincidir con contenido_sha256."
+        ),
+    )
+
     vigente = models.BooleanField(
         default=False,
         db_index=True,

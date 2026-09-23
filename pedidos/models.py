@@ -1,7 +1,7 @@
 import uuid
 
 from django.db import models
-from django.db.models import Sum
+from django.db.models import Sum, Q
 from django.db.models.functions import (
     Lower,
     Trim,
@@ -2136,3 +2136,175 @@ class RateLimitBucket(models.Model):
             f"{self.grupo} "
             f"({self.contador})"
         )
+
+# ============================================================
+# PHASE 10 — LEGAL DOCUMENT VERSIONING / TENANT ACCEPTANCE
+# ============================================================
+
+class DocumentoLegal(models.Model):
+    """
+    Version inmutable/publicable de un documento legal de FoodBack.
+
+    El contenido público puede vivir en templates/Markdown, pero cada
+    versión publicada debe registrar el SHA-256 del contenido exacto
+    mostrado al usuario. Esto permite demostrar qué texto se aceptó sin
+    depender de que el template actual siga siendo idéntico.
+    """
+
+    class Tipo(models.TextChoices):
+        TERMINOS = "TERMINOS", "Términos del servicio"
+        PRIVACIDAD = "PRIVACIDAD", "Política de privacidad"
+        COOKIES = "COOKIES", "Política de cookies"
+
+    public_id = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True,
+    )
+
+    tipo = models.CharField(
+        max_length=20,
+        choices=Tipo.choices,
+        db_index=True,
+    )
+
+    version = models.CharField(
+        max_length=32,
+        help_text="Versión visible, por ejemplo 1.0.",
+    )
+
+    titulo = models.CharField(
+        max_length=160,
+    )
+
+    contenido_sha256 = models.CharField(
+        max_length=64,
+        help_text=(
+            "SHA-256 hexadecimal del contenido exacto publicado. "
+            "No debe contener datos personales."
+        ),
+    )
+
+    vigente = models.BooleanField(
+        default=False,
+        db_index=True,
+    )
+
+    publicado_en = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    creado_en = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    actualizado_en = models.DateTimeField(
+        auto_now=True,
+    )
+
+    def __str__(self):
+        return f"{self.get_tipo_display()} v{self.version}"
+
+    class Meta:
+        verbose_name = "Documento legal"
+        verbose_name_plural = "Documentos legales"
+        ordering = ["tipo", "-creado_en"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tipo", "version"],
+                name="legal_doc_type_version_uniq",
+            ),
+            models.UniqueConstraint(
+                fields=["tipo"],
+                condition=Q(vigente=True),
+                name="legal_doc_one_current_type",
+            ),
+        ]
+
+
+class AceptacionLegalTenant(models.Model):
+    """
+    Evidencia de aceptación de una versión legal por un Tenant.
+
+    El tenant y el actor se resuelven server-side. Los snapshots evitan
+    perder el contexto histórico si posteriormente cambia username/rol.
+    No se guardan IP, cookies, headers, body ni otros datos innecesarios.
+    """
+
+    public_id = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True,
+    )
+
+    tenant = models.ForeignKey(
+        Tenant,
+        on_delete=models.PROTECT,
+        related_name="aceptaciones_legales",
+    )
+
+    documento = models.ForeignKey(
+        DocumentoLegal,
+        on_delete=models.PROTECT,
+        related_name="aceptaciones_tenant",
+    )
+
+    actor_usuario = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name="foodback_legal_acceptances",
+    )
+
+    actor_username = models.CharField(
+        max_length=150,
+    )
+
+    actor_role = models.CharField(
+        max_length=40,
+    )
+
+    version_snapshot = models.CharField(
+        max_length=32,
+    )
+
+    contenido_sha256_snapshot = models.CharField(
+        max_length=64,
+    )
+
+    request_id = models.UUIDField(
+        null=True,
+        blank=True,
+        db_index=True,
+    )
+
+    aceptado_en = models.DateTimeField(
+        auto_now_add=True,
+        db_index=True,
+    )
+
+    def __str__(self):
+        return (
+            f"{self.tenant.nombre} - {self.documento} - "
+            f"{self.actor_username}"
+        )
+
+    class Meta:
+        verbose_name = "Aceptación legal de Tenant"
+        verbose_name_plural = "Aceptaciones legales de Tenant"
+        ordering = ["-aceptado_en"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "documento"],
+                name="legal_accept_tenant_doc_uniq",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["tenant", "-aceptado_en"],
+                name="legal_accept_tenant_dt_idx",
+            ),
+        ]
+

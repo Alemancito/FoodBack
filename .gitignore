@@ -38,3 +38,6 @@ media/
 # --- Sistema Operativo ---
 .DS_Store
 Thumbs.db
+
+# VS Code local workspaces
+*.code-workspace
